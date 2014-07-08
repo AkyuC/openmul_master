@@ -59,6 +59,30 @@ route_inv_switch:
 }
 
 /**
+ * fab_mp_select -
+ *
+ * Select a path from multi-paths
+ */
+static size_t
+fab_mp_select(void *u_arg, size_t max_routes)
+{
+    fab_route_t *froute = u_arg;
+    unsigned int mp_key;
+
+    assert(froute);
+
+#ifdef NOTDEMO
+    mp_key = hash_bytes(&froute->rt_flow.nw_src, 8, 1);
+    mp_key %= max_routes;
+#else
+    mp_key = ntohl(froute->rt_flow.ip.nw_dst) & 0xff;
+    mp_key %= max_routes;
+#endif
+
+    return mp_key;
+}
+
+/**
  * fab_route_get -
  *
  * Get a fabric route
@@ -68,11 +92,17 @@ fab_route_get(void *rt_service, int src_sw, int dst_sw,
               fab_route_t *froute)
 {
     GSList *route = NULL;
-    assert(froute);
 
-    if (!(route = mul_route_get(rt_service, src_sw, dst_sw))) {
-        return NULL;
-    } 
+    if (!fab_ctx->use_ecmp || !froute) {
+        if (!(route = mul_route_get(rt_service, src_sw, dst_sw))) {
+            return NULL;
+        }
+    } else {
+        if (!(route = mul_route_get_mp(rt_service, src_sw, dst_sw,
+                                       froute, fab_mp_select))) {
+            return NULL;
+        }
+    }
 
     if (!g_slist_find_custom(route, froute, (GCompareFunc)fab_route_elem_valid)) {
         mul_destroy_route(route);
@@ -265,6 +295,7 @@ apply_route:
     c_log_debug("%s", fl_str);
     free(fl_str);
 
+    c_log_err("%s: Action len %lu", FN, U322UL(mul_app_act_len(&mdata)));
     mul_app_send_flow_add(FAB_APP_NAME, NULL, (uint64_t)(rt_elem->sw_alias), 
                           &froute->rt_flow, 
                           &froute->rt_mask, 
@@ -276,7 +307,7 @@ apply_route:
     froute->rt_flow.dl_type = ntohs(ETH_TYPE_ARP);
     mul_app_send_flow_add(FAB_APP_NAME, NULL, (uint64_t)(rt_elem->sw_alias), 
                           &froute->rt_flow, &froute->rt_mask, FAB_UNK_BUFFER_ID,
-                          actions, action_len, 0, 0,
+                          mdata.act_base, mul_app_act_len(&mdata), 0, 0,
                           froute->prio, C_FL_ENT_SWALIAS | C_FL_ENT_GSTATS);
 #endif
 
@@ -582,18 +613,18 @@ fab_mkroute(fab_host_t *src, fab_host_t *dst)
 #endif
 
     if (src->dfl_gw || dst->dfl_gw) {
-        froute->prio = C_FL_PRIO_DFL;
+        froute->prio = C_FL_PRIO_FWD+1;
     } else {
-        froute->prio = C_FL_PRIO_FWD;
+        froute->prio = C_FL_PRIO_FWD+2;
     }
 
     if (!src->dfl_gw) {
-        froute->rt_flow.nw_src = htonl(src->hkey.host_ip);
+        froute->rt_flow.ip.nw_src = htonl(src->hkey.host_ip);
         of_mask_set_nw_src(&froute->rt_mask, 32);
     }
 
     if (!dst->dfl_gw) {
-        froute->rt_flow.nw_dst = htonl(dst->hkey.host_ip);
+        froute->rt_flow.ip.nw_dst = htonl(dst->hkey.host_ip);
         of_mask_set_nw_dst(&froute->rt_mask, 32);
     }
 
@@ -938,7 +969,7 @@ fab_delete_routes_with_port(fab_struct_t *fab_ctx, int sw_alias, uint16_t port_n
 
     c_log_err("%s", FN);
 
-    usleep(20000); /* 20ms breather to routing */
+    usleep(200000); /* 200ms breather to routing */
     fab_loop_all_hosts_wr(fab_ctx, (GHFunc)__fab_host_route_del_with_port, &sw);
 }
 

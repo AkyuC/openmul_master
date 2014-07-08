@@ -18,11 +18,56 @@
  */
 #include "mul.h"
 
+extern ctrl_hdl_t ctrl_hdl;
+
 void c_worker_do_switch_del(struct c_worker_ctx *c_wrk_ctx, c_switch_t *sw);
 void c_worker_do_app_del(struct c_app_ctx *c_app_ctx, c_app_info_t *app);
 void c_worker_do_switch_zap(struct c_worker_ctx *c_wrk_ctx, c_switch_t *sw);
 
 static void c_switch_events_add(c_switch_t *sw);
+
+int
+c_ssl_accept(c_conn_t *conn)
+{
+    int err = 0;
+    int sslerr = 0;
+    unsigned long err_code = 0;
+    int retries = 0;
+
+    assert(conn->ssl);
+
+ssl_retry:
+    if ((err = SSL_accept(conn->ssl)) <= 0) {
+        sslerr = SSL_get_error(conn->ssl, err);
+        if (sslerr == SSL_ERROR_WANT_WRITE ||
+            sslerr == SSL_ERROR_WANT_READ) {
+            if (++retries < C_SSL_BUSY_ACCEPT_RETRIES)
+                goto ssl_retry;
+            conn->ssl_state = C_CONN_SSL_CONNECTING;
+            return 1;
+        }
+        c_log_err("[SSL-Accept] Failed ssl-err|%d|. Non-ssl fallback", sslerr);
+        if ((err_code = ERR_get_error())) {
+            char *err_str = NULL;
+            err_str = ERR_error_string(err_code, NULL);
+            c_log_err("[SSL] Extended error code %lu", err_code);
+            c_log_err("[SSL] Extended error string %s", err_str);
+        }
+        SSL_free(conn->ssl);
+        SSL_shutdown(conn->ssl);
+        conn->ssl = NULL;
+        conn->ssl_state = C_CONN_SSL_NONE;
+        return -1;
+    }
+
+    SSL_set_mode(conn->ssl,
+                 SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER |
+                 SSL_MODE_ENABLE_PARTIAL_WRITE);
+
+    conn->ssl_state = C_CONN_SSL_CONNECTED;
+    c_log_debug("[SSL-Accept] New-conn [%s]", SSL_get_cipher(conn->ssl));
+    return 0;
+}
 
 void
 c_write_event_sched(void *conn_arg)
@@ -32,45 +77,22 @@ c_write_event_sched(void *conn_arg)
 }
 
 static void
-c_per_virt_sw_timer(c_switch_t *sw, time_t ctime)
-{
-    time_t                time_diff;
-
-    if (sw->switch_state & SW_DEAD) {
-        c_log_err("%s: Switch marked dead", FN);
-        time_diff = ctime - sw->last_refresh_time;
-        if (time_diff > C_SWITCH_ECHO_TIMEO) {
-            return c_worker_do_switch_zap(sw->ctx, sw);
-        }
-
-        return;
-    } else if (sw->switch_state & SW_REINIT ||
-               sw->switch_state & SW_REINIT_VIRT) {
-        c_log_err("%s: Switch marked for reinit", FN);
-        c_conn_destroy(&sw->conn);
-        c_conn_assign_fd(&sw->conn, sw->reinit_fd);
-        sw->reinit_fd = 0;
-        c_switch_events_add(sw);
-        if (sw->switch_state & SW_REINIT) {
-            sw->ha_state = SW_HA_NONE;
-            c_per_switch_flow_resync_hw(sw, NULL, NULL);
-        }
-        sw->switch_state &= ~(SW_REINIT | SW_REINIT_VIRT);
-        return;
-    }
-}
-
-static void
 c_per_sw_timer(void *arg_sw, void *arg_time)
 {
     c_switch_t          *sw     = arg_sw;
     struct c_worker_ctx *w_ctx  = sw->ctx;
-    time_t              time    = *(time_t *)arg_time;
+    time_t              ctime    = *(time_t *)arg_time;
     time_t              time_diff;
     c_per_thread_dat_t  *t_data = &w_ctx->thread_data;
 
-    if (c_switch_is_virtual(sw)) {
-        return c_per_virt_sw_timer(sw, time);
+    if (sw->rx_pkt_in_dropped ||
+        sw->tx_pkt_out_dropped) {
+        c_log_debug("[SWITCH] |0x%llx| Rlim dropped Rx(%llx) Tx(%llx)",
+                    U642ULL(sw->DPID),
+                    U642ULL(sw->rx_pkt_in_dropped),
+                    U642ULL(sw->tx_pkt_out_dropped));
+        sw->tx_pkt_out_dropped = 0;
+        sw->rx_pkt_in_dropped = 0;
     }
 
     /* This condition can occur when 1) Switch was previously marked
@@ -81,38 +103,61 @@ c_per_sw_timer(void *arg_sw, void *arg_time)
      * 2) Switch with same dpid tried to connect and it was denied
      */ 
     if (sw->switch_state & SW_DEAD) {
-        c_log_debug("Switch dead dp_id(0x%llx)\n", sw->DPID);
+        c_log_debug("[SWITCH] dead dp_id(0x%llx)", sw->DPID);
         sw->conn.dead ? c_conn_destroy(&sw->conn) : c_conn_events_del(&sw->conn);
         c_worker_do_switch_zap(sw->ctx, sw);
         return;
     }
 
+    if (sw->conn.ssl && sw->conn.ssl_state == C_CONN_SSL_CONNECTING) {
+        if (c_ssl_accept(&sw->conn) > 0) {
+            c_log_err("|SWITCH| SSL timed I/O wait from switch %p", sw);
+            return;
+        }
+
+        c_conn_assign_fd(&sw->conn, sw->conn.fd);
+        c_switch_events_add(sw);
+        of_send_hello(sw);
+        return;
+    }
 
 
-    time_diff = time - sw->last_refresh_time;
+    time_diff = ctime - sw->last_refresh_time;
     if (time_diff > C_SWITCH_IDLE_TIMEO) {
-        c_log_debug("Timing out switch_id(0x%llx)\n", sw->DPID);
+        c_log_warn("[SWITCH] |0x%llx| timed-out", sw->DPID);
         t_data->sw_list = g_slist_remove(t_data->sw_list, sw);
         c_worker_do_switch_del(sw->ctx, sw);
-
         return;
     }
 
     if (!(sw->switch_state & SW_REGISTERED)) {
+        of_send_hello(sw);
+        __of_send_echo_request(sw);
         __of_send_features_request(sw);
         return;
+    } else if (!(sw->switch_state & SW_PUBLISHED)) {
+        c_switch_try_publish(sw, false);
     }
 
+    if (1) {
+        time_diff = ctime - sw->last_sample_time;
+        if (time_diff > C_SWITCH_STAT_TIMEO) {
+            c_per_switch_stats_scan(sw, ctime);
+            sw->last_sample_time = time(NULL);
+        }
+
+        time_diff = ctime - sw->last_fp_aging_time;
+        if (time_diff > C_SWITCH_FP_AGING_TIMEO) {
+            if(sw->fp_ops.fp_aging && !ctrl_hdl.aging_off) {
+                sw->fp_ops.fp_aging(sw);
+            }
+            sw->last_fp_aging_time = time(NULL);
+        }
+    }
+
+    time_diff = ctime - sw->last_refresh_time;
     if (time_diff > C_SWITCH_ECHO_TIMEO) {
         of_send_echo_request(sw);
-    }
-
-    if (sw->capabilities & OFPC_FLOW_STATS) {
-        time_diff = time - sw->last_sample_time;
-
-        if (time_diff > C_SWITCH_STAT_TIMEO) {
-            c_per_switch_flow_stats_scan(sw, time);
-        }
     }
 
     c_thread_sg_tx_sync(&sw->conn);
@@ -159,7 +204,7 @@ c_worker_ipc_read(evutil_socket_t fd, short event UNUSED, void *arg)
             break;
         }
     default:
-        c_log_err("%s: Unhandled thread type(%u)", FN, cmn_ctx->thread_type);
+        c_log_err("[THREAD]Unhandled type(%u)", cmn_ctx->thread_type);
         return;
     }
 
@@ -168,9 +213,9 @@ c_worker_ipc_read(evutil_socket_t fd, short event UNUSED, void *arg)
                                      c_ipc_hdr_valid, sizeof(struct c_ipc_hdr));
 
     if (c_recvd_sock_dead(ret)) {
-        c_log_warn("Thread type %u id %u ipc rd socket:DEAD(%d)", 
+        c_log_warn("[THREAD] type %u id %u ipc rd DEAD(%d)", 
                     cmn_ctx->thread_type, thread_idx, (int)ret);
-        perror("ipc-socket");
+        perror("[ipc-socket]");
         event_free(C_EVENT(conn->rd_event));
     }
 
@@ -181,6 +226,11 @@ void
 c_thread_write_event(evutil_socket_t fd UNUSED, short events UNUSED, void *arg)
 {
     c_conn_t *conn = arg;
+
+    if (conn->rd_blk_on_wr) {
+        conn->rd_blk_on_wr = 0;
+        event_active(conn->rd_event, EV_READ, 0);
+    }
 
     c_wr_lock(&conn->conn_lock);
     c_socket_write_nonblock_loop(conn, c_write_event_sched);
@@ -197,6 +247,17 @@ c_switch_read_nonblock_loop(int fd, void *arg, c_conn_t *conn,
     struct cbuf curr_b, *b = NULL;
     int loop_cnt = 0;
 
+    if (conn->wr_blk_on_rd) {
+        conn->wr_blk_on_rd = 0;
+        c_log_debug("[SSL] enabling blocked write");  
+        event_active(conn->wr_event, EV_WRITE, 0);
+    }
+
+    if (conn->rd_blk_on_wr) {
+        errno = EAGAIN;
+        return -1;
+    }
+
     if (!conn->cbuf) {
         b = alloc_cbuf(rcv_buf_sz);
     } else {
@@ -209,8 +270,30 @@ c_switch_read_nonblock_loop(int fd, void *arg, c_conn_t *conn,
         }
 
         if (++loop_cnt < 100) {
-            rd_sz = recv(fd, b->tail, cbuf_tailroom(b), 0);
+            if (conn->ssl) {
+                rd_sz = SSL_read(conn->ssl, b->tail, cbuf_tailroom(b));
+                if (rd_sz <=0) {
+                    switch(SSL_get_error(conn->ssl, rd_sz)){
+                    case SSL_ERROR_NONE:
+                        break;
+                    case SSL_ERROR_ZERO_RETURN:
+                        break;
+                    case SSL_ERROR_WANT_WRITE:
+                        conn->rd_blk_on_wr = 1;
+                        /* Fall through */
+                    case SSL_ERROR_WANT_READ:
+                        rd_sz = -1;
+                        errno = EAGAIN;
+                        break;
+                    default:
+                        break;
+                    }
+                }
+            } else {
+                rd_sz = recv(fd, b->tail, cbuf_tailroom(b), 0);
+            }
         } else {
+            errno = EAGAIN;
             rd_sz = -1;
         }
 
@@ -218,6 +301,9 @@ c_switch_read_nonblock_loop(int fd, void *arg, c_conn_t *conn,
 
         if (rd_sz <= 0) {
             conn->cbuf = b;
+            if (conn->rd_blk_on_wr) {
+                c_write_event_sched(conn);
+            }
             break;
         }
 
@@ -230,7 +316,7 @@ c_switch_read_nonblock_loop(int fd, void *arg, c_conn_t *conn,
 
             curr_buf_sz = of_get_data_len(CBUF_DATA(b));
             if (unlikely(!__of_hdr_valid(b->data, curr_buf_sz))) {
-                c_log_err("%s: Corrupted header(Ignored)", FN);
+                c_log_err("[I/O] Corrupted header(Ignored)");
                 if (b) free_cbuf(b);
                 conn->cbuf = NULL;
                 return c_socket_drain_nonblock(fd); /* Hope peer behaves now */
@@ -289,7 +375,7 @@ c_switch_thread_read(evutil_socket_t fd, short events UNUSED, void *arg)
     ret = c_switch_read_nonblock_loop(fd, sw, &sw->conn, OFC_RCV_BUF_SZ,
                                       c_switch_recv_msg);
     if (c_recvd_sock_dead(ret)) {
-        perror("c_switch_thread_read");
+        perror("[I/O] |switch|");
         c_worker_do_switch_del(w_ctx, sw);
     } 
 
@@ -308,9 +394,9 @@ c_app_thread_read(evutil_socket_t fd, short events UNUSED, void *arg)
                                       of_get_data_len, of_hdr_valid, 
                                       sizeof(struct ofp_header));
     if (c_recvd_sock_dead(ret)) {
-        c_log_err("%s Application socket dead", 
-                  app->app_flags & C_APP_AUX_REMOTE ?"Aux":"");
-        perror("app-socket");
+        c_log_err("[APP] |%s| conn dead", 
+                  app->app_flags & C_APP_AUX_REMOTE ?"Aux":"Normal");
+        perror("[app-socket]");
         c_worker_do_app_del(app_ctx, app);
     } 
 
@@ -328,6 +414,8 @@ c_worker_do_app_del(struct c_app_ctx *c_app_ctx,
 
     if (!(app->app_flags & C_APP_AUX_REMOTE)) 
         mul_unregister_app(app->app_name);
+
+    c_app_put(app);
 }
 
 void
@@ -346,12 +434,7 @@ c_worker_do_switch_del(struct c_worker_ctx *c_wrk_ctx,
                        c_switch_t *sw)
 {
     c_conn_destroy(&sw->conn);
-
-    if (!c_switch_is_virtual(sw)) {
-        c_worker_do_switch_zap(c_wrk_ctx, sw);
-    } else {
-        c_switch_mark_sticky_del(sw);
-    }
+    c_worker_do_switch_zap(c_wrk_ctx, sw);
 }
 
 static int
@@ -365,7 +448,7 @@ c_worker_do_app_add(void *ctx_arg, void *msg_arg)
     socklen_t               peer_sz       = sizeof(peer_addr);
 
     if (getpeername(msg->new_conn_fd, (void *)&peer_addr, &peer_sz) < 0) {
-        c_log_err("%s:get peer failed", FN);
+        c_log_err("[APP] get peer failed");
         return -1;
     }
 
@@ -377,9 +460,11 @@ c_worker_do_app_add(void *ctx_arg, void *msg_arg)
     c_conn_assign_fd(&app->app_conn, msg->new_conn_fd);
 
     if (msg->aux_conn_valid && msg->aux_conn) {
-        c_log_debug("%s:new aux app", FN);
+        c_log_debug("[APP] auxiliary conn");
         c_aux_app_init(app);
     }
+
+    app->peer_addr = peer_addr;
 
     app->app_conn.rd_event = event_new(app_wrk_ctx->cmn_ctx.base,
                                        msg->new_conn_fd,
@@ -408,18 +493,39 @@ c_worker_do_switch_add(void *ctx_arg, void *msg_arg)
         return -1;
     }
 
-    c_log_debug("New switch to thread (%u)\n", (unsigned)c_wrk_ctx->thread_idx);
+    c_log_debug("[SWITCH] Pinned to thread |%u|", (unsigned)c_wrk_ctx->thread_idx);
 
     new_switch = c_switch_alloc(c_wrk_ctx);
 
     t_data->sw_list = g_slist_append(t_data->sw_list, new_switch);
     new_switch->c_hdl = c_wrk_ctx->cmn_ctx.c_hdl;
+
+    if (ctrl_hdl.ssl_ctx) {
+        new_switch->conn.ssl = SSL_new(ctrl_hdl.ssl_ctx);
+        if (!new_switch->conn.ssl) {
+            c_log_err("[SWITCH] New ssl failed"); 
+            goto out_err;
+        }
+
+        SSL_set_fd(new_switch->conn.ssl, msg->new_conn_fd);
+        if (c_ssl_accept(&new_switch->conn) > 0) {
+            c_conn_assign_fd(&new_switch->conn, msg->new_conn_fd);
+            c_log_err("|SWITCH| SSL I/O wait from switch %p |%d|",
+                      new_switch, msg->new_conn_fd);
+            return 0; /* SSL need's IO */
+        }
+    }
+
     c_conn_assign_fd(&new_switch->conn, msg->new_conn_fd);
     c_switch_events_add(new_switch);
 
     of_send_hello(new_switch);
 
     return 0;
+
+out_err:
+    c_worker_do_switch_zap(c_wrk_ctx, new_switch);
+    return -1;
 }
 
 int

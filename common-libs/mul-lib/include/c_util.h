@@ -47,10 +47,18 @@ do { \
     *((uint32_t *)(mask) + ((bit)/32)) |= (1 << ((bit)%32)); \
 } while(0)
 
+#define GET_BIT_IN_32MASK(mask, bit) \
+    (((*((uint32_t *)(mask) + ((bit)/32))) >> ((bit)%32)) & 0x1)
+
 typedef struct c_conn_
 {
     void                    *rd_event;
     void                    *wr_event;
+    void                    *ssl;
+#define C_CONN_SSL_NONE 0
+#define C_CONN_SSL_CONNECTING 1
+#define C_CONN_SSL_CONNECTED 2
+    int                     ssl_state;
     int                     fd;
     int                     rd_fd;      /* Only used for unidir connections */
     struct cbuf             *cbuf;
@@ -62,6 +70,8 @@ typedef struct c_conn_
     uint32_t                rx_pkts;
     uint32_t                tx_pkts;
     uint32_t                tx_err;
+    uint16_t                rd_blk_on_wr;
+    uint16_t                wr_blk_on_rd;
 #define C_CONN_DESC_SZ 32
     char                    conn_str[C_CONN_DESC_SZ];       /* connection str */
     c_rw_lock_t             conn_lock __aligned; 
@@ -70,7 +80,7 @@ typedef struct c_conn_
 typedef void (*conn_proc_t)(void *, struct cbuf *);
 
 
-int     c_daemon (int nochdir, int noclose);
+int     c_daemon(int nochdir, int noclose, const char *path);
 pid_t   c_pid_output(const char *path);
 int     c_server_socket_create(uint32_t server_ip, uint16_t port);
 int     c_server_socket_create_blocking(uint32_t server_ip, uint16_t port);
@@ -99,9 +109,15 @@ int     c_socket_read_block_loop(int fd, void *arg, c_conn_t *conn,
                                 const size_t max_rcv_buf_sz,
                                 conn_proc_t proc_msg, int (*get_data_len)(void *),
                                 bool (*validate_hdr)(void *), size_t hdr_sz);
+int     __c_socket_write_block_loop(c_conn_t *conn, struct cbuf *buf, bool nblk);
 int     c_socket_write_block_loop(c_conn_t *conn, struct cbuf *buf);
 void    c_conn_tx(void *conn_arg, struct cbuf *b, void (*delay_tx)(void *arg));
 size_t  c_count_one_bits(uint32_t num);
+size_t  c_count_ipv6_plen(const struct in6_addr *netmask);
+int     c_socket_read_msg_nonblock_loop(int fd, void *arg, c_conn_t *conn,
+                            const size_t rcv_buf_sz,
+                            conn_proc_t proc_msg,
+                            bool (*validate_hdr)(void *, int));
 
 static inline int
 c_recvd_sock_dead(int recv_res) 
@@ -198,7 +214,9 @@ c_timeval_a_more_b(struct timeval *a, struct timeval *b)
 static inline uint32_t
 make_inet_mask(uint8_t len)
 {
-    return (~((1 << (32 - (len))) - 1));
+    if (len)
+        return (~((1 << (32 - (len))) - 1));
+    return 0;
 }
 
 #define TIME_uS_SCALE (1000000)

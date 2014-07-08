@@ -64,7 +64,7 @@ struct route_map_list
 };
 
 /* Master list of route map. */
-static struct route_map_list route_map_master = { NULL, NULL, NULL, NULL };
+static struct route_map_list route_map_master = { NULL, NULL, NULL, NULL, NULL};
 
 static void
 route_map_rule_delete (struct route_map_rule_list *,
@@ -1291,9 +1291,9 @@ route_map_config_write (struct vty *vty)
 /* Route map node structure. */
 static struct cmd_node rmap_node =
 {
-  RMAP_NODE,
-  "%s(config-route-map)# ",
-  1
+  .node = RMAP_NODE,
+  .prompt = "%s(config-route-map)# ",
+  .vtysh = 1
 };
 
 /* Initialization of route map vector. */

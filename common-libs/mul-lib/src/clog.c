@@ -52,11 +52,11 @@ pthread_rwlock_t clog_lock;
 
 struct clog *clog_default = NULL;
 
-const char *clog_proto_names[] = 
+char *clog_proto_names[] = 
 {
   "NONE",
   "DEFAULT",
-  "MUL-CONTROLLER", 
+  "MUL", 
   NULL
 };
 
@@ -82,8 +82,8 @@ size_t      log_timestamp(int timestamp_precision,
 void        _clog_assert_failed (const char *assertion,
                             const char *file,
                             unsigned int line, const char *function);
-const char  *c_lookup(const struct message *mes, int key);
-const char  *mes_c_lookup (const struct message *meslist, int max, int index,
+const char  *c_lookup(const struct cmessage *mes, int key);
+const char  *mes_c_lookup (const struct cmessage *meslist, int max, int index,
                            const char *none, const char *mesname);
 
 void *
@@ -170,22 +170,22 @@ log_timestamp(int timestamp_precision, char *buf, size_t buflen)
 
 /* Utility routine for current time printing. */
 static void
-time_print(FILE *fp, struct timestamp_control *ctl)
+time_print(FILE *fp, struct ctimestamp_control *ctl)
 {
   if (!ctl->already_rendered)
     {
-      ctl->len = log_timestamp(ctl->precision, ctl->buf, sizeof(ctl->buf));
-      ctl->already_rendered = 1;
+        ctl->len = log_timestamp(ctl->precision, ctl->buf, sizeof(ctl->buf));
+        ctl->already_rendered = 1;
     }
   fprintf(fp, "%s ", ctl->buf);
 }
-  
+
 
 /* va_list version of clog. */
 static void
 vclog (struct clog *zl, int priority, const char *format, va_list args)
 {
-  struct timestamp_control tsctl;
+  struct ctimestamp_control tsctl;
   tsctl.already_rendered = 0;
 
   /* If clog is not specified, use default one. */
@@ -690,6 +690,17 @@ clog_set_level (struct clog *zl, clog_dest_t dest, int log_level)
   zl->maxlvl[dest] = log_level;
 }
 
+void
+clog_set_name (struct clog *zl, clog_proto_t protocol, char *name)
+{
+  if (zl == NULL)
+    zl = clog_default;
+
+  if (protocol <
+      sizeof(clog_proto_names)/sizeof(clog_proto_names[0])) 
+  clog_proto_names[protocol] = name;
+}
+
 int
 clog_set_file (struct clog *zl, const char *filename, int log_level)
 {
@@ -779,9 +790,9 @@ clog_rotate (struct clog *zl)
 
 /* Message c_lookup function. */
 const char *
-c_lookup (const struct message *mes, int key)
+c_lookup (const struct cmessage *mes, int key)
 {
-  const struct message *pnt;
+  const struct cmessage *pnt;
 
   for (pnt = mes; pnt->key != 0; pnt++) 
     if (pnt->key == key) 
@@ -797,7 +808,7 @@ c_lookup (const struct message *mes, int key)
  * provided otherwise.
  */
 const char *
-mes_c_lookup (const struct message *meslist, int max, int index,
+mes_c_lookup (const struct cmessage *meslist, int max, int index,
   const char *none, const char *mesname)
 {
   int pos = index - meslist[0].key;

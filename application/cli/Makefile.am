@@ -20,11 +20,11 @@ DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 
 mulcli_CFLAGS = -DMUL_APP_V2_MLAPI
 
-mulcli_SOURCES = mul_cli.c \
-               $(top_srcdir)/common/mul_app_main.c \
-               $(top_srcdir)/common/mul_of_msg.c \
-               $(top_srcdir)/common/mul_app_infra.c \
-               $(top_srcdir)/common/mul_service.c
+if HAVE_MUL_VTY
+mulcli_CFLAGS += -DMUL_APP_VTY
+endif
+
+mulcli_SOURCES = mul_cli.c $(top_srcdir)/common/mul_app_main.c
 
 LD_FLAGS= @LDFLAGS@ 
 
@@ -38,13 +38,18 @@ LD_FLAGS += -Wl,-rpath=$(LIB_EVENT) -L$(LIB_EVENT)
 INCLUDES += -I$(LIBEVENT_INCLUDE)
 endif
 
-mulcli_LDADD = $(top_srcdir)/common-libs/3rd-party/derived-lib/.libs/libutil.a  \
-                $(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libzebra.a \
+mulcli_LDADD = \
                 $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a  \
                 $(top_srcdir)/application/fabric/.libs/libfab.a \
                 $(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a -lrt \
-                $(top_srcdir)/mul/./.libs/libmul.a
+                $(top_srcdir)/mul/./.libs/libmul.a \
+                -lcrypto -lssl -lglib-2.0
 
-mulcli_LDFLAGS = $(LD_FLAGS) -lpthread -lglib-2.0 -levent -lcrypt 
+if HAVE_MUL_VTY
+mulcli_LDADD += $(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libcli.a
+endif
+
+
+mulcli_LDFLAGS = $(LD_FLAGS) -lpthread -levent -lcrypt 
 
 noinst_HEADERS = mul_cli.h

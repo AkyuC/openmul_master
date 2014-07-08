@@ -20,6 +20,8 @@
 
 extern topo_hdl_t *topo_hdl;
 
+#ifdef MUL_APP_VTY
+
 static void
 show_lldp_switch_summary(void *key UNUSED, void *sw_arg, void *uarg)
 {
@@ -35,7 +37,7 @@ show_lldp_switch_summary(void *key UNUSED, void *sw_arg, void *uarg)
 	c_rd_lock(&lldpsw->lock);
 	dpid = lldpsw->dpid;
 	port_count = g_hash_table_size(lldpsw->ports);
-	neighbor_count = g_hash_table_size(lldpsw->ports);
+	neighbor_count = g_hash_table_size(lldpsw->neighbors);
 	c_rd_unlock(&lldpsw->lock);
 
 	/* dpid, # ports, # neighbors */
@@ -56,7 +58,10 @@ DEFUN (show_lldp_switch_all,
 			"-------------------------------------------"
 			"----------------------------------%s",
 			VTY_NEWLINE);
-	vty_out (vty,"%12s | %12s | %10s | %s%s","switch-id", "alias-id", "# ports","# neighbors",VTY_NEWLINE);
+    vty_out (vty, "    ROOT DPID |0x%llx|%s", U642ULL(topo_hdl->loop_info.root_dpid),
+             VTY_NEWLINE);
+	vty_out (vty,"%12s | %12s | %10s | %s%s", "switch-id", "alias-id",
+             "# ports","# neighbors", VTY_NEWLINE);
 	vty_out (vty,
 			"-------------------------------------------"
 			"-----------------------------------------%s",
@@ -83,22 +88,28 @@ show_lldp_port_info(void *key UNUSED, void *sw_arg, void *uarg)
 	uint8_t lldp_port_status;
 	uint64_t other_dpid;
 	uint16_t other_portid;
-
 	const char *status_str;
+	const char *lstatus_str;
 
 	port_no = port->port_no;
 	lldp_port_status = port->status;
 	status_str = lldp_get_port_status_string(lldp_port_status);
+    lstatus_str = lldp_get_port_lstatus_string(port->loop_status);
 	if (lldp_port_status == LLDP_PORT_STATUS_NEIGHBOR){
 		/* Connected to other switch */
 		other_dpid = port->neighbor_dpid;
 		other_portid = port->neighbor_port;
 		/* port #, Status, Neighbor Switch ID, Neighbor Switch Port */
-		vty_out (vty,"%12u | %10s | 0x%10llx | %u%s",port_no,status_str,(unsigned long long)other_dpid,other_portid,VTY_NEWLINE);
+		vty_out (vty,"%12u | %10s | | %10s | 0x%10llx | %u%s",
+                 port_no, status_str, lstatus_str,
+                 (unsigned long long)other_dpid,
+                 other_portid, VTY_NEWLINE);
 	}
 	else {
 		/* port #, Status */
-		vty_out (vty,"%12u | %10s | 0x%10s | %s%s",port_no,status_str,"","",VTY_NEWLINE);
+		vty_out (vty,"%12u | %10s | | %10s | 0x%10s | %s%s",
+                 port_no, status_str, lstatus_str,
+                 "", "", VTY_NEWLINE);
 	}
 }
 
@@ -128,13 +139,14 @@ DEFUN (show_lldp_switch_detail,
 			"-------------------------------------------"
 			"----------------------------------%s",
 			VTY_NEWLINE);
-	vty_out (vty,"%12s | %10s | %10s | %s%s","port #","status","neighbor #","neighbor port #",VTY_NEWLINE);
+	vty_out (vty,"%12s | %10s | %10s| %10s | %s%s","port #","status",
+             "lstatus", "neighbor #","neighbor port #",VTY_NEWLINE);
 	vty_out (vty,
 			"-------------------------------------------"
 			"----------------------------------%s",
 			VTY_NEWLINE);
 
-	lldp_port_traverse_all(lldpsw,show_lldp_port_info,vty);
+	lldp_port_traverse_all(lldpsw, show_lldp_port_info, vty);
 	vty_out (vty,
 			"-------------------------------------------"
 			"----------------------------------%s%s",
@@ -154,4 +166,10 @@ lldp_vty_init(void *arg UNUSED)
 	install_element(ENABLE_NODE, &show_lldp_switch_detail_cmd);
 }
 
+#else
+void
+lldp_vty_init(void *arg UNUSED)
+{
+}
+#endif
 

@@ -113,6 +113,8 @@ struct fab_port
 };
 typedef struct fab_port fab_port_t;
 
+typedef void (*send_cb_t)(mul_service_t *s, struct cbuf *b);
+
 struct fab_host_service_arg
 {
 	bool add;

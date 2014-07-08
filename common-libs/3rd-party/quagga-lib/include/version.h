@@ -26,13 +26,13 @@
 
 #define QUAGGA_PROGNAME   "MUL-Controller"
 
-#define QUAGGA_VERSION     "0.99"
+#define QUAGGA_VERSION     "3.3"
 
 #define ZEBRA_BUG_ADDRESS "http://www.kulcloud.net"
 
 #define QUAGGA_URL "http://www.kulcloud.net"
 
-#define QUAGGA_COPYRIGHT "Copyright (C) 2012 KULCLOUD LTD"
+#define QUAGGA_COPYRIGHT "Copyright (C) 2012-2014 KULCLOUD LTD"   
 
 pid_t pid_output (const char *);
 

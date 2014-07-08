@@ -28,7 +28,7 @@ fab_dump_add_host_cmd_from_flow(uint64_t dpid, struct flow *fl)
 {
     char     *pbuf = calloc(1, HOST_PBUF_SZ);
     int      len = 0;
-    struct in_addr in_addr = { .s_addr = fl->nw_src };
+    struct in_addr in_addr = { .s_addr = fl->ip.nw_src };
 
     len += snprintf(pbuf+len, HOST_PBUF_SZ-len-1,
                     "add fabric-host tenant %hu network %hu host-ip %s host-mac "
@@ -132,7 +132,7 @@ mul_fabric_host_mod(void *service, uint64_t dpid, struct flow *fl, bool add)
  * mul_fabric_show_hosts -
  *
  */
-void
+int
 mul_fabric_show_hosts(void *service, bool active, bool dump_cmd,
                       void *arg, void (*cb_fn)(void *arg, void *pbuf))
 {
@@ -140,8 +140,9 @@ mul_fabric_show_hosts(void *service, bool active, bool dump_cmd,
     struct c_ofp_auxapp_cmd *cofp_auc;
     struct c_ofp_host_mod *cofp_hm;
     char *pbuf;
+    int n_hosts=0;
 
-    if (!service) return;
+    if (!service) return -1;
 
     b = of_prep_msg(sizeof(struct c_ofp_auxapp_cmd),
                     C_OFPT_AUX_CMD, 0);
@@ -182,11 +183,13 @@ mul_fabric_show_hosts(void *service, bool active, bool dump_cmd,
                 cb_fn(arg, pbuf); 
                 free(pbuf);
             }
+            n_hosts++;
             free_cbuf(b);
         } else {
             break;
         }
     }
+    return n_hosts;
 }
 
 

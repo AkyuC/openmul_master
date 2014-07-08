@@ -284,6 +284,7 @@ l2_fwd:
     return;
 }
 
+#ifdef CONFIG_L2SW_FDB_CACHE
 static int
 __l2sw_fdb_traverse_all(l2sw_t *l2sw, GHFunc iter_fn, void *arg) 
 {
@@ -316,6 +317,7 @@ __l2sw_fdb_del_all_with_inport(l2sw_t *l2sw, uint16_t in_port)
 
     return mul_app_command_handler(L2SW_APP_NAME, b);
 }
+#endif
 
 static void
 l2sw_core_closed(void)

@@ -50,11 +50,12 @@ c_rlim(struct c_rlim_dat *rs)
     bool do_limit;
     struct timeval curr_ts, diff_ts;
  
+    c_wr_lock(&rs->lock);
+
     if (ZERO_TS(&rs->limit_ts)) {
+        c_wr_unlock(&rs->lock);
         return 1;
     }
-
-    c_wr_lock(&rs->lock);
  
     if (ZERO_TS(&rs->start_ts)) {
         gettimeofday(&rs->start_ts, NULL);
@@ -65,7 +66,7 @@ c_rlim(struct c_rlim_dat *rs)
 
     if (c_timeval_a_more_b(&diff_ts, &rs->limit_ts)) {
         if (rs->skip) {
-            c_log_info("%d suppressed", rs->skip);
+            c_log_info("RLIM:%d suppressed", rs->skip);
         }
         SET_ZERO_TS(&rs->start_ts);
         rs->pass = 0;
@@ -84,3 +85,20 @@ c_rlim(struct c_rlim_dat *rs)
     return do_limit;
 }
  
+int
+c_rlim_dat_update(struct c_rlim_dat *rs, uint32_t pps)
+{
+    uint32_t msecs = 1000;
+
+    if (!rs || !pps) {
+        return -1;
+    }
+
+    c_wr_lock(&rs->lock);
+    rs->limit_ts.tv_sec = (msecs)/1000;
+    rs->limit_ts.tv_usec = ((msecs%1000)*1000);
+    rs->max = pps;
+    c_wr_unlock(&rs->lock);
+
+    return 0;
+}

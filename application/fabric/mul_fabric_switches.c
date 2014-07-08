@@ -261,7 +261,7 @@ fab_port_host_dead_marker_cmn(fab_port_t *port, bool locked)
 
     if (port->host) {
         memset(&fl, 0, sizeof(fl));
-        fl.nw_src = htonl(host->hkey.host_ip);
+        fl.ip.nw_src = htonl(host->hkey.host_ip);
         fab_add_tenant_id(&fl, NULL, fab_tnid_to_tid(host->hkey.tn_id));
         memcpy(fl.dl_src, host->hkey.host_mac, 6);
         fab_host_delete(fab_ctx, &fl, locked, true, false);

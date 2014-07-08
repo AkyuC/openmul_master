@@ -40,6 +40,9 @@
 #include <arpa/telnet.h>
 #define C_NBAPI_PORT                7001
 
+/* NBAPI RX callback */
+void (*nbapi_rx_cb_g)(struct vty *vty, const char *buf, int nbytes);
+
 /* Vty events */
 enum event 
 {
@@ -334,7 +337,7 @@ vty_dont_lflow_ahead (struct vty *vty)
 
 /* Allocate new vty struct. */
 struct vty *
-vty_new ()
+vty_new (void)
 {
   struct vty *new = XCALLOC (MTYPE_VTY, sizeof (struct vty));
 
@@ -378,7 +381,7 @@ vty_auth (struct vty *vty, char *buf)
   if (passwd)
     {
       if (host.encrypt)
-	fail = strcmp (crypt(buf, passwd), passwd);
+	fail = strcmp (crypt(buf, "kul12"), passwd);
       else
 	fail = strcmp (buf, passwd);
     }
@@ -1185,7 +1188,7 @@ vty_hist_add (struct vty *vty)
 
 /* Get telnet window size. */
 static int
-vty_telnet_option (struct vty *vty, unsigned char *buf, int nbytes)
+vty_telnet_option (struct vty *vty, unsigned char *buf, int nbytes __attribute__((unused)))
 {
 #ifdef TELNET_OPTION_DEBUG
   int i;
@@ -1383,6 +1386,17 @@ vty_read (struct thread *thread)
       buffer_reset(vty->obuf);
       vty->status = VTY_CLOSE;
     }
+  /* NBAPI read check*/
+  if(vty->type == VTY_NBAPI)
+  {
+      /* Call avro's callback*/
+      if(nbapi_rx_cb_g)
+      {
+          nbapi_rx_cb_g(vty,(const char*)buf, nbytes); 
+      }
+      goto check_status;
+
+  }
 
   for (i = 0; i < nbytes; i++) 
     {
@@ -1553,6 +1567,7 @@ vty_read (struct thread *thread)
 	}
     }
 
+check_status:
   /* Check status. */
   if (vty->status == VTY_CLOSE)
     vty_close (vty);
@@ -1638,7 +1653,10 @@ vty_create (int vty_sock, union sockunion *su, int is_vty)
   if (is_vty) 
     vty->type = VTY_TERM;
   else
+  {
     vty->type = VTY_NBAPI;
+    goto read_write_ev;
+  }
   vty->address = sockunion_su2str (su);
   if (no_password_check)
     {
@@ -1683,8 +1701,6 @@ vty_create (int vty_sock, union sockunion *su, int is_vty)
 
   /* Say hello to the world. */
   vty_hello (vty);
-  if (! no_password_check)
-    vty_out (vty, "%sUser Access Verification%s%s", VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
 
   /* Setting up terminal. */
   vty_will_echo (vty);
@@ -1696,6 +1712,7 @@ vty_create (int vty_sock, union sockunion *su, int is_vty)
 
   vty_prompt (vty);
 
+read_write_ev:
   /* Add read/write thread. */
   vty_event (VTY_WRITE, vty_sock, vty);
   vty_event (VTY_READ, vty_sock, vty);
@@ -1794,6 +1811,9 @@ nbapi_accept (struct thread *thread)
     XFREE (MTYPE_TMP, bufp);
 
   vty = vty_create (vty_sock, &su, 0);
+  zlog (NULL, LOG_INFO, "new vty %p created %s", vty, 
+          vty->type == VTY_NBAPI ? "NBAPI":"VTY" );
+  
 
   return 0;
 }
@@ -1889,6 +1909,7 @@ vty_accept (struct thread *thread)
     XFREE (MTYPE_TMP, bufp);
 
   vty = vty_create (vty_sock, &su, 1);
+  zlog (NULL, LOG_INFO, "new vty %p created", vty);
 
   return 0;
 }
@@ -1960,7 +1981,7 @@ vty_serv_sock_addrinfo (const char *hostname, unsigned short port)
 #endif /* HAVE_IPV6 && ! NRL */
 
 /* Make vty server socket. */
-static void
+static void __attribute__((unused))
 vty_serv_sock_family (const char* addr, unsigned short port, int family, int is_vty)
 {
   int ret;
@@ -2253,7 +2274,9 @@ vtysh_write (struct thread *thread)
 
 /* Determine address family to bind. */
 void
-vty_serv_sock (const char *addr, unsigned short port, const char *path, int is_vty)
+vty_serv_sock (const char *addr, unsigned short port,
+               const char *path __attribute__((unused)),
+               int is_vty )
 {
   /* If port is set to 0, do not listen on TCP/IP at all! */
   if (port)
@@ -2264,7 +2287,11 @@ vty_serv_sock (const char *addr, unsigned short port, const char *path, int is_v
       vty_serv_sock_family (addr, port, AF_INET, is_vty);
       vty_serv_sock_family (addr, port, AF_INET6, is_vty);
 #else /* ! NRL */
-      vty_serv_sock_addrinfo (addr, port);
+
+      /* vty_serv_sock_addrinfo changed to vty_serv_sock_family for
+       * supporting NBAPI services */
+      //vty_serv_sock_addrinfo (addr, port);
+      vty_serv_sock_family (addr, port, AF_INET, is_vty);
 #endif /* NRL*/
 #else /* ! HAVE_IPV6 */
       vty_serv_sock_family (addr,port, AF_INET, is_vty);
@@ -2355,6 +2382,7 @@ vty_read_file (FILE *confp, int apply_node_match, int apply_node)
   vty->fd = 0;			/* stdout */
   vty->type = VTY_TERM;
   vty->node = CONFIG_NODE;
+  vty->replay = 1;
   vty->apply_node_match = apply_node_match;
   vty->apply_node = apply_node;
 
@@ -2424,7 +2452,7 @@ vty_use_backup_config (char *fullpath)
     }
   
   while((c = read (sav, buffer, 512)) > 0)
-    write (tmp, buffer, c);
+    if (write (tmp, buffer, c) <= 0) break;
   
   close (sav);
   close (tmp);
@@ -2486,7 +2514,7 @@ vty_read_config (char *config_file,
             {
               fprintf (stderr, "can't open configuration file [%s]\n", 
   	               config_file);
-              exit(1);
+              return;
             }
         }
     }
@@ -2534,7 +2562,7 @@ vty_read_config (char *config_file,
             {
               fprintf (stderr, "can't open configuration file [%s]\n",
   		                 config_default_dir);
-  	          exit (1);
+  	          return;
             }
         }      
       else
@@ -2545,7 +2573,7 @@ vty_read_config (char *config_file,
 
   fclose (confp);
 
-  host_config_set (fullpath);
+  /* host_config_set (fullpath); */
   
   if (tmp)
     XFREE (MTYPE_TMP, fullpath);
@@ -2579,6 +2607,7 @@ vty_log_fixed (const char *buf, size_t len)
 {
   unsigned int i;
   struct iovec iov[2];
+  int ret = 0;
 
   /* vty may not have been initialised */
   if (!vtyvec)
@@ -2595,8 +2624,9 @@ vty_log_fixed (const char *buf, size_t len)
       if (((vty = vector_slot (vtyvec, i)) != NULL) && vty->monitor)
 	/* N.B. We don't care about the return code, since process is
 	   most likely just about to die anyway. */
-	writev(vty->fd, iov, 2);
+	ret = writev(vty->fd, iov, 2);
     }
+  if (ret) return; // Warning avoidance
 }
 
 int
@@ -2700,9 +2730,8 @@ DEFUN (config_who,
 /* Move to vty configuration mode. */
 DEFUN (line_vty,
        line_vty_cmd,
-       "line vty",
-       "Configure a terminal line\n"
-       "Virtual terminal\n")
+       "vty-config",
+       "Configure vty parameters\n")
 {
   vty->node = VTY_NODE;
   return CMD_SUCCESS;
@@ -2955,18 +2984,15 @@ DEFUN (show_history,
 
 /* Display current configuration. */
 static int
-vty_config_write (struct vty *vty)
+vty_config_write (struct vty *vty __attribute__((unused)))
 {
-#if 0
-  vty_out (vty, "line vty%s", VTY_NEWLINE);
+  vty_out (vty, "vty-config%s", VTY_NEWLINE);
 
+/*
   if (vty_accesslist_name)
     vty_out (vty, " access-class %s%s",
 	     vty_accesslist_name, VTY_NEWLINE);
-
-  if (vty_ipv6_accesslist_name)
-    vty_out (vty, " ipv6 access-class %s%s",
-	     vty_ipv6_accesslist_name, VTY_NEWLINE);
+*/
 
   /* exec-timeout */
   if (vty_timeout_val != VTY_TIMEOUT_DEFAULT)
@@ -2977,6 +3003,8 @@ vty_config_write (struct vty *vty)
   /* login */
   if (no_password_check)
     vty_out (vty, " no login%s", VTY_NEWLINE);
+  else 
+    vty_out (vty, " login%s", VTY_NEWLINE);
     
   if (restricted_mode != restricted_mode_default)
     {
@@ -2987,20 +3015,19 @@ vty_config_write (struct vty *vty)
     }
   
   vty_out (vty, "!%s", VTY_NEWLINE);
-#endif
   return CMD_SUCCESS;
 }
 
 struct cmd_node vty_node =
 {
-  VTY_NODE,
-  "%s(config-line)# ",
-  1,
+  .node = VTY_NODE,
+  .prompt = "%s(config-line)# ",
+  .vtysh = 1,
 };
 
 /* Reset all VTY status. */
 void
-vty_reset ()
+vty_reset (void)
 {
   unsigned int i;
   struct vty *vty;
@@ -3042,21 +3069,23 @@ vty_save_cwd (void)
 {
   char cwd[MAXPATHLEN];
   char *c;
+  int ret = 0;
 
   c = getcwd (cwd, MAXPATHLEN);
 
   if (!c)
     {
-      chdir (SYSCONFDIR);
-      getcwd (cwd, MAXPATHLEN);
+      ret = chdir (SYSCONFDIR);
+      c = getcwd (cwd, MAXPATHLEN);
     }
 
   vty_cwd = XMALLOC (MTYPE_TMP, strlen (cwd) + 1);
   strcpy (vty_cwd, cwd);
+  if (ret ) return; // Compilation warning avoidance 
 }
 
 char *
-vty_get_cwd ()
+vty_get_cwd (void)
 {
   return vty_cwd;
 }
@@ -3074,7 +3103,7 @@ vty_shell_serv (struct vty *vty)
 }
 
 void
-vty_init_vtysh ()
+vty_init_vtysh (void)
 {
   vtyvec = vector_init (VECTOR_MIN_SIZE);
 }
@@ -3096,19 +3125,27 @@ vty_init (struct thread_master *master_thread)
   /* Install bgp top node. */
   install_node (&vty_node, vty_config_write);
 
+  install_element (RESTRICTED_NODE, &config_who_cmd);
+  install_element (RESTRICTED_NODE, &show_history_cmd);
+  install_element (VIEW_NODE, &config_who_cmd);
+  install_element (VIEW_NODE, &show_history_cmd);
+  install_element (ENABLE_NODE, &config_who_cmd);
+  install_element_attr_type (CONFIG_NODE, &line_vty_cmd, CONFIG_NODE);
+  install_element (CONFIG_NODE, &show_history_cmd);
+
   install_default (VTY_NODE);
-  install_element (VTY_NODE, &exec_timeout_min_cmd);
-  install_element (VTY_NODE, &exec_timeout_sec_cmd);
-  install_element (VTY_NODE, &no_exec_timeout_cmd);
-  install_element (VTY_NODE, &vty_access_class_cmd);
-  install_element (VTY_NODE, &no_vty_access_class_cmd);
-  install_element (VTY_NODE, &vty_login_cmd);
-  install_element (VTY_NODE, &no_vty_login_cmd);
-  install_element (VTY_NODE, &vty_restricted_mode_cmd);
-  install_element (VTY_NODE, &vty_no_restricted_mode_cmd);
+  install_element_attr_type (VTY_NODE, &exec_timeout_min_cmd, CONFIG_NODE);
+  install_element_attr_type (VTY_NODE, &exec_timeout_sec_cmd, CONFIG_NODE);
+  install_element_attr_type (VTY_NODE, &no_exec_timeout_cmd, CONFIG_NODE);
+  //install_element_attr_type (VTY_NODE, &vty_access_class_cmd, CONFIG_NODE);
+  //install_element_attr_type (VTY_NODE, &no_vty_access_class_cmd, CONFIG_NODE);
+  install_element_attr_type (VTY_NODE, &vty_login_cmd, CONFIG_NODE);
+  install_element_attr_type (VTY_NODE, &no_vty_login_cmd, CONFIG_NODE);
+  install_element_attr_type (VTY_NODE, &vty_restricted_mode_cmd, CONFIG_NODE);
+  install_element_attr_type (VTY_NODE, &vty_no_restricted_mode_cmd, CONFIG_NODE);
 #ifdef HAVE_IPV6
-  install_element (VTY_NODE, &vty_ipv6_access_class_cmd);
-  install_element (VTY_NODE, &no_vty_ipv6_access_class_cmd);
+  //install_element (VTY_NODE, &vty_ipv6_access_class_cmd);
+  //install_element (VTY_NODE, &no_vty_ipv6_access_class_cmd);
 #endif /* HAVE_IPV6 */
 }
 

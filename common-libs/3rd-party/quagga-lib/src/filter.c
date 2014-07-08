@@ -1859,9 +1859,9 @@ config_write_access (struct vty *vty, afi_t afi)
 /* Access-list node. */
 static struct cmd_node access_node =
 {
-  ACCESS_NODE,
-  "",				/* Access list has no interface. */
-  1
+  .node = ACCESS_NODE,
+  .prompt = "",				/* Access list has no interface. */
+  .vtysh = 1
 };
 
 static int
@@ -1955,9 +1955,9 @@ access_list_init_ipv4 (void)
 #ifdef HAVE_IPV6
 static struct cmd_node access_ipv6_node =
 {
-  ACCESS_IPV6_NODE,
-  "",
-  1
+  .node = ACCESS_IPV6_NODE,
+  .prompt = "",
+  .vtysh = 1
 };
 
 static int
@@ -2018,7 +2018,7 @@ access_list_init_ipv6 (void)
 #endif /* HAVE_IPV6 */
 
 void
-access_list_init ()
+access_list_init (void)
 {
   access_list_init_ipv4 ();
 #ifdef HAVE_IPV6
@@ -2027,7 +2027,7 @@ access_list_init ()
 }
 
 void
-access_list_reset ()
+access_list_reset (void)
 {
   access_list_reset_ipv4 ();
 #ifdef HAVE_IPV6

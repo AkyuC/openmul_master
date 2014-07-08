@@ -19,10 +19,7 @@ DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 
 mulhello_CFLAGS = -DMUL_APP_V2_MLAPI
 
-mulhello_SOURCES = hello.c $(top_srcdir)/common/mul_app_main.c \
-               $(top_srcdir)/common/mul_of_msg.c \
-               $(top_srcdir)/common/mul_app_infra.c \
-               $(top_srcdir)/common/mul_service.c
+mulhello_SOURCES = hello.c $(top_srcdir)/common/mul_app_main.c
 
 LD_FLAGS= @LDFLAGS@ 
 
@@ -36,11 +33,11 @@ LD_FLAGS += -Wl,-rpath=$(LIB_EVENT) -L$(LIB_EVENT)
 INCLUDES += -I$(LIBEVENT_INCLUDE)
 endif
 
-mulhello_LDADD = $(top_srcdir)/common-libs/3rd-party/derived-lib/.libs/libutil.a  \
-                $(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libzebra.a \
+mulhello_LDADD = \
                 $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a  \
-                $(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a -lrt
+                $(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a -lrt \
+                -lcrypto -lssl -lglib-2.0
 
-mulhello_LDFLAGS = $(LD_FLAGS) -lpthread -lglib-2.0 -levent -lcrypt 
+mulhello_LDFLAGS = $(LD_FLAGS) -lpthread -levent -lcrypt 
 
 noinst_HEADERS = hello.h

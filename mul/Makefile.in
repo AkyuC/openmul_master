@@ -41,11 +41,15 @@ bin_PROGRAMS = mul$(EXEEXT)
 @HAVE_EXT_GLIB_FALSE@am__append_2 = -I$(GLIB_INCLUDE) -I$(GLIB_INCLUDE)/../
 @HAVE_EXT_LIBEVENT_FALSE@am__append_3 = -Wl,-rpath=$(LIB_EVENT) -L$(LIB_EVENT)
 @HAVE_EXT_LIBEVENT_FALSE@am__append_4 = -I$(LIBEVENT_INCLUDE)
+@HAVE_MUL_VTY_TRUE@am__append_5 = -DMUL_APP_VTY
+@HAVE_MUL_VTY_TRUE@am__append_6 = $(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libcli.a
 subdir = mul
 DIST_COMMON = $(noinst_HEADERS) $(srcdir)/Makefile.am \
 	$(srcdir)/Makefile.in
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
-am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
+am__aclocal_m4_deps = $(top_srcdir)/m4/ax_pkg_swig.m4 \
+	$(top_srcdir)/m4/ax_python_devel.m4 \
+	$(top_srcdir)/m4/ax_swig_python.m4 $(top_srcdir)/m4/libtool.m4 \
 	$(top_srcdir)/m4/ltoptions.m4 $(top_srcdir)/m4/ltsugar.m4 \
 	$(top_srcdir)/m4/ltversion.m4 $(top_srcdir)/m4/lt~obsolete.m4 \
 	$(top_srcdir)/configure.ac
@@ -87,31 +91,47 @@ LTLIBRARIES = $(lib_LTLIBRARIES)
 libmul_la_LIBADD =
 am_libmul_la_OBJECTS = mul_servlet.lo
 libmul_la_OBJECTS = $(am_libmul_la_OBJECTS)
+AM_V_lt = $(am__v_lt_@AM_V@)
+am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
+am__v_lt_0 = --silent
 PROGRAMS = $(bin_PROGRAMS)
-am_mul_OBJECTS = mul_app_interface.$(OBJEXT) mul_fp.$(OBJEXT) \
-	mul_main.$(OBJEXT) mul_thread_core.$(OBJEXT) \
-	mul_events.$(OBJEXT) mul_ipc.$(OBJEXT) mul_of.$(OBJEXT) \
-	mul_vty.$(OBJEXT) mul_of_msg.$(OBJEXT) mul_service.$(OBJEXT)
+am_mul_OBJECTS = mul-mul_app_interface.$(OBJEXT) mul-mul_fp.$(OBJEXT) \
+	mul-mul_main.$(OBJEXT) mul-mul_thread_core.$(OBJEXT) \
+	mul-mul_events.$(OBJEXT) mul-mul_ipc.$(OBJEXT) \
+	mul-mul_of.$(OBJEXT) mul-mul_vty.$(OBJEXT)
 mul_OBJECTS = $(am_mul_OBJECTS)
-mul_DEPENDENCIES = $(top_srcdir)/common-libs/3rd-party/derived-lib/.libs/libutil.a \
-	$(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libzebra.a \
-	$(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a
-mul_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
-	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(mul_LDFLAGS) \
-	$(LDFLAGS) -o $@
+mul_DEPENDENCIES =  \
+	$(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a \
+	$(am__append_6)
+mul_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
+	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(mul_CFLAGS) $(CFLAGS) \
+	$(mul_LDFLAGS) $(LDFLAGS) -o $@
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)/common
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
-LTCOMPILE = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
-	--mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) \
-	$(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
+LTCOMPILE = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
+	$(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) \
+	$(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) \
+	$(AM_CFLAGS) $(CFLAGS)
+AM_V_CC = $(am__v_CC_@AM_V@)
+am__v_CC_ = $(am__v_CC_@AM_DEFAULT_V@)
+am__v_CC_0 = @echo "  CC    " $@;
+AM_V_at = $(am__v_at_@AM_V@)
+am__v_at_ = $(am__v_at_@AM_DEFAULT_V@)
+am__v_at_0 = @
 CCLD = $(CC)
-LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
-	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
-	$(LDFLAGS) -o $@
+LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
+	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
+	$(AM_LDFLAGS) $(LDFLAGS) -o $@
+AM_V_CCLD = $(am__v_CCLD_@AM_V@)
+am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
+am__v_CCLD_0 = @echo "  CCLD  " $@;
+AM_V_GEN = $(am__v_GEN_@AM_V@)
+am__v_GEN_ = $(am__v_GEN_@AM_DEFAULT_V@)
+am__v_GEN_0 = @echo "  GEN   " $@;
 SOURCES = $(libmul_la_SOURCES) $(mul_SOURCES)
 DIST_SOURCES = $(libmul_la_SOURCES) $(mul_SOURCES)
 HEADERS = $(noinst_HEADERS)
@@ -120,11 +140,14 @@ CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
+AM_DEFAULT_VERBOSITY = @AM_DEFAULT_VERBOSITY@
 AR = @AR@
 AUTOCONF = @AUTOCONF@
 AUTOHEADER = @AUTOHEADER@
 AUTOMAKE = @AUTOMAKE@
 AWK = @AWK@
+AX_SWIG_PYTHON_CPPFLAGS = @AX_SWIG_PYTHON_CPPFLAGS@
+AX_SWIG_PYTHON_OPT = @AX_SWIG_PYTHON_OPT@
 CC = @CC@
 CCDEPMODE = @CCDEPMODE@
 CFLAGS = @CFLAGS@
@@ -145,8 +168,6 @@ FGREP = @FGREP@
 GAWK = @GAWK@
 GLIB_INCLUDE = @GLIB_INCLUDE@
 GREP = @GREP@
-HAVE_L2SW_MODULE = @HAVE_L2SW_MODULE@
-HAVE_LLDP_MODULE = @HAVE_LLDP_MODULE@
 INSTALL = @INSTALL@
 INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
@@ -180,11 +201,23 @@ PACKAGE_TARNAME = @PACKAGE_TARNAME@
 PACKAGE_URL = @PACKAGE_URL@
 PACKAGE_VERSION = @PACKAGE_VERSION@
 PATH_SEPARATOR = @PATH_SEPARATOR@
+PYTHON = @PYTHON@
+PYTHON_CPPFLAGS = @PYTHON_CPPFLAGS@
+PYTHON_EXEC_PREFIX = @PYTHON_EXEC_PREFIX@
+PYTHON_EXTRA_LDFLAGS = @PYTHON_EXTRA_LDFLAGS@
+PYTHON_EXTRA_LIBS = @PYTHON_EXTRA_LIBS@
+PYTHON_LDFLAGS = @PYTHON_LDFLAGS@
+PYTHON_PLATFORM = @PYTHON_PLATFORM@
+PYTHON_PREFIX = @PYTHON_PREFIX@
+PYTHON_SITE_PKG = @PYTHON_SITE_PKG@
+PYTHON_VERSION = @PYTHON_VERSION@
 RANLIB = @RANLIB@
 SED = @SED@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
+SWIG = @SWIG@
+SWIG_LIB = @SWIG_LIB@
 VERSION = @VERSION@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
@@ -227,9 +260,13 @@ mandir = @mandir@
 mkdir_p = @mkdir_p@
 oldincludedir = @oldincludedir@
 pdfdir = @pdfdir@
+pkgpyexecdir = @pkgpyexecdir@
+pkgpythondir = @pkgpythondir@
 prefix = @prefix@
 program_transform_name = @program_transform_name@
 psdir = @psdir@
+pyexecdir = @pyexecdir@
+pythondir = @pythondir@
 sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 srcdir = @srcdir@
@@ -251,16 +288,15 @@ libmul_la_SOURCES = \
             mul_servlet.c
 
 mul_SOURCES = mul_app_interface.c mul_fp.c mul_main.c mul_thread_core.c \
-              mul_events.c mul_ipc.c mul_of.c mul_vty.c \
-              ../common/mul_of_msg.c ../common/mul_service.c
+              mul_events.c mul_ipc.c mul_of.c mul_vty.c
 
 LD_FLAGS = @LDFLAGS@ $(am__append_1) $(am__append_3)
-mul_LDADD = $(top_srcdir)/common-libs/3rd-party/derived-lib/.libs/libutil.a  \
-            $(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libzebra.a \
-            $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a 
-
-mul_LDFLAGS = $(LD_FLAGS) -lpthread -lglib-2.0 -levent -lcrypt 
-noinst_HEADERS = mul_events.h mul.h mul_of.h mul_priv.h mul_thread.h
+C_FLAGS = @CFLAGS@
+mul_CFLAGS = $(C_FLAGS) $(am__append_5)
+mul_LDADD = $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a \
+	-lcrypto -lssl $(am__append_6)
+mul_LDFLAGS = $(LD_FLAGS) -lpthread -lglib-2.0 -levent
+noinst_HEADERS = mul_events.h mul.h mul_of.h mul_priv.h mul_thread.h mul_fp.h
 all: all-am
 
 .SUFFIXES:
@@ -327,7 +363,7 @@ clean-libLTLIBRARIES:
 	  rm -f "$${dir}/so_locations"; \
 	done
 libmul.la: $(libmul_la_OBJECTS) $(libmul_la_DEPENDENCIES) $(EXTRA_libmul_la_DEPENDENCIES) 
-	$(LINK) -rpath $(libdir) $(libmul_la_OBJECTS) $(libmul_la_LIBADD) $(LIBS)
+	$(AM_V_CCLD)$(LINK) -rpath $(libdir) $(libmul_la_OBJECTS) $(libmul_la_LIBADD) $(LIBS)
 install-binPROGRAMS: $(bin_PROGRAMS)
 	@$(NORMAL_INSTALL)
 	test -z "$(bindir)" || $(MKDIR_P) "$(DESTDIR)$(bindir)"
@@ -373,7 +409,7 @@ clean-binPROGRAMS:
 	rm -f $$list
 mul$(EXEEXT): $(mul_OBJECTS) $(mul_DEPENDENCIES) $(EXTRA_mul_DEPENDENCIES) 
 	@rm -f mul$(EXEEXT)
-	$(mul_LINK) $(mul_OBJECTS) $(mul_LDADD) $(LIBS)
+	$(AM_V_CCLD)$(mul_LINK) $(mul_OBJECTS) $(mul_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -381,66 +417,148 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul_app_interface.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul_events.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul_fp.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul_ipc.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul_main.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul_of.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul_of_msg.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul_service.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_app_interface.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_events.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_fp.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_ipc.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_main.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_of.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_thread_core.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_vty.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul_servlet.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul_thread_core.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul_vty.Po@am__quote@
 
 .c.o:
-@am__fastdepCC_TRUE@	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$<' object='$@' libtool=no @AMDEPBACKSLASH@
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$<' object='$@' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(COMPILE) -c $<
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(COMPILE) -c $<
 
 .c.obj:
-@am__fastdepCC_TRUE@	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ `$(CYGPATH_W) '$<'`
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$<' object='$@' libtool=no @AMDEPBACKSLASH@
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ `$(CYGPATH_W) '$<'`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$<' object='$@' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(COMPILE) -c `$(CYGPATH_W) '$<'`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(COMPILE) -c `$(CYGPATH_W) '$<'`
 
 .c.lo:
-@am__fastdepCC_TRUE@	$(LTCOMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Plo
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$<' object='$@' libtool=yes @AMDEPBACKSLASH@
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LTCOMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$<' object='$@' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(LTCOMPILE) -c -o $@ $<
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LTCOMPILE) -c -o $@ $<
 
-mul_of_msg.o: ../common/mul_of_msg.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT mul_of_msg.o -MD -MP -MF $(DEPDIR)/mul_of_msg.Tpo -c -o mul_of_msg.o `test -f '../common/mul_of_msg.c' || echo '$(srcdir)/'`../common/mul_of_msg.c
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mul_of_msg.Tpo $(DEPDIR)/mul_of_msg.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='../common/mul_of_msg.c' object='mul_of_msg.o' libtool=no @AMDEPBACKSLASH@
+mul-mul_app_interface.o: mul_app_interface.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_app_interface.o -MD -MP -MF $(DEPDIR)/mul-mul_app_interface.Tpo -c -o mul-mul_app_interface.o `test -f 'mul_app_interface.c' || echo '$(srcdir)/'`mul_app_interface.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_app_interface.Tpo $(DEPDIR)/mul-mul_app_interface.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_app_interface.c' object='mul-mul_app_interface.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o mul_of_msg.o `test -f '../common/mul_of_msg.c' || echo '$(srcdir)/'`../common/mul_of_msg.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_app_interface.o `test -f 'mul_app_interface.c' || echo '$(srcdir)/'`mul_app_interface.c
 
-mul_of_msg.obj: ../common/mul_of_msg.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT mul_of_msg.obj -MD -MP -MF $(DEPDIR)/mul_of_msg.Tpo -c -o mul_of_msg.obj `if test -f '../common/mul_of_msg.c'; then $(CYGPATH_W) '../common/mul_of_msg.c'; else $(CYGPATH_W) '$(srcdir)/../common/mul_of_msg.c'; fi`
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mul_of_msg.Tpo $(DEPDIR)/mul_of_msg.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='../common/mul_of_msg.c' object='mul_of_msg.obj' libtool=no @AMDEPBACKSLASH@
+mul-mul_app_interface.obj: mul_app_interface.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_app_interface.obj -MD -MP -MF $(DEPDIR)/mul-mul_app_interface.Tpo -c -o mul-mul_app_interface.obj `if test -f 'mul_app_interface.c'; then $(CYGPATH_W) 'mul_app_interface.c'; else $(CYGPATH_W) '$(srcdir)/mul_app_interface.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_app_interface.Tpo $(DEPDIR)/mul-mul_app_interface.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_app_interface.c' object='mul-mul_app_interface.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o mul_of_msg.obj `if test -f '../common/mul_of_msg.c'; then $(CYGPATH_W) '../common/mul_of_msg.c'; else $(CYGPATH_W) '$(srcdir)/../common/mul_of_msg.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_app_interface.obj `if test -f 'mul_app_interface.c'; then $(CYGPATH_W) 'mul_app_interface.c'; else $(CYGPATH_W) '$(srcdir)/mul_app_interface.c'; fi`
 
-mul_service.o: ../common/mul_service.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT mul_service.o -MD -MP -MF $(DEPDIR)/mul_service.Tpo -c -o mul_service.o `test -f '../common/mul_service.c' || echo '$(srcdir)/'`../common/mul_service.c
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mul_service.Tpo $(DEPDIR)/mul_service.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='../common/mul_service.c' object='mul_service.o' libtool=no @AMDEPBACKSLASH@
+mul-mul_fp.o: mul_fp.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_fp.o -MD -MP -MF $(DEPDIR)/mul-mul_fp.Tpo -c -o mul-mul_fp.o `test -f 'mul_fp.c' || echo '$(srcdir)/'`mul_fp.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_fp.Tpo $(DEPDIR)/mul-mul_fp.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_fp.c' object='mul-mul_fp.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o mul_service.o `test -f '../common/mul_service.c' || echo '$(srcdir)/'`../common/mul_service.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_fp.o `test -f 'mul_fp.c' || echo '$(srcdir)/'`mul_fp.c
 
-mul_service.obj: ../common/mul_service.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT mul_service.obj -MD -MP -MF $(DEPDIR)/mul_service.Tpo -c -o mul_service.obj `if test -f '../common/mul_service.c'; then $(CYGPATH_W) '../common/mul_service.c'; else $(CYGPATH_W) '$(srcdir)/../common/mul_service.c'; fi`
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mul_service.Tpo $(DEPDIR)/mul_service.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='../common/mul_service.c' object='mul_service.obj' libtool=no @AMDEPBACKSLASH@
+mul-mul_fp.obj: mul_fp.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_fp.obj -MD -MP -MF $(DEPDIR)/mul-mul_fp.Tpo -c -o mul-mul_fp.obj `if test -f 'mul_fp.c'; then $(CYGPATH_W) 'mul_fp.c'; else $(CYGPATH_W) '$(srcdir)/mul_fp.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_fp.Tpo $(DEPDIR)/mul-mul_fp.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_fp.c' object='mul-mul_fp.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o mul_service.obj `if test -f '../common/mul_service.c'; then $(CYGPATH_W) '../common/mul_service.c'; else $(CYGPATH_W) '$(srcdir)/../common/mul_service.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_fp.obj `if test -f 'mul_fp.c'; then $(CYGPATH_W) 'mul_fp.c'; else $(CYGPATH_W) '$(srcdir)/mul_fp.c'; fi`
+
+mul-mul_main.o: mul_main.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_main.o -MD -MP -MF $(DEPDIR)/mul-mul_main.Tpo -c -o mul-mul_main.o `test -f 'mul_main.c' || echo '$(srcdir)/'`mul_main.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_main.Tpo $(DEPDIR)/mul-mul_main.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_main.c' object='mul-mul_main.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_main.o `test -f 'mul_main.c' || echo '$(srcdir)/'`mul_main.c
+
+mul-mul_main.obj: mul_main.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_main.obj -MD -MP -MF $(DEPDIR)/mul-mul_main.Tpo -c -o mul-mul_main.obj `if test -f 'mul_main.c'; then $(CYGPATH_W) 'mul_main.c'; else $(CYGPATH_W) '$(srcdir)/mul_main.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_main.Tpo $(DEPDIR)/mul-mul_main.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_main.c' object='mul-mul_main.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_main.obj `if test -f 'mul_main.c'; then $(CYGPATH_W) 'mul_main.c'; else $(CYGPATH_W) '$(srcdir)/mul_main.c'; fi`
+
+mul-mul_thread_core.o: mul_thread_core.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_thread_core.o -MD -MP -MF $(DEPDIR)/mul-mul_thread_core.Tpo -c -o mul-mul_thread_core.o `test -f 'mul_thread_core.c' || echo '$(srcdir)/'`mul_thread_core.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_thread_core.Tpo $(DEPDIR)/mul-mul_thread_core.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_thread_core.c' object='mul-mul_thread_core.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_thread_core.o `test -f 'mul_thread_core.c' || echo '$(srcdir)/'`mul_thread_core.c
+
+mul-mul_thread_core.obj: mul_thread_core.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_thread_core.obj -MD -MP -MF $(DEPDIR)/mul-mul_thread_core.Tpo -c -o mul-mul_thread_core.obj `if test -f 'mul_thread_core.c'; then $(CYGPATH_W) 'mul_thread_core.c'; else $(CYGPATH_W) '$(srcdir)/mul_thread_core.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_thread_core.Tpo $(DEPDIR)/mul-mul_thread_core.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_thread_core.c' object='mul-mul_thread_core.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_thread_core.obj `if test -f 'mul_thread_core.c'; then $(CYGPATH_W) 'mul_thread_core.c'; else $(CYGPATH_W) '$(srcdir)/mul_thread_core.c'; fi`
+
+mul-mul_events.o: mul_events.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_events.o -MD -MP -MF $(DEPDIR)/mul-mul_events.Tpo -c -o mul-mul_events.o `test -f 'mul_events.c' || echo '$(srcdir)/'`mul_events.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_events.Tpo $(DEPDIR)/mul-mul_events.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_events.c' object='mul-mul_events.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_events.o `test -f 'mul_events.c' || echo '$(srcdir)/'`mul_events.c
+
+mul-mul_events.obj: mul_events.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_events.obj -MD -MP -MF $(DEPDIR)/mul-mul_events.Tpo -c -o mul-mul_events.obj `if test -f 'mul_events.c'; then $(CYGPATH_W) 'mul_events.c'; else $(CYGPATH_W) '$(srcdir)/mul_events.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_events.Tpo $(DEPDIR)/mul-mul_events.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_events.c' object='mul-mul_events.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_events.obj `if test -f 'mul_events.c'; then $(CYGPATH_W) 'mul_events.c'; else $(CYGPATH_W) '$(srcdir)/mul_events.c'; fi`
+
+mul-mul_ipc.o: mul_ipc.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_ipc.o -MD -MP -MF $(DEPDIR)/mul-mul_ipc.Tpo -c -o mul-mul_ipc.o `test -f 'mul_ipc.c' || echo '$(srcdir)/'`mul_ipc.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_ipc.Tpo $(DEPDIR)/mul-mul_ipc.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_ipc.c' object='mul-mul_ipc.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_ipc.o `test -f 'mul_ipc.c' || echo '$(srcdir)/'`mul_ipc.c
+
+mul-mul_ipc.obj: mul_ipc.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_ipc.obj -MD -MP -MF $(DEPDIR)/mul-mul_ipc.Tpo -c -o mul-mul_ipc.obj `if test -f 'mul_ipc.c'; then $(CYGPATH_W) 'mul_ipc.c'; else $(CYGPATH_W) '$(srcdir)/mul_ipc.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_ipc.Tpo $(DEPDIR)/mul-mul_ipc.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_ipc.c' object='mul-mul_ipc.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_ipc.obj `if test -f 'mul_ipc.c'; then $(CYGPATH_W) 'mul_ipc.c'; else $(CYGPATH_W) '$(srcdir)/mul_ipc.c'; fi`
+
+mul-mul_of.o: mul_of.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_of.o -MD -MP -MF $(DEPDIR)/mul-mul_of.Tpo -c -o mul-mul_of.o `test -f 'mul_of.c' || echo '$(srcdir)/'`mul_of.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_of.Tpo $(DEPDIR)/mul-mul_of.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_of.c' object='mul-mul_of.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_of.o `test -f 'mul_of.c' || echo '$(srcdir)/'`mul_of.c
+
+mul-mul_of.obj: mul_of.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_of.obj -MD -MP -MF $(DEPDIR)/mul-mul_of.Tpo -c -o mul-mul_of.obj `if test -f 'mul_of.c'; then $(CYGPATH_W) 'mul_of.c'; else $(CYGPATH_W) '$(srcdir)/mul_of.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_of.Tpo $(DEPDIR)/mul-mul_of.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_of.c' object='mul-mul_of.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_of.obj `if test -f 'mul_of.c'; then $(CYGPATH_W) 'mul_of.c'; else $(CYGPATH_W) '$(srcdir)/mul_of.c'; fi`
+
+mul-mul_vty.o: mul_vty.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_vty.o -MD -MP -MF $(DEPDIR)/mul-mul_vty.Tpo -c -o mul-mul_vty.o `test -f 'mul_vty.c' || echo '$(srcdir)/'`mul_vty.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_vty.Tpo $(DEPDIR)/mul-mul_vty.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_vty.c' object='mul-mul_vty.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_vty.o `test -f 'mul_vty.c' || echo '$(srcdir)/'`mul_vty.c
+
+mul-mul_vty.obj: mul_vty.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_vty.obj -MD -MP -MF $(DEPDIR)/mul-mul_vty.Tpo -c -o mul-mul_vty.obj `if test -f 'mul_vty.c'; then $(CYGPATH_W) 'mul_vty.c'; else $(CYGPATH_W) '$(srcdir)/mul_vty.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_vty.Tpo $(DEPDIR)/mul-mul_vty.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_vty.c' object='mul-mul_vty.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_vty.obj `if test -f 'mul_vty.c'; then $(CYGPATH_W) 'mul_vty.c'; else $(CYGPATH_W) '$(srcdir)/mul_vty.c'; fi`
 
 mostlyclean-libtool:
 	-rm -f *.lo

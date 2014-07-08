@@ -19,7 +19,7 @@
 #define __LLDP_H__
 
 /* time before next update event */
-#define LLDP_UPDATE_INTVL_SEC 2 
+#define LLDP_UPDATE_INTVL_SEC 1 
 #define LLDP_UPDATE_INTVL_USEC 0
 #define LLDP_UPDATE_INTVL_INIT_SEC (LLDP_UPDATE_INTVL_SEC)
 
@@ -29,7 +29,7 @@
 
 /* default TTL = 20s */
 #define LLDP_DEFAULT_TTL 20 
-#define LLDP_PROBE_PORT_INTERVAL (2) 
+#define LLDP_PROBE_PORT_INTERVAL (1)
 
 /* 802.1AB-2005 LLDP support code */
 enum lldp_tlv_type{

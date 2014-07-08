@@ -299,6 +299,7 @@ syslog_sigsafe(int priority, const char *msg, size_t msglen)
   static int syslog_fd = -1;
   char buf[sizeof("<1234567890>ripngd[1234567890]: ")+msglen+50];
   char *s;
+  int ret = 0;
 
   if ((syslog_fd < 0) && ((syslog_fd = syslog_connect()) < 0))
     return;
@@ -318,7 +319,9 @@ syslog_sigsafe(int priority, const char *msg, size_t msglen)
     }
   s = str_append(LOC,": ");
   s = str_append(LOC,msg);
-  write(syslog_fd,buf,s-buf);
+  ret = write(syslog_fd,buf,s-buf);
+  if (ret <= 0)
+     return;
 #undef LOC
 }
 
@@ -366,6 +369,7 @@ zlog_signal(int signo, const char *action
   char buf[sizeof("DEFAULT: Received signal S at T (si_addr 0xP, PC 0xP); aborting...")+100];
   char *s = buf;
   char *msgstart = buf;
+  int ret = 0;
 #define LOC s,buf+sizeof(buf)-s
 
   time(&now);
@@ -402,13 +406,13 @@ zlog_signal(int signo, const char *action
 #define DUMP(FD) write(FD, buf, s-buf);
   /* If no file logging configured, try to write to fallback log file. */
   if ((logfile_fd >= 0) || ((logfile_fd = open_crashlog()) >= 0))
-    DUMP(logfile_fd)
+    ret = DUMP(logfile_fd)
   if (!zlog_default)
-    DUMP(STDERR_FILENO)
+    ret = DUMP(STDERR_FILENO)
   else
     {
       if (PRI <= zlog_default->maxlvl[ZLOG_DEST_STDOUT])
-        DUMP(STDOUT_FILENO)
+        ret = DUMP(STDOUT_FILENO)
       /* Remove trailing '\n' for monitor and syslog */
       *--s = '\0';
       if (PRI <= zlog_default->maxlvl[ZLOG_DEST_MONITOR])
@@ -427,12 +431,14 @@ zlog_signal(int signo, const char *action
 			);
 #undef PRI
 #undef LOC
+  if (ret) return;
 }
 
 /* Log a backtrace using only async-signal-safe functions.
    Needs to be enhanced to support syslog logging. */
 void
-zlog_backtrace_sigsafe(int priority, void *program_counter)
+zlog_backtrace_sigsafe(int priority __attribute__((unused)),
+                       void *program_counter __attribute__((unused)))
 {
 #ifdef HAVE_STACK_TRACE
   static const char pclabel[] = "Program counter: ";

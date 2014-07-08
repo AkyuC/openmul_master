@@ -73,7 +73,6 @@ int
 cbuf_list_count(struct cbuf_head *head)
 {
     struct cbuf *curr = head->next;
-    struct cbuf *prev = NULL;
     int len = 0;
 
     while (curr) {

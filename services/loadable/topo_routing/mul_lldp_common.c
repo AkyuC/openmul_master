@@ -96,6 +96,28 @@ lldp_switch_unref(lldp_switch_t *lldp_switch)
 }
 
 /**
+ * __fetch_and_retain_switch - 
+ *
+ * Fetch and get reference to a switch without lock 
+ */
+lldp_switch_t *
+__fetch_and_retain_switch(uint64_t dpid)
+{
+    lldp_switch_t *this_switch;
+
+    this_switch = g_hash_table_lookup(topo_hdl->switches,&dpid);
+
+    if (this_switch)
+        lldp_switch_ref(this_switch);
+        /*c_log_debug("%s: switch 0x%llx ref = %u", FN, dpid, 
+                      (unsigned int) atomic_read(&this_switch->ref)); */
+
+    return this_switch;
+}
+
+
+
+/**
  * fetch_and_retain_switch - 
  *
  * Fetch and get reference to a switch 
@@ -104,16 +126,10 @@ lldp_switch_t *
 fetch_and_retain_switch(uint64_t dpid)
 {
     lldp_switch_t *this_switch;
+
     c_rd_lock(&topo_hdl->switch_lock);
-
-    this_switch = g_hash_table_lookup(topo_hdl->switches,&dpid);
-
-    if (this_switch)
-        lldp_switch_ref(this_switch);
-        /*c_log_debug("%s: switch 0x%llx ref = %u", FN, dpid, 
-                      (unsigned int) atomic_read(&this_switch->ref)); */
+    this_switch = __fetch_and_retain_switch(dpid);
     c_rd_unlock(&topo_hdl->switch_lock);
-
     return this_switch;
 }
 

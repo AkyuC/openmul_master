@@ -44,39 +44,39 @@ struct host host;
 /* Standard command node structures. */
 static struct cmd_node auth_node =
 {
-  AUTH_NODE,
-  "Password: ",
+  .node = AUTH_NODE,
+  .prompt = "Password: ",
 };
 
 static struct cmd_node view_node =
 {
-  VIEW_NODE,
-  "%s> ",
+  .node = VIEW_NODE,
+  .prompt = "%s> ",
 };
 
 static struct cmd_node restricted_node =
 {
-  RESTRICTED_NODE,
-  "%s$ ",
+  .node = RESTRICTED_NODE,
+  .prompt = "%s$ ",
 };
 
 static struct cmd_node auth_enable_node =
 {
-  AUTH_ENABLE_NODE,
-  "Password: ",
+  .node = AUTH_ENABLE_NODE,
+  .prompt = "Password: ",
 };
 
 static struct cmd_node enable_node =
 {
-  ENABLE_NODE,
-  "%s# ",
+  .node = ENABLE_NODE,
+  .prompt = "%s# ",
 };
 
 static struct cmd_node config_node =
 {
-  CONFIG_NODE,
-  "%s(config)# ",
-  1
+  .node = CONFIG_NODE,
+  .prompt = "%s(config)# ",
+  .vtysh = 1
 };
 
 /* Default motd string. */
@@ -217,7 +217,7 @@ cmp_desc (const void *p, const void *q)
 
 /* Sort each node's command element according to command string. */
 void
-sort_node ()
+sort_node (void)
 {
   unsigned int i, j;
   struct cmd_node *cnode;
@@ -537,7 +537,7 @@ install_element_attr_type (enum node_type ntype, struct cmd_element *cmd,
 static const unsigned char itoa64[] =
 "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-static void
+static void __attribute__((unused))
 to64(char *s, long v, int n)
 {
   while (--n >= 0) 
@@ -550,16 +550,10 @@ to64(char *s, long v, int n)
 static char *
 zencrypt (const char *passwd)
 {
-  char salt[6];
-  struct timeval tv;
+  char salt[6] = "kul12";
   char *crypt (const char *, const char *);
 
-  gettimeofday(&tv,0);
-  
-  to64(&salt[0], random(), 3);
-  to64(&salt[3], tv.tv_usec, 3);
   salt[5] = '\0';
-
   return crypt (passwd, salt);
 }
 
@@ -570,21 +564,10 @@ config_write_host (struct vty *vty)
   if (host.name)
     vty_out (vty, "hostname %s%s", host.name, VTY_NEWLINE);
 
-  if (host.encrypt)
-    {
-      if (host.password_encrypt)
-        vty_out (vty, "password 8 %s%s", host.password_encrypt, VTY_NEWLINE); 
-      if (host.enable_encrypt)
-        vty_out (vty, "enable password 8 %s%s", host.enable_encrypt, VTY_NEWLINE); 
-    }
-  else
-    {
-      if (host.password)
-        vty_out (vty, "password %s%s", host.password, VTY_NEWLINE);
-      if (host.enable)
-        vty_out (vty, "enable password %s%s", host.enable, VTY_NEWLINE);
-    }
-
+  if (host.password_encrypt)
+        vty_out (vty, "password %s%s", host.password_encrypt, VTY_NEWLINE); 
+  if (host.enable_encrypt)
+        vty_out (vty, "enable password %s%s", host.enable_encrypt, VTY_NEWLINE); 
 #ifdef  MUL_CONFIG_NEED_ZLOG
   if (zlog_default->default_lvl != LOG_DEBUG)
     {
@@ -640,20 +623,9 @@ config_write_host (struct vty *vty)
 
 #endif
 
-  if (host.advanced)
-    vty_out (vty, "service advanced-vty%s", VTY_NEWLINE);
-
-  if (host.encrypt)
-    vty_out (vty, "service password-encryption%s", VTY_NEWLINE);
-
   if (host.lines >= 0)
     vty_out (vty, "service terminal-length %d%s", host.lines,
 	     VTY_NEWLINE);
-
-  if (host.motdfile)
-    vty_out (vty, "banner motd file %s%s", host.motdfile, VTY_NEWLINE);
-  else if (! host.motd)
-    vty_out (vty, "no banner motd%s", VTY_NEWLINE);
 
   return 1;
 }
@@ -2447,6 +2419,10 @@ DEFUN (config_exit,
     case RMAP_NODE:
     case VTY_NODE:
     case KULVISOR_NODE:
+    case MULMAKDI_NODE:
+    case MUL_NODE:
+    case MULTR_NODE:
+    case MULFAB_NODE:
       vty->node = CONFIG_NODE;
       break;
     case BGP_VPNV4_NODE:
@@ -2461,6 +2437,12 @@ DEFUN (config_exit,
       break;
     case SLICE_NODE:
       vty->node = KULVISOR_NODE;
+      break;
+    case FLOW_NODE:
+    case INST_NODE:
+    case GROUP_NODE:
+    case METER_NODE:
+      vty->node = MUL_NODE;
       break;
     default:
       break;
@@ -2507,6 +2489,10 @@ DEFUN (config_end,
     case MASC_NODE:
     case VTY_NODE:
     case KULVISOR_NODE:
+    case MUL_NODE:
+    case MULTR_NODE:
+    case MULFAB_NODE:
+    case MULMAKDI_NODE:
       vty_config_unlock (vty);
       vty->node = ENABLE_NODE;
       break;
@@ -2573,113 +2559,380 @@ DEFUN (config_list,
   return CMD_SUCCESS;
 }
 
-/* Write current configuration into file. */
+int
+config_write_terminal_all(struct vty *vty)
+{
+  struct cmd_node *node;
+  char **conf_arr = NULL;
+  int num_files = 0, fl = 0, i = 0;
+
+  if (host.get_conf_file_params == NULL)
+    {
+      if (vty)
+        vty_out (vty, "Can't save to conf file, no params.%s",
+           VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  if (vty->type == VTY_SHELL_SERV)
+    {
+      for (i = 0; i < vector_active (cmdvec); i++)
+	if ((node = vector_slot (cmdvec, i)) && node->func && node->vtysh)
+	  {
+	    if ((*node->func) (vty))
+	      vty_out (vty, "!%s", VTY_NEWLINE);
+	  }
+    }
+  else
+    {
+      vty_out (vty, "%s-- Current common configuration --%s", VTY_NEWLINE,
+	       VTY_NEWLINE);
+      vty_out (vty, "!%s", VTY_NEWLINE);
+
+      for (i = 0; i < vector_active (cmdvec); i++)
+	    if ((node = vector_slot (cmdvec, i)) && node->func && node->node != MUL_NODE)
+	      {
+	        if ((*node->func) (vty))
+	           vty_out (vty, "!%s", VTY_NEWLINE);
+	      }
+      vty_out (vty, "-- end -- %s",VTY_NEWLINE);
+
+      if (!(conf_arr = host.get_conf_file_params(&num_files)))
+        {
+          /*if (vty)
+            vty_out (vty, "Can't write to terminal, get param fail.%s",
+                     VTY_NEWLINE);
+            */
+          return CMD_WARNING;
+        }
+
+      for (i = 0; i < num_files; i++)
+        {
+          if (!conf_arr[i])
+            goto finished_free;
+        }
+
+      for (fl = 0; fl < num_files; fl++)
+        {
+          vty_out (vty, "%s-- Current Switch 0x%s configuration --%s", VTY_NEWLINE,
+                   conf_arr[fl], VTY_NEWLINE);
+          vty->dpid = conf_arr[fl];
+          for (i = 0; i < vector_active (cmdvec); i++)
+            if ((node = vector_slot (cmdvec, i)) && node->func && node->node == MUL_NODE)
+              {
+                if ((*node->func) (vty))
+                  vty_out (vty, "!%s", VTY_NEWLINE);
+              }
+          vty_out (vty, "-- end -- %s",VTY_NEWLINE);
+        }
+    }
+finished_free:
+  if (conf_arr) {
+    for (i = 0; i < num_files; i++) {
+      if (conf_arr[i])
+        free((void *)(conf_arr[i]));
+    }
+    free(conf_arr);
+  }
+  return CMD_SUCCESS;
+
+}
+
+static int
+config_write_file_normal(struct vty *vty)
+{
+  unsigned int i;
+  int fd;
+  struct cmd_node *node;
+  char *config_file_tmp = NULL;
+  char *config_file_sav = NULL;
+  int ret = CMD_WARNING;
+  struct vty *file_vty;
+  char config_file[256];
+  FILE *fp;
+
+  /* Check and see if we are operating under vtysh configuration */
+  if (host.config == NULL)
+    {
+      if (vty)
+        vty_out (vty, "Can't save to conf file, using vtysh.%s",
+	             VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+    /* Get filename. */
+    memset(config_file, 0, sizeof(config_file));
+    strncat(config_file, host.config, sizeof(config_file)-1);
+  
+    config_file_sav =
+      XMALLOC (MTYPE_TMP, strlen (config_file) + strlen (CONF_BACKUP_EXT) + 1);
+    strcpy (config_file_sav, config_file);
+    strcat (config_file_sav, CONF_BACKUP_EXT);
+
+    config_file_tmp = XMALLOC (MTYPE_TMP, strlen (config_file) + 8);
+    sprintf (config_file_tmp, "%s.XXXXXX", config_file);
+  
+    /* Open file to configuration write. */
+    fd = mkstemp (config_file_tmp);
+    if (fd < 0)
+      {
+        if (vty)
+          vty_out (vty, "Can't open configuration file %s.%s", config_file_tmp,
+	               VTY_NEWLINE);
+        goto finished;
+      }
+  
+    /* Make vty for configuration file. */
+    file_vty = vty_new ();
+    file_vty->fd = fd;
+    file_vty->type = VTY_FILE;
+
+    /* Config file header print. */
+    vty_out (file_vty, "!\n! mul-cli configuration \n!   ");
+    vty_time_print (file_vty, 1);
+    vty_out (file_vty, "!\n");
+
+    for (i = 0; i < vector_active (cmdvec); i++)
+      if ((node = vector_slot (cmdvec, i)) && node->func && node->node != MUL_NODE)
+        {
+	      if ((*node->func) (file_vty))
+	        vty_out (file_vty, "!\n");
+        }
+    vty_close (file_vty);
+
+    if (unlink (config_file_sav) != 0)
+      if (errno != ENOENT)
+      {
+         if (vty)
+    	   vty_out (vty, "Can't unlink backup configuration file %s.%s",
+                    config_file_sav, VTY_NEWLINE);
+         goto finished;
+      }
+
+    /* Create the file if not present */
+    fp = fopen(config_file, "r");
+    if (!fp) {
+        fp = fopen(config_file, "w");
+        if (fp) fclose(fp);
+    } else {
+        fclose(fp);
+    }
+    
+    if (link (config_file, config_file_sav) != 0)
+      {
+        if (vty)
+          vty_out (vty, "Can't backup old configuration file %s.%s",
+                   config_file_sav, VTY_NEWLINE);
+        goto finished;
+      }
+    sync ();
+    if (unlink (config_file) != 0)
+      {
+        if (vty)
+          vty_out (vty, "Can't unlink configuration file %s.%s",
+                   config_file, VTY_NEWLINE);
+        goto finished;
+      }
+    if (link (config_file_tmp, config_file) != 0)
+      {
+        if (vty)
+          vty_out (vty, "Can't save configuration file %s.%s",
+                   config_file, VTY_NEWLINE);
+        goto finished;
+      }
+    sync ();
+  
+    if (chmod (config_file, CONFIGFILE_MASK) != 0)
+      {
+        if (vty)
+          vty_out (vty, "Can't chmod configuration file %s: %s (%d).%s", 
+	               config_file, safe_strerror(errno), errno, VTY_NEWLINE);
+        goto finished;
+      }
+
+    if (vty)
+      vty_out (vty, "Configuration saved to %s%s", config_file,
+	           VTY_NEWLINE);
+    ret = CMD_SUCCESS;
+
+finished:
+    unlink (config_file_tmp);
+    XFREE (MTYPE_TMP, config_file_tmp);
+    XFREE (MTYPE_TMP, config_file_sav);
+    return ret;
+}
+
+int
+config_write_file_all(struct vty *vty)
+{
+  unsigned int i, fl;
+  int fd;
+  struct cmd_node *node;
+  char *config_file_tmp = NULL;
+  char *config_file_sav = NULL;
+  int ret = CMD_WARNING;
+  struct vty *file_vty;
+  char **conf_arr = NULL;
+  int num_files = 0;
+  char config_file[256];
+  FILE *fp;
+
+  /* Check and see if we are operating under vtysh configuration */
+  if (host.config == NULL)
+    {
+      if (vty)
+        vty_out (vty, "Can't save to conf file, using vtysh.%s",
+	       VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  config_write_file_normal(vty);
+
+  if (host.get_conf_file_params == NULL)
+    {
+      if (vty)
+        vty_out (vty, "Can't save to conf file, no params.%s",
+           VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  if (!(conf_arr = host.get_conf_file_params(&num_files)))
+    {
+      if (vty)
+        vty_out (vty, "Can't save to conf file, get param fail.%s",
+           VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  for (i = 0; i < num_files; i++)
+    {
+      if (!conf_arr[i])
+        goto finished_free;    
+    }
+
+  for (fl = 0; fl < num_files; fl++) {
+
+    /* Get filename. */
+    memset(config_file, 0, sizeof(config_file));
+    strncpy(config_file, host.config, strlen(host.config));
+    strncat(config_file, conf_arr[fl],
+            sizeof(config_file)-1-strlen(config_file));
+  
+    config_file_sav =
+      XMALLOC (MTYPE_TMP, strlen (config_file) + strlen (CONF_BACKUP_EXT) + 1);
+    strcpy (config_file_sav, config_file);
+    strcat (config_file_sav, CONF_BACKUP_EXT);
+
+    config_file_tmp = XMALLOC (MTYPE_TMP, strlen (config_file) + 8);
+    sprintf (config_file_tmp, "%s.XXXXXX", config_file);
+  
+    /* Open file to configuration write. */
+    fd = mkstemp (config_file_tmp);
+    if (fd < 0)
+      {
+        if (vty)
+          vty_out (vty, "Can't open configuration file %s.%s",
+                   config_file_tmp, VTY_NEWLINE);
+        goto finished;
+      }
+  
+    /* Make vty for configuration file. */
+    file_vty = vty_new ();
+    file_vty->fd = fd;
+    file_vty->type = VTY_FILE;
+    file_vty->dpid = conf_arr[fl];
+
+    /* Config file header print. */
+    vty_out (file_vty, "!\n! mul-cli per-switch configuration\n!   ");
+    vty_time_print (file_vty, 1);
+    vty_out (file_vty, "!\n");
+
+    for (i = 0; i < vector_active (cmdvec); i++)
+      if ((node = vector_slot (cmdvec, i)) && node->func && node->node == MUL_NODE)
+        {
+	      if ((*node->func) (file_vty))
+	        vty_out (file_vty, "!\n");
+        }
+    vty_close (file_vty);
+
+    if (unlink (config_file_sav) != 0)
+      if (errno != ENOENT)
+      {
+         if (vty)
+    	   vty_out (vty, "Can't unlink backup configuration file %s.%s",
+                    config_file_sav, VTY_NEWLINE);
+         goto finished;
+      }
+
+    /* Create the file if not present */
+    fp = fopen(config_file, "r");
+    if (!fp) {
+        fp = fopen(config_file, "w");
+        if (fp) fclose(fp);
+    } else {
+        fclose(fp);
+    }
+    
+    if (link (config_file, config_file_sav) != 0)
+      {
+        if (vty)
+          vty_out (vty, "Can't backup old configuration file %s.%s",
+                   config_file_sav, VTY_NEWLINE);
+        goto finished;
+      }
+    sync ();
+    if (unlink (config_file) != 0)
+      {
+        if (vty)
+          vty_out (vty, "Can't unlink configuration file %s.%s", 
+                   config_file,VTY_NEWLINE);
+        goto finished;
+      }
+    if (link (config_file_tmp, config_file) != 0)
+      {
+        if (vty)
+          vty_out (vty, "Can't save configuration file %s.%s", 
+                   config_file, VTY_NEWLINE);
+        goto finished;
+      }
+    sync ();
+  
+    if (chmod (config_file, CONFIGFILE_MASK) != 0)
+      {
+        if (vty)
+          vty_out (vty, "Can't chmod configuration file %s: %s (%d).%s", 
+	               config_file, safe_strerror(errno), errno, VTY_NEWLINE);
+        goto finished;
+      }
+
+    if (vty)
+      vty_out (vty, "Per-switch configuration saved to %s%s", config_file,
+	           VTY_NEWLINE);
+    ret = CMD_SUCCESS;
+finished:
+    unlink (config_file_tmp);
+    XFREE (MTYPE_TMP, config_file_tmp);
+    XFREE (MTYPE_TMP, config_file_sav);
+  }
+
+finished_free:
+  if (conf_arr) {
+    for (i = 0; i < num_files; i++) {
+      if (conf_arr[i])
+        free((void *)(conf_arr[i]));
+    }
+    free(conf_arr);
+  }
+  return ret;
+}
+
 DEFUN (config_write_file, 
        config_write_file_cmd,
        "write file",  
        "Write running configuration to memory, network, or terminal\n"
        "Write to configuration file\n")
 {
-  unsigned int i;
-  int fd;
-  struct cmd_node *node;
-  char *config_file;
-  char *config_file_tmp = NULL;
-  char *config_file_sav = NULL;
-  int ret = CMD_WARNING;
-  struct vty *file_vty;
-
-  /* Check and see if we are operating under vtysh configuration */
-  if (host.config == NULL)
-    {
-      vty_out (vty, "Can't save to configuration file, using vtysh.%s",
-	       VTY_NEWLINE);
-      return CMD_WARNING;
-    }
-
-  /* Get filename. */
-  config_file = host.config;
-  
-  config_file_sav =
-    XMALLOC (MTYPE_TMP, strlen (config_file) + strlen (CONF_BACKUP_EXT) + 1);
-  strcpy (config_file_sav, config_file);
-  strcat (config_file_sav, CONF_BACKUP_EXT);
-
-
-  config_file_tmp = XMALLOC (MTYPE_TMP, strlen (config_file) + 8);
-  sprintf (config_file_tmp, "%s.XXXXXX", config_file);
-  
-  /* Open file to configuration write. */
-  fd = mkstemp (config_file_tmp);
-  if (fd < 0)
-    {
-      vty_out (vty, "Can't open configuration file %s.%s", config_file_tmp,
-	       VTY_NEWLINE);
-      goto finished;
-    }
-  
-  /* Make vty for configuration file. */
-  file_vty = vty_new ();
-  file_vty->fd = fd;
-  file_vty->type = VTY_FILE;
-
-  /* Config file header print. */
-  vty_out (file_vty, "!\n! mul-cli configuration saved from vty\n!   ");
-  vty_time_print (file_vty, 1);
-  vty_out (file_vty, "!\n");
-
-  for (i = 0; i < vector_active (cmdvec); i++)
-    if ((node = vector_slot (cmdvec, i)) && node->func)
-      {
-	if ((*node->func) (file_vty))
-	  vty_out (file_vty, "!\n");
-      }
-  vty_close (file_vty);
-
-  if (unlink (config_file_sav) != 0)
-    if (errno != ENOENT)
-      {
-	vty_out (vty, "Can't unlink backup configuration file %s.%s", config_file_sav,
-		 VTY_NEWLINE);
-        goto finished;
-      }
-  if (link (config_file, config_file_sav) != 0)
-    {
-      vty_out (vty, "Can't backup old configuration file %s.%s", config_file_sav,
-	        VTY_NEWLINE);
-      goto finished;
-    }
-  sync ();
-  if (unlink (config_file) != 0)
-    {
-      vty_out (vty, "Can't unlink configuration file %s.%s", config_file,
-	        VTY_NEWLINE);
-      goto finished;
-    }
-  if (link (config_file_tmp, config_file) != 0)
-    {
-      vty_out (vty, "Can't save configuration file %s.%s", config_file,
-	       VTY_NEWLINE);
-      goto finished;
-    }
-  sync ();
-  
-  if (chmod (config_file, CONFIGFILE_MASK) != 0)
-    {
-      vty_out (vty, "Can't chmod configuration file %s: %s (%d).%s", 
-	config_file, safe_strerror(errno), errno, VTY_NEWLINE);
-      goto finished;
-    }
-
-  vty_out (vty, "Configuration saved to %s%s", config_file,
-	   VTY_NEWLINE);
-  ret = CMD_SUCCESS;
-
-finished:
-  unlink (config_file_tmp);
-  XFREE (MTYPE_TMP, config_file_tmp);
-  XFREE (MTYPE_TMP, config_file_sav);
-  return ret;
+    return config_write_file_all(vty);
 }
 
 ALIAS (config_write_file, 
@@ -2707,57 +2960,66 @@ DEFUN (config_write_terminal,
        "Write running configuration to memory, network, or terminal\n"
        "Write to terminal\n")
 {
-  unsigned int i;
-  struct cmd_node *node;
-
-  if (vty->type == VTY_SHELL_SERV)
-    {
-      for (i = 0; i < vector_active (cmdvec); i++)
-	if ((node = vector_slot (cmdvec, i)) && node->func && node->vtysh)
-	  {
-	    if ((*node->func) (vty))
-	      vty_out (vty, "!%s", VTY_NEWLINE);
-	  }
-    }
-  else
-    {
-      vty_out (vty, "%sCurrent configuration:%s", VTY_NEWLINE,
-	       VTY_NEWLINE);
-      vty_out (vty, "!%s", VTY_NEWLINE);
-
-      for (i = 0; i < vector_active (cmdvec); i++)
-	if ((node = vector_slot (cmdvec, i)) && node->func)
-	  {
-	    if ((*node->func) (vty))
-	      vty_out (vty, "!%s", VTY_NEWLINE);
-	  }
-      vty_out (vty, "end%s",VTY_NEWLINE);
-    }
-  return CMD_SUCCESS;
+   return config_write_terminal_all(vty);
 }
 
 /* Write current configuration into the terminal. */
+/* For MuL
 ALIAS (config_write_terminal,
        show_running_config_cmd,
        "show running-config",
        SHOW_STR
        "running configuration\n")
+*/
 
 /* Write startup configuration into the terminal. */
 DEFUN (show_startup_config,
        show_startup_config_cmd,
        "show startup-config",
        SHOW_STR
-       "Contentes of startup configuration\n")
+       "Show startup configuration\n")
 {
   char buf[BUFSIZ];
   FILE *confp;
+  char **conf_arr = NULL;
+  int num_files = 0, fl;
+  char config_file[256];
+
+  if (host.config == NULL)
+    {
+      if (vty)
+        vty_out (vty, "Can't save to conf file, using vtysh.%s",
+           VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  if (host.get_conf_file_params == NULL)
+    {
+      if (vty)
+        vty_out (vty, "Can't save to conf file, no params.%s",
+           VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  if (!(conf_arr = host.get_conf_file_params(&num_files)))
+    {
+      if (vty)
+        vty_out (vty, "Can't save to conf file, get param fail.%s",
+           VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  for (fl = 0; fl < num_files; fl++)
+    {
+      if (!conf_arr[fl])
+        goto finished_free;
+    }
 
   confp = fopen (host.config, "r");
   if (confp == NULL)
     {
       vty_out (vty, "Can't open configuration file [%s]%s",
-	       host.config, VTY_NEWLINE);
+           host.config, VTY_NEWLINE);
       return CMD_WARNING;
     }
 
@@ -2771,8 +3033,43 @@ DEFUN (show_startup_config,
 
       vty_out (vty, "%s%s", buf, VTY_NEWLINE);
     }
-
+  vty_out (vty, "%s", VTY_NEWLINE);
   fclose (confp);
+
+  for ( fl = 0; fl < num_files; fl++)
+    {
+        memset(config_file, 0, sizeof(config_file));
+        strncpy(config_file, host.config, strlen(host.config));
+        strncat(config_file, conf_arr[fl],
+            sizeof(config_file)-1-strlen(config_file));
+        confp = fopen (config_file, "r");
+        if (confp == NULL)
+          {
+            /*vty_out (vty, "Can't open per switch configuration file [%s]%s",
+                     config_file, VTY_NEWLINE);*/
+            continue;
+          }
+
+        while (fgets (buf, BUFSIZ, confp))
+          {
+             char *cp = buf;
+             while (*cp != '\r' && *cp != '\n' && *cp != '\0')
+                cp++;
+             *cp = '\0';
+             vty_out (vty, "%s%s", buf, VTY_NEWLINE);
+          }
+        vty_out (vty, "%s", VTY_NEWLINE);
+        fclose (confp);
+    }
+
+finished_free:
+  if (conf_arr) {
+    for (fl = 0; fl < num_files; fl++) {
+      if (conf_arr[fl])
+        free((void *)(conf_arr[fl]));
+    }
+    free(conf_arr);
+  }
 
   return CMD_SUCCESS;
 }
@@ -2812,11 +3109,9 @@ DEFUN (config_no_hostname,
 
 /* VTY interface password set. */
 DEFUN (config_password, password_cmd,
-       "password (8|) WORD",
+       "password WORD",
        "Assign the terminal connection password\n"
-       "Specifies a HIDDEN password will follow\n"
-       "dummy string \n"
-       "The HIDDEN line password string\n")
+       "The HIDDEN password string\n")
 {
   /* Argument check. */
   if (argc == 0)
@@ -2825,60 +3120,53 @@ DEFUN (config_password, password_cmd,
       return CMD_WARNING;
     }
 
-  if (argc == 2)
-    {
-      if (*argv[0] == '8')
-	{
-	  if (host.password)
-	    XFREE (MTYPE_HOST, host.password);
-	  host.password = NULL;
-	  if (host.password_encrypt)
-	    XFREE (MTYPE_HOST, host.password_encrypt);
-	  host.password_encrypt = XSTRDUP (MTYPE_HOST, argv[1]);
-	  return CMD_SUCCESS;
-	}
-      else
-	{
-	  vty_out (vty, "Unknown encryption type.%s", VTY_NEWLINE);
-	  return CMD_WARNING;
-	}
-    }
+  if (host.password)
+	XFREE (MTYPE_HOST, host.password);
+  host.password = NULL;
+  if (host.password_encrypt)
+    XFREE (MTYPE_HOST, host.password_encrypt);
+  host.password_encrypt = NULL;
 
-  if (!isalnum ((int) *argv[0]))
+  if (!vty->replay)
     {
-      vty_out (vty, 
-	       "Please specify string starting with alphanumeric%s", VTY_NEWLINE);
-      return CMD_WARNING;
+      host.password_encrypt = XSTRDUP (MTYPE_HOST, zencrypt(argv[0]));
+      host.password = XSTRDUP (MTYPE_HOST, argv[0]);
     }
+  else
+    {
+      host.password_encrypt = XSTRDUP (MTYPE_HOST, argv[0]);  
+    }
+  return CMD_SUCCESS;
+}
 
+/* VTY enable password delete. */
+DEFUN (no_password, no_password_cmd,
+       "no password",
+       NO_STR
+       "Assign the privileged level password\n")
+{
   if (host.password)
     XFREE (MTYPE_HOST, host.password);
   host.password = NULL;
-
-  if (host.encrypt)
-    {
-      if (host.password_encrypt)
-	XFREE (MTYPE_HOST, host.password_encrypt);
-      host.password_encrypt = XSTRDUP (MTYPE_HOST, zencrypt (argv[0]));
-    }
-  else
-    host.password = XSTRDUP (MTYPE_HOST, argv[0]);
+  if (host.password_encrypt)
+    XFREE (MTYPE_HOST, host.password_encrypt);
+  host.password_encrypt = NULL;
 
   return CMD_SUCCESS;
 }
 
+/*
 ALIAS (config_password, password_text_cmd,
        "password LINE",
        "Assign the terminal connection password\n"
-       "The UNENCRYPTED (cleartext) line password\n")
+      "The UNENCRYPTED (cleartext) line password\n")
+*/
 
 /* VTY enable password set. */
 DEFUN (config_enable_password, enable_password_cmd,
-       "enable password (8|) WORD",
+       "enable password WORD",
        "Modify enable password parameters\n"
        "Assign the privileged level password\n"
-       "Specifies a HIDDEN password will follow\n"
-       "dummy string \n"
        "The HIDDEN 'enable' password string\n")
 {
   /* Argument check. */
@@ -2888,58 +3176,33 @@ DEFUN (config_enable_password, enable_password_cmd,
       return CMD_WARNING;
     }
 
-  /* Crypt type is specified. */
-  if (argc == 2)
-    {
-      if (*argv[0] == '8')
-	{
-	  if (host.enable)
-	    XFREE (MTYPE_HOST, host.enable);
-	  host.enable = NULL;
-
-	  if (host.enable_encrypt)
-	    XFREE (MTYPE_HOST, host.enable_encrypt);
-	  host.enable_encrypt = XSTRDUP (MTYPE_HOST, argv[1]);
-
-	  return CMD_SUCCESS;
-	}
-      else
-	{
-	  vty_out (vty, "Unknown encryption type.%s", VTY_NEWLINE);
-	  return CMD_WARNING;
-	}
-    }
-
-  if (!isalnum ((int) *argv[0]))
-    {
-      vty_out (vty, 
-	       "Please specify string starting with alphanumeric%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
-
   if (host.enable)
-    XFREE (MTYPE_HOST, host.enable);
+	XFREE (MTYPE_HOST, host.enable);
   host.enable = NULL;
-
-  /* Plain password input. */
-  if (host.encrypt)
+  if (host.enable_encrypt)
+    XFREE (MTYPE_HOST, host.enable_encrypt);
+  host.enable_encrypt = NULL;
+  if (!vty->replay)
     {
-      if (host.enable_encrypt)
-	XFREE (MTYPE_HOST, host.enable_encrypt);
-      host.enable_encrypt = XSTRDUP (MTYPE_HOST, zencrypt (argv[0]));
+      host.enable_encrypt = XSTRDUP (MTYPE_HOST, zencrypt(argv[0]));
+      host.enable = XSTRDUP (MTYPE_HOST, argv[0]);
     }
-  else
-    host.enable = XSTRDUP (MTYPE_HOST, argv[0]);
+  else 
+    {
+      host.enable_encrypt = XSTRDUP (MTYPE_HOST, argv[0]);
+    }
 
   return CMD_SUCCESS;
 }
 
+/*
 ALIAS (config_enable_password,
        enable_password_text_cmd,
        "enable password LINE",
        "Modify enable password parameters\n"
        "Assign the privileged level password\n"
        "The UNENCRYPTED (cleartext) 'enable' password\n")
+*/
 
 /* VTY enable password delete. */
 DEFUN (no_config_enable_password, no_enable_password_cmd,
@@ -3557,6 +3820,17 @@ host_config_set (char *filename)
   host.config = XSTRDUP (MTYPE_HOST, filename);
 }
 
+/* Set switch specific filenames. (For MUL) */
+void
+host_config_file_cb_set(char *filename,
+                        char **(*conf_file_get_cb)(int *num))
+{
+    if (host.config)
+      XFREE (MTYPE_HOST, host.config);
+    host.config = XSTRDUP (MTYPE_HOST, filename);
+    host.get_conf_file_params = conf_file_get_cb;
+}
+
 void
 install_default (enum node_type node)
 {
@@ -3564,11 +3838,13 @@ install_default (enum node_type node)
   install_element (node, &config_quit_cmd);
   install_element (node, &config_end_cmd);
 
+/*
   install_element (node, &config_write_terminal_cmd);
   install_element (node, &config_write_file_cmd);
   install_element (node, &config_write_memory_cmd);
   install_element (node, &config_write_cmd);
   install_element (node, &show_running_config_cmd);
+*/
 }
 
 /* Initialize command interface. Install basic nodes and commands. */
@@ -3591,6 +3867,7 @@ cmd_init (int terminal)
   host.lines = -1;
   host.motd = default_motd;
   host.motdfile = NULL;
+  host.encrypt = 1; /* enabled by default */
 
   /* Install top nodes. */
   install_node (&view_node, NULL);
@@ -3617,7 +3894,7 @@ cmd_init (int terminal)
       install_default (ENABLE_NODE);
       install_element (ENABLE_NODE, &config_disable_cmd);
       install_element (ENABLE_NODE, &config_terminal_cmd);
-      install_element (ENABLE_NODE, &copy_runningconfig_startupconfig_cmd);
+      /* install_element (ENABLE_NODE, &copy_runningconfig_startupconfig_cmd); */
     }
   install_element (ENABLE_NODE, &show_startup_config_cmd);
 
@@ -3629,9 +3906,23 @@ cmd_init (int terminal)
       install_default (CONFIG_NODE);
     }
   
+  install_element (CONFIG_NODE, &hostname_cmd);
+  install_element (CONFIG_NODE, &no_hostname_cmd);
+
   if (terminal)
     {
-
+      install_element_attr_type (CONFIG_NODE, &password_cmd,
+                                 CONFIG_NODE);
+      install_element_attr_type (CONFIG_NODE, &enable_password_cmd,
+                                 CONFIG_NODE);
+      install_element(CONFIG_NODE, &no_password_cmd);
+      install_element(CONFIG_NODE, &no_enable_password_cmd);
+/*
+      install_element_attr_type(CONFIG_NODE, &service_password_encrypt_cmd,
+                                CONFIG_NODE);
+      install_element_attr_type(CONFIG_NODE, &no_service_password_encrypt_cmd,
+                                CONFIG_NODE);
+*/
       install_element (CONFIG_NODE, &service_terminal_length_cmd);
       install_element (CONFIG_NODE, &no_service_terminal_length_cmd);
 
@@ -3640,7 +3931,7 @@ cmd_init (int terminal)
 }
 
 void
-cmd_terminate ()
+cmd_terminate (void)
 {
   unsigned int i, j, k, l;
   struct cmd_node *cmd_node;

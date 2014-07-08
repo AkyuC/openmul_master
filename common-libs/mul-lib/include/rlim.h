@@ -46,4 +46,17 @@ struct c_rlim_dat name__ = {        \
     .max = max__ \
 } \
 
+static inline void
+c_rlim_dat_init(struct c_rlim_dat *rs, uint32_t msecs, int max)
+{
+    memset(rs, 0, sizeof(struct c_rlim_dat));
+    c_rw_lock_init(&rs->lock);
+    rs->limit_ts.tv_sec = (msecs)/1000;
+    rs->limit_ts.tv_usec = ((msecs%1000)*1000);
+
+    rs->max = max;
+}
+
+int c_rlim_dat_update(struct c_rlim_dat *rs, uint32_t pps);
+
 #endif 

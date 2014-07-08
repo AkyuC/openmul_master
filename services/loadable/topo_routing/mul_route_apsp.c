@@ -85,7 +85,8 @@ mul_route_apsp_hearbeat(evutil_socket_t fd UNUSED, short event UNUSED,
  */
 void 
 mul_route_apsp_add_neigh_conn(void *hdl, int sw_a, int sw_b, 
-                              lweight_pair_t *new_adj)
+                              lweight_pair_t *new_adj,
+                              bool update)
 {
     tr_struct_t *tr = hdl;
     rt_apsp_t *rt_apsp_info;
@@ -108,12 +109,16 @@ mul_route_apsp_add_neigh_conn(void *hdl, int sw_a, int sw_b,
         return;
     }
 
-    c_log_debug("%s:src_sw:port(%d:%d)->dst_sw:port(%d:%d)", 
-                FN, sw_a, new_adj->la, sw_b, new_adj->lb); 
+    c_log_debug("|rt-conn| src(%d:%d)->dst(%d:%d) (%6d) %s:%s", 
+                sw_a, new_adj->la, sw_b, new_adj->lb,
+                new_adj->weight,
+                new_adj->flags & NEIGH_FL_ONLINK ? "ON":"OFF",
+                new_adj->flags & NEIGH_FL_BLOCK ? "B":"NB");
 
     adj_elem = RT_APSP_ADJ_ELEM(rt_apsp_info, sw_a, sw_b);
     if (adj_elem->pairs >= RT_MAX_ADJ_PAIRS-1) {
-        c_log_err("%s: Cant support adjacency pairs > %u", FN, RT_MAX_ADJ_PAIRS);
+        c_log_err("%s: Cant support adjacency pairs > %u",
+                  FN, RT_MAX_ADJ_PAIRS);
         return;
     }
 
@@ -121,13 +126,21 @@ mul_route_apsp_add_neigh_conn(void *hdl, int sw_a, int sw_b,
         adj = &adj_elem->adj_pairs[pair];
 
         if (adj->la == new_adj->la && adj->lb == new_adj->lb) {
-            if (adj->weight != new_adj->weight) {
+            if (adj->weight != new_adj->weight ||
+                adj->flags != new_adj->flags) {
+                if (update) {
+                    rt_apsp_info->state_info->state &= ~RT_APSP_ADJ_INIT;
+                    return;
+                }
                 adj->weight = new_adj->weight;        
-                rt_apsp_info->state_info->state &= ~RT_APSP_ADJ_INIT; /* Force recalc */
+                adj->flags = new_adj->flags;
+                rt_apsp_info->state_info->state &= ~RT_APSP_ADJ_INIT;
             }
             return;
         }
     }
+
+    if (update) return;
 
     if (pair < RT_MAX_ADJ_PAIRS) {
         adj = &adj_elem->adj_pairs[pair];
@@ -135,7 +148,7 @@ mul_route_apsp_add_neigh_conn(void *hdl, int sw_a, int sw_b,
         adj->la = new_adj->la;
         adj->lb = new_adj->lb;
         adj->weight = new_adj->weight;
-        adj->onlink = true;
+        adj->flags = new_adj->flags;
         adj_elem->pairs++;
 
         rt_apsp_info->state_info->state &= ~RT_APSP_ADJ_INIT; /* Force recalc */
@@ -147,11 +160,12 @@ mul_route_apsp_add_neigh_conn(void *hdl, int sw_a, int sw_b,
 /*
  * mul_route_apsp_init_state -
  * @hdl: Main module struct
+ * @need_port_state: If routing needs port-blocked status
  *
  * Initialize APSP state to latest topology map 
  */
 int
-mul_route_apsp_init_state(void *hdl)
+mul_route_apsp_init_state(void *hdl, bool need_port_state)
 {
     tr_struct_t *tr = hdl;
     rt_prot_hdl_t *rt_prot;
@@ -166,7 +180,7 @@ mul_route_apsp_init_state(void *hdl)
 
     rt_prot = tr->rt.rt_priv;
 
-    c_log_debug("%s: ", FN);
+    c_log_debug("|rt| apsp-init");
 
     if (!rt_prot->rt_prot_info) {
         c_log_err("%s: [fatal] RT apsp block not found", FN);
@@ -206,6 +220,7 @@ mul_route_apsp_init_state(void *hdl)
     rt_apsp_info->state_info->state = RT_APSP_INIT;
 
     tr_neigh_arg.tr = tr;
+    tr_neigh_arg.send_port_state = need_port_state;
 
     for (i = 0; i < nodes; i++) {
         for (j = 0; j < nodes; j++) {
@@ -299,6 +314,40 @@ mul_route_apsp_calc(void *hdl)
 
     return 0;
 }
+
+/*
+ *  mul_route_apsp_recalc -
+ *  @hdl: Main module struct
+ *
+ *  Re Calculate the all pairs shortest paths  
+ *  taking into account port-blocked status
+ */
+int
+mul_route_apsp_recalc(void *hdl)
+{
+    rt_apsp_t *rt_apsp_info;
+    tr_struct_t *tr = hdl;
+
+    assert(tr && tr->rt.rt_priv);
+
+    rt_apsp_info  = RT_APSP_INFO(tr);
+
+    if (!(rt_apsp_info->state_info->state & RT_APSP_ADJ_INIT)) {
+        if (tr->rt.rt_clean_state) {
+            tr->rt.rt_clean_state(tr);
+        }
+        if (tr->rt.rt_init_state) {
+            tr->rt.rt_init_state(tr, true);
+        }
+        if (tr->rt.rt_calc) {
+            tr->rt.rt_calc(tr);
+        }
+        c_log_debug("|rt| recalc");
+    }
+
+    return 0;
+}
+
 
 /**
  * add_route_path_elem -
@@ -497,6 +546,7 @@ mul_route_init(tr_struct_t *tr)
     rt_info->rt_init_state = mul_route_apsp_init_state; 
     rt_info->rt_add_neigh_conn = mul_route_apsp_add_neigh_conn;
     rt_info->rt_calc = mul_route_apsp_calc; 
+    rt_info->rt_recalc = mul_route_apsp_recalc; 
     rt_info->rt_get_sp = mul_route_apsp_get_path;
     rt_info->rt_clean_state = mul_route_apsp_clean_state;
     rt_info->rt_dump_adj_matrix = mul_route_apsp_dump_adj_matrix;

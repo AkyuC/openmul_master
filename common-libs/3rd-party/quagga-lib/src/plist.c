@@ -87,6 +87,7 @@ static struct prefix_master prefix_master_ipv4 =
   1,
   NULL,
   NULL,
+  NULL
 };
 
 #ifdef HAVE_IPV6
@@ -98,6 +99,7 @@ static struct prefix_master prefix_master_ipv6 =
   1,
   NULL,
   NULL,
+  NULL
 };
 #endif /* HAVE_IPV6*/
 
@@ -109,6 +111,7 @@ static struct prefix_master prefix_master_orf =
   1,
   NULL,
   NULL,
+  NULL
 };
 
 static struct prefix_master *
@@ -2625,9 +2628,9 @@ prefix_list_reset_orf (void)
 /* Prefix-list node. */
 static struct cmd_node prefix_node =
 {
-  PREFIX_NODE,
-  "",				/* Prefix list has no interface. */
-  1
+  .node = PREFIX_NODE,
+  .prompt = "",				/* Prefix list has no interface. */
+  .vtysh = 1
 };
 
 static int
@@ -2734,9 +2737,9 @@ prefix_list_init_ipv4 (void)
 /* Prefix-list node. */
 static struct cmd_node prefix_ipv6_node =
 {
-  PREFIX_IPV6_NODE,
-  "",				/* Prefix list has no interface. */
-  1
+  .node = PREFIX_IPV6_NODE,
+  .prompt = "",				/* Prefix list has no interface. */
+  .vtysh = 1
 };
 
 static int
@@ -2841,7 +2844,7 @@ prefix_list_init_ipv6 (void)
 #endif /* HAVE_IPV6 */
 
 void
-prefix_list_init ()
+prefix_list_init (void)
 {
   prefix_list_init_ipv4 ();
 #ifdef HAVE_IPV6
@@ -2850,7 +2853,7 @@ prefix_list_init ()
 }
 
 void
-prefix_list_reset ()
+prefix_list_reset (void)
 {
   prefix_list_reset_ipv4 ();
 #ifdef HAVE_IPV6

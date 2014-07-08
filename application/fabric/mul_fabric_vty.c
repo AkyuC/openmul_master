@@ -18,6 +18,8 @@
 #include "mul_fabric_common.h"
 #include "mul_vty.h"
 
+#ifdef MUL_APP_VTY
+
 extern fab_struct_t *fab_ctx;
 
 static void
@@ -94,7 +96,7 @@ __add_fab_host_cmd(struct vty *vty, const char **argv, bool is_gw)
         return CMD_WARNING;
     }
 
-    fl.nw_src = host_ip.prefix.s_addr;
+    fl.ip.nw_src = host_ip.prefix.s_addr;
     fab_add_tenant_id(&fl, NULL, tenant_id); 
     fab_add_network_id(&fl, network_id); 
     fl.FL_DFL_GW = is_gw;
@@ -253,7 +255,7 @@ DEFUN (del_fab_host,
         return CMD_WARNING;
     }
 
-    fl.nw_src = host_ip.prefix.s_addr;
+    fl.ip.nw_src = host_ip.prefix.s_addr;
     fab_add_tenant_id(&fl, NULL, tenant_id); 
     fab_add_network_id(&fl, network_id); 
 
@@ -436,3 +438,11 @@ fabric_vty_init(void *arg UNUSED)
     install_element(ENABLE_NODE, &fab_route_mp_cmd);
     install_element(ENABLE_NODE, &fab_route_mp_dis_cmd);
 }
+
+#else
+/* install available commands */
+void
+fabric_vty_init(void *arg UNUSED)
+{
+}
+#endif

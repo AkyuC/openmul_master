@@ -19,6 +19,25 @@
 #ifndef __MUL_LLDP_COMMON_H__
 #define __MUL_LLDP_COMMON_H__ 
 
+
+struct loop_dat_ {
+    uint64_t     root_dpid;           /* Used by loop detector */
+
+#define LOOP_STATE_RESET 0
+#define LOOP_STATE_ROOT_ELECT 1
+#define LOOP_STATE_ROOT_COST_CALC 2
+#define LOOP_STATE_DP_SELECT 3
+#define LOOP_STATE_NONE_SELECT 4
+    unsigned int next_loop_state;     /* Loop detection state machine */
+    bool         loop_blocked;        /* Loop detection is complete */
+    void         *root_sw;            /* Root switch used in state machine */
+    bool         loop_reset_only;     /* Flag to notify only state reset */
+    int          loop_conv_state;     /* State of loop convergence */
+    int          held_ports;
+    int          clr_ports;
+};
+typedef struct loop_dat_  loop_dat_t;
+
 /* Main global entry struct */
 struct topo_hdl_ {
     struct event *lldp_update_event;  /* ptr to link expiration check event */
@@ -26,8 +45,8 @@ struct topo_hdl_ {
     c_rw_lock_t  switch_lock;         /* rwlock for switch table */
     c_rw_lock_t  pkt_lock;            /* rwlock for outstanding packet table */
     void         *sw_imap;            /* Direct Index map with switch id alias  */ 
-    int          max_sw_alias;
-
+    int          max_sw_alias;        /* Max switch alias we know of */
+    loop_dat_t  loop_info;            /* Used for loop detection */ 
     tr_struct_t  *tr;
 };
 
@@ -43,10 +62,13 @@ struct lldp_sent_pkt_ {
 struct lldp_switch_ {
     c_rw_lock_t lock; /* one lock since both hashtable must be modified concurrently */
     c_atomic_t  ref;   /* reference counting */
+#define MUL_LLDP_INV_DPID (0xffffffffffffffff)
     uint64_t    dpid; /* switch id */
     int         alias_id; /* Alias canonical id */
     GHashTable  *ports; /* table of ports - lookup lldp_port_t by portid */
     GHashTable  *neighbors; /* table of neighbors - lookup port_list by neighbor id */
+    bool        root_switch;
+    int         root_path_cost;
 };
 
 enum lldp_port_status {
@@ -55,12 +77,26 @@ enum lldp_port_status {
     LLDP_PORT_STATUS_EXTERNAL  /* Connection to unmanaged party */
 };
 
+enum loop_port_status {
+    LOOP_PORT_STATUS_INIT, /* Init state in disabled mode */
+    LOOP_PORT_STATUS_NONE, /* Disconnected Links */
+    LOOP_PORT_STATUS_DP,   /* Designated port */
+    LOOP_PORT_STATUS_RP,   /* Root port */
+    LOOP_PORT_STATUS_NDP,  /* Disabled port due to loop */
+    LOOP_PORT_STATUS_DP_N  /* Special form of designated port */
+};
+
 /* struct for each port in a switch */
 struct lldp_port_ {
     uint16_t    port_no;
     uint8_t     status; /* one of LLDP_PORT_STATUS_ flags */
+    uint8_t     loop_status; /* one of LOOP_PORT_STATUS_ flags */
+    uint8_t     old_loop_status; /* one of LOOP_PORT_STATUS_ flags */
+    uint8_t     commit_loop_status; /* one of LOOP_PORT_STATUS_ flags */
     uint32_t    config; /* one of OFPPC_ flags */
     uint32_t    state;  /* one of OFPPS_ flags */
+
+    time_t      hold_time;
 
     /* fields below are only valid if status == LLDP_PORT_STATUS_NEIGHBOR */
     uint16_t    neighbor_port; /* port # of switch at other end*/
@@ -126,14 +162,19 @@ lldp_get_switch_from_imap(topo_hdl_t *topo, int idx)
 }
 
 struct cbuf *lldp_service_neigh_request(uint64_t dpid, uint32_t xid);
+void lldp_service_set_loop_detect(bool enable);
+void __lldp_switch_traverse_all(topo_hdl_t *topo_hdl, GHFunc iter_fn, void *arg);
 void lldp_switch_traverse_all(topo_hdl_t *topo_hdl, GHFunc iter_fn, void *arg);
 void lldp_port_traverse_all(lldp_switch_t *lldpsw, GHFunc iter_fn, void *arg);
+void __lldp_port_traverse_all(lldp_switch_t *lldpsw, GHFunc iter_fn, void *arg);
+unsigned int __lldp_num_ports_in_switch(lldp_switch_t *lldpsw);
 int lldp_packet_handler(uint64_t receiver_id, uint16_t receiver_port, lldp_pkt_t *pkt);
 void lldp_port_status_handler(void *app_arg, c_ofp_port_status_t *port_stat);
 int mul_lldp_init(tr_struct_t *tr);
 lldp_port_t *lldp_port_find(lldp_switch_t *lldp_sw, uint16_t port_id);
 lldp_port_t *__lldp_port_find(lldp_switch_t *lldp_sw, uint16_t port_id);
 lldp_switch_t *fetch_and_retain_switch(uint64_t dpid);
+lldp_switch_t *__fetch_and_retain_switch(uint64_t dpid);
 void lldp_neigh_portlist_destroy(void *key);
 void lldp_switch_unref(lldp_switch_t *lldp_switch);
 void lldp_traverse_all_neigh_ports(lldp_neigh_t *neigh, GFunc iter_fn, void *u_arg);

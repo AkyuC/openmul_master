@@ -315,6 +315,7 @@ DEFUN (distribute_list_all,
 
   /* Get interface name corresponding distribute list. */
   dist = distribute_list_set (NULL, type, argv[0]);
+  vty_out (vty, "list is set %p %s", dist, VTY_NEWLINE);
 
   return CMD_SUCCESS;
 }
@@ -394,6 +395,7 @@ DEFUN (distribute_list,
 
   /* Get interface name corresponding distribute list. */
   dist = distribute_list_set (argv[2], type, argv[0]);
+  vty_out (vty, "list is set %p %s", dist, VTY_NEWLINE);
 
   return CMD_SUCCESS;
 }       
@@ -474,6 +476,7 @@ DEFUN (districute_list_prefix_all,
 
   /* Get interface name corresponding distribute list. */
   dist = distribute_list_prefix_set (NULL, type, argv[0]);
+  vty_out (vty, "list is set %p %s", dist, VTY_NEWLINE);
 
   return CMD_SUCCESS;
 }       
@@ -557,6 +560,7 @@ DEFUN (districute_list_prefix, distribute_list_prefix_cmd,
 
   /* Get interface name corresponding distribute list. */
   dist = distribute_list_prefix_set (argv[2], type, argv[0]);
+  vty_out (vty, "list is set %p %s", dist, VTY_NEWLINE);
 
   return CMD_SUCCESS;
 }       
@@ -749,7 +753,7 @@ config_write_distribute (struct vty *vty)
 
 /* Clear all distribute list. */
 void
-distribute_list_reset ()
+distribute_list_reset (void)
 {
   hash_clean (disthash, (void (*) (void *)) distribute_free);
 }

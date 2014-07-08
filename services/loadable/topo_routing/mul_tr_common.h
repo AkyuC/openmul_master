@@ -25,15 +25,16 @@ struct rt_info_
     bool    rt_trigger;
     bool    rt_init_trigger;
 #define RT_INIT_TRIGGER_TS (4)
-#define RT_PERIODIC_TRIGGER_TS (10*60)
+#define RT_PERIODIC_TRIGGER_TS (60)
     time_t  rt_next_trigger_ts;
     void    *rt_priv;
-    int     (*rt_init_state)(void *tr);
+    int     (*rt_init_state)(void *tr, bool need_port_state);
     void    (*rt_add_neigh_conn)(void *tr_struct, int sw_a, int sw_b, 
-                                 struct lweight_pair_ *new_adj);
+                                 struct lweight_pair_ *new_adj, bool update);
     GSList  *(*rt_get_sp)(void *tr_struct, int alias_src_swid, 
                           int alias_dst_swid);
     int     (*rt_calc)(void *tr_struct);
+    int     (*rt_recalc)(void *tr_struct);
     int     (*rt_clean_state)(void *tr_struct);
     char    *(*rt_dump_adj_matrix)(void *tr_struct);
 };
@@ -45,12 +46,28 @@ struct tr_struct_ {
     void         *tr_service;     /* Topo routing service */
 
     struct rt_info_ rt;           /* Routing Info */          
+    bool         loop_trigger;    /* Trigger loop detection */
+    bool         loop_en;         /* Loop detection enabled */
+    bool         rt_timeo_set;
 };
+
+#define TR_LOOP_TRIGGER_ON(tr)     \
+do {                               \
+    (tr)->loop_trigger = true;     \
+} while(0)
+
+#define TR_LOOP_TRIGGER_OFF(tr)    \
+do {                               \
+    (tr)->loop_trigger = false;    \
+} while(0)
+
+#define TR_LOOP_TRIGGER_IS_ON(tr) ((tr)->loop_trigger && (tr)->loop_en)
 
 struct tr_neigh_query_arg {
     struct tr_struct_ *tr;
     int src_sw;
     int dst_sw;
+    bool send_port_state;
 };
 
 typedef struct tr_struct_ tr_struct_t;
@@ -59,6 +76,7 @@ typedef struct rt_info_ rt_info_t;
 
 #define TR_ROUTE_PBUF_SZ (4096)
 
+void __tr_route_recalc(tr_struct_t *tr);
 void __tr_invoke_routing(tr_struct_t *tr);
 void tr_invoke_routing(tr_struct_t *tr);
 int __tr_get_num_switches(tr_struct_t *tr);
@@ -66,6 +84,7 @@ int __tr_get_max_switch_alias(tr_struct_t *tr);
 void __tr_init_neigh_pair_adjacencies(tr_neigh_query_arg_t *arg);
 
 GSList *tr_get_route(tr_struct_t *tr, int src_node, int dst_node);
+GSList *__tr_get_route(tr_struct_t *tr, int src_node, int dst_node);
 void tr_destroy_route(GSList *route);
 char *tr_dump_route(GSList *route_path);
 char *tr_show_route_adj_matrix(tr_struct_t *tr);

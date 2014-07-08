@@ -170,7 +170,7 @@ signal_set (int signo)
 /* XXX This function should be enhanced to support more platforms
        (it currently works only on Linux/x86). */
 static void *
-program_counter(void *context)
+program_counter(void *context __attribute__((unused)))
 {
 #ifdef HAVE_UCONTEXT_H
 #ifdef GNU_LINUX
@@ -310,7 +310,8 @@ trap_default_signals(void)
 }
 
 void 
-q_signal_init (struct thread_master *m, int sigc, 
+q_signal_init (struct thread_master *m __attribute__((unused)),
+               int sigc, 
                struct quagga_signal_t signals[])
 {
 

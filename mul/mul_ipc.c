@@ -49,14 +49,15 @@ c_send_unicast_ipc_msg(int fd, void *msg)
     struct c_ipc_hdr   *ipc_hdr = msg;
     int                ret;
 
-
     ret = write(fd, msg, ipc_hdr->ipc_msg_len);
     if (ret < 0) {
         c_log_warn("ipc_write failed");
+        free(msg);
         return ret;
     }
 
     /* TODO : ret < len : reschedule write */
+    free(msg);
 
     return 0;
 }

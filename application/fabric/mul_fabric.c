@@ -100,7 +100,7 @@ fab_port_add_cb(mul_switch_t *sw,  mul_port_t *port)
 
     fab_sw = fab_switch_get(fab_ctx, sw->dpid);
     if (!fab_sw) {
-        c_log_err("%s: Unknown switch (0x%llx)", FN, sw->dpid);
+        c_log_err("%s: Unknown switch (0x%llx)", FN, U642ULL(sw->dpid));
         return;
     }
 
@@ -122,7 +122,7 @@ fab_port_del_cb(mul_switch_t *sw,  mul_port_t *port)
 
     fab_sw = fab_switch_get(fab_ctx, sw->dpid);
     if (!fab_sw) {
-        c_log_err("%s: Unknown switch (0x%llx)", FN, sw->dpid);
+        c_log_err("%s: Unknown switch (0x%llx)", FN, U642ULL(sw->dpid));
         return;
     }
 
@@ -144,13 +144,15 @@ fab_port_chg(mul_switch_t *sw,  mul_port_t *port, bool adm, bool link)
 
     fab_sw = fab_switch_get(fab_ctx, sw->dpid);
     if (!fab_sw) {
-        c_log_err("%s: Unknown switch (0x%llx)", FN, sw->dpid);
+        c_log_err("%s: Unknown switch (0x%llx)", FN, U642ULL(sw->dpid));
         return;
     }
 
     fab_port_update(fab_ctx, fab_sw, port->port_no, port->config, port->state);
     if (adm && link) {
         fab_ctx->rt_scan_all_pending = true;
+    } else if (!adm || !link) {
+        fab_delete_routes_with_port(fab_ctx, sw->alias_id, port->port_no);
     }
     fab_switch_put(fab_sw);
 }

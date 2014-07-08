@@ -22,8 +22,7 @@ libmul_la_SOURCES = \
             mul_servlet.c
 
 mul_SOURCES = mul_app_interface.c mul_fp.c mul_main.c mul_thread_core.c \
-              mul_events.c mul_ipc.c mul_of.c mul_vty.c \
-              ../common/mul_of_msg.c ../common/mul_service.c
+              mul_events.c mul_ipc.c mul_of.c mul_vty.c
 
 LD_FLAGS= @LDFLAGS@ 
 
@@ -37,10 +36,20 @@ LD_FLAGS += -Wl,-rpath=$(LIB_EVENT) -L$(LIB_EVENT)
 INCLUDES += -I$(LIBEVENT_INCLUDE)
 endif
 
-mul_LDADD = $(top_srcdir)/common-libs/3rd-party/derived-lib/.libs/libutil.a  \
-            $(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libzebra.a \
-            $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a 
+C_FLAGS= @CFLAGS@
+mul_CFLAGS = $(C_FLAGS)
 
-mul_LDFLAGS = $(LD_FLAGS) -lpthread -lglib-2.0 -levent -lcrypt 
+if HAVE_MUL_VTY
+mul_CFLAGS += -DMUL_APP_VTY
+endif
 
-noinst_HEADERS = mul_events.h mul.h mul_of.h mul_priv.h mul_thread.h
+mul_LDADD = \
+            $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a  -lcrypto -lssl
+
+if HAVE_MUL_VTY
+mul_LDADD += $(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libcli.a
+endif
+
+mul_LDFLAGS = $(LD_FLAGS) -lpthread -lglib-2.0 -levent
+
+noinst_HEADERS = mul_events.h mul.h mul_of.h mul_priv.h mul_thread.h mul_fp.h

@@ -32,11 +32,17 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#include <openssl/crypto.h>
+#include <openssl/rand.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+
+#include "event2/event.h"
 #include "cbuf.h"
 #include "c_util.h"
 
 int
-c_daemon (int nochdir, int noclose)
+c_daemon(int nochdir, int noclose, const char *path)
 {
     pid_t pid;
 
@@ -49,6 +55,8 @@ c_daemon (int nochdir, int noclose)
     if (pid != 0) {
         exit (0);
     }
+
+    umask (0027);
 
     pid = setsid();
 
@@ -63,6 +71,10 @@ c_daemon (int nochdir, int noclose)
         }
     }
 
+    if (path) {
+        c_pid_output(path);
+    }
+
     if (!noclose) {
         int fd;
 
@@ -75,8 +87,6 @@ c_daemon (int nochdir, int noclose)
 	            close (fd);
 	    }
     }
-
-    umask (0027);
 
     return 0;
 }
@@ -340,6 +350,12 @@ c_hex_dump(void *ptr, int len)
     return;
 }
 
+/**
+ * c_socket_read_nonblock_loop -
+ *
+ * Non blocking read loop given socket fd 
+ * NOTE - It does not support SSL yet
+ */
 int 
 c_socket_read_nonblock_loop(int fd, void *arg, c_conn_t *conn,
                             const size_t rcv_buf_sz, 
@@ -404,6 +420,7 @@ c_socket_write_nonblock_loop(c_conn_t *conn,
     struct cbuf *buf;
     int         sent_sz;
     int         err = 0;
+    int         ssl_err = 0;
 
     if (unlikely(conn->dead)) {
         cbuf_list_purge(&conn->tx_q);
@@ -411,10 +428,41 @@ c_socket_write_nonblock_loop(c_conn_t *conn,
         goto out;
     }
 
+    /* Wait for read to complete */
+    if (conn->wr_blk_on_rd) goto out;
+
     while ((buf = cbuf_list_dequeue(&conn->tx_q))) {
-        sent_sz = send(conn->fd, buf->data, buf->len, MSG_NOSIGNAL);
+        if (conn->ssl) {
+            sent_sz = SSL_write(conn->ssl, buf->data, buf->len);
+            if (sent_sz <= 0) {
+                ssl_err = SSL_get_error(conn->ssl, sent_sz);
+                sent_sz = -1;
+                switch (ssl_err) {
+                case SSL_ERROR_WANT_WRITE:
+                    errno = EAGAIN;
+                    break;
+                case SSL_ERROR_WANT_READ:
+                    conn->wr_blk_on_rd = 1;;
+                    break;
+                case SSL_ERROR_ZERO_RETURN:
+                    conn->dead = 1;
+                    err = -1;
+                    goto out;
+                default:
+                    break;
+                }
+            }
+        }
+        else {
+            if (conn->conn_type == C_CONN_TYPE_SOCK)
+                sent_sz = send(conn->fd, buf->data, buf->len, MSG_NOSIGNAL);
+            else
+                sent_sz = write(conn->fd, buf->data, buf->len);
+        }
+
         if (sent_sz <= 0) {
             cbuf_list_queue(&conn->tx_q, buf);
+            if (conn->wr_blk_on_rd) goto out;
             if (sent_sz == 0 || errno == EAGAIN) {
                 conn->tx_err++;
                 goto sched_tx_event;
@@ -422,6 +470,11 @@ c_socket_write_nonblock_loop(c_conn_t *conn,
             conn->dead = 1;
             err = -1;
             goto out;
+        }
+
+        if (conn->rd_blk_on_wr) {
+            conn->rd_blk_on_wr = 0;
+            event_active(conn->rd_event, EV_READ, 0);
         }
 
         if (sent_sz < buf->len) {
@@ -446,6 +499,66 @@ sched_tx_event:
     sched_tx(conn);
     return err;
 
+}
+
+/**
+ * c_socket_read_msg_nonblock_loop -
+ *
+ * Non blocking message read loop given socket fd 
+ * NOTE - It does not support SSL yet
+ */
+int 
+c_socket_read_msg_nonblock_loop(int fd, void *arg, c_conn_t *conn,
+                            const size_t rcv_buf_sz, 
+                            conn_proc_t proc_msg,
+                            bool (*validate_hdr)(void *, int))
+{
+    ssize_t             rd_sz = -1, delta = 0;
+    struct cbuf         *b = NULL;
+    int                 loop_cnt = 0;
+
+    if (!conn->cbuf) {
+        b = alloc_cbuf(rcv_buf_sz);
+    } else {
+        b = conn->cbuf;
+    }
+
+    while (1) {
+        if (!cbuf_tailroom(b) || delta) {
+            b = cbuf_realloc_tailroom(b, 
+                        delta > rcv_buf_sz ? delta : rcv_buf_sz , true);
+        }
+
+        delta = 0;
+
+        if (++loop_cnt < 100) {
+            if (conn->conn_type == C_CONN_TYPE_SOCK) {
+                rd_sz = recv(fd, b->tail, cbuf_tailroom(b), MSG_TRUNC);
+            } else {
+                rd_sz = read(fd, b->tail, cbuf_tailroom(b));
+            }
+        } else rd_sz = -1;
+
+        if (rd_sz <= 0) {
+            conn->cbuf = b;
+            break;
+        }
+
+        if (rd_sz > cbuf_tailroom(b)) {
+            delta = rd_sz + cbuf_tailroom(b);
+            continue;
+        }
+
+        cbuf_put(b, rd_sz);
+
+        if (validate_hdr && !validate_hdr(b->data, rd_sz)) 
+            continue;
+
+        proc_msg(arg, b);
+        cbuf_pull(b, rd_sz);
+    }
+
+    return rd_sz;
 }
 
 int 
@@ -528,7 +641,8 @@ c_socket_drain_nonblock(int fd)
 }
 
 int
-c_socket_write_block_loop(c_conn_t *conn, struct cbuf *buf)
+__c_socket_write_block_loop(c_conn_t *conn, struct cbuf *buf,
+                            bool force_nblk)
 {
     int         sent_sz;
     int         err = 0;
@@ -539,10 +653,15 @@ c_socket_write_block_loop(c_conn_t *conn, struct cbuf *buf)
         goto out;
     }
 
+    if (force_nblk)
+        c_make_socket_nonblocking(conn->fd);
 try_again:
     sent_sz = send(conn->fd, buf->data, buf->len, MSG_NOSIGNAL);
     if (sent_sz <= 0) {
-        if (errno == EINTR) goto retry;
+        if ((force_nblk &&
+            (sent_sz == 0 || errno == EAGAIN)) ||
+            errno == EINTR)
+            goto retry;
         conn->tx_err++;
         conn->dead = 1;
         goto out;
@@ -558,6 +677,8 @@ try_again:
     free_cbuf(buf);
 
 out:
+    if (force_nblk)
+        c_make_socket_blocking(conn->fd);
     return err;
 
 retry:
@@ -569,6 +690,12 @@ retry:
     }
 
     goto try_again;
+}
+
+int
+c_socket_write_block_loop(c_conn_t *conn, struct cbuf *buf)
+{
+    return __c_socket_write_block_loop(conn, buf, false);
 }
 
 static int
@@ -684,4 +811,28 @@ c_count_one_bits(uint32_t num)
         n++;
     }
     return n;
+}
+
+size_t
+c_count_ipv6_plen(const struct in6_addr *netmask)
+{
+    int len = 0;
+    unsigned char val;
+    unsigned char *p;
+
+    p = (unsigned char *)netmask;
+
+    while ((*p == 0xff) && len < 128) {
+        len += 8;
+        p++;
+    }
+
+    if (len < 128) {
+        val = *p;
+        while (val) {
+            len++;
+            val <<= 1;
+        }
+    }
+    return len;
 }

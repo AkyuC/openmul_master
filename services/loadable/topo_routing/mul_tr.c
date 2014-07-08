@@ -68,6 +68,32 @@ tr_show_route_adj_matrix(tr_struct_t *tr)
 }
 
 /**
+ * __tr_get_route -
+ *
+ * Get a route
+ */
+GSList *
+__tr_get_route(tr_struct_t *tr, int src_node, int dst_node)
+{
+    GSList *route = NULL;
+    int num_nodes = 0;
+
+    num_nodes = __tr_get_max_switch_alias(tr);
+
+    if (!(num_nodes) || 
+        src_node < 0 || dst_node < 0 ||
+        src_node > num_nodes || dst_node > num_nodes) {
+        return NULL;        
+    }
+
+    if(tr->rt.rt_get_sp) {
+        route = tr->rt.rt_get_sp(tr, src_node, dst_node);
+    }
+
+    return route;
+}
+
+/**
  * tr_get_route -
  *
  * Get a route
@@ -76,26 +102,13 @@ GSList *
 tr_get_route(tr_struct_t *tr, int src_node, int dst_node)
 {
     GSList *route = NULL;
-    int num_nodes = 0;
     lldp_sw_rd_lock(tr->topo_hdl);
-
-    num_nodes = __tr_get_max_switch_alias(tr);
-
-    if (!(num_nodes) || 
-        src_node < 0 || dst_node < 0 ||
-        src_node > num_nodes || dst_node > num_nodes) {
-        lldp_sw_rd_unlock(tr->topo_hdl);
-        return NULL;        
-    }
-
-    if(tr->rt.rt_get_sp) {
-        route = tr->rt.rt_get_sp(tr, src_node, dst_node);
-    }
-
+    route = __tr_get_route(tr, src_node, dst_node);
     lldp_sw_rd_unlock(tr_hdl->topo_hdl);
 
     return route;
 }
+
 
 /**
  * tr_dump_route -
@@ -140,6 +153,13 @@ tr_destroy_route(GSList *route)
     return mul_destroy_route(route);
 }
 
+void
+__tr_route_recalc(tr_struct_t *tr)
+{
+    if (tr->rt.rt_recalc) {
+        tr->rt.rt_recalc(tr);
+    }
+}
 
 /**
  * __tr_invoke_routing -
@@ -153,8 +173,9 @@ __tr_invoke_routing(tr_struct_t *tr)
         tr->rt.rt_clean_state(tr);
     }
     if (tr->rt.rt_init_state) {
-        tr->rt.rt_init_state(tr);
+        tr->rt.rt_init_state(tr, false);
     }
+
     if (tr->rt.rt_calc) {
         tr->rt.rt_calc(tr);
     }
@@ -162,6 +183,8 @@ __tr_invoke_routing(tr_struct_t *tr)
     if (!tr->rt.rt_init_trigger) {
         tr->rt.rt_init_trigger = true;
     }
+
+    tr->loop_trigger = true;
 }
 
 
@@ -217,6 +240,25 @@ tr_service_error(void *tr_service, struct cbuf *b,
 }
 
 /**
+ * tr_service_success -
+ *
+ * Sends success message to service requester
+ */
+static void 
+tr_service_success(void *tr_service)
+{
+    struct cbuf             *new_b;
+    struct c_ofp_auxapp_cmd *cofp_aac;
+
+    new_b = of_prep_msg(sizeof(*cofp_aac), C_OFPT_AUX_CMD, 0);
+
+    cofp_aac = CBUF_DATA(new_b);
+    cofp_aac->cmd_code = htonl(C_AUX_CMD_SUCCESS);
+
+    c_service_send(tr_service, new_b);
+}
+
+/**
  * tr_service_request_neigh -
  *
  * Handle neigh request 
@@ -230,9 +272,9 @@ tr_service_request_neigh(void *tr_service,
     c_ofp_req_dpid_attr_t *req_dpid = (void *)(cofp_aac->data);
 
     if (ntohs(cofp_aac->header.length) < sizeof(*req_dpid)) {
-        c_log_err("%s: Size err (%u) of (%u)", FN,
+        c_log_err("%s: Size err (%u) of (%lu)", FN,
                   ntohs(cofp_aac->header.length),
-                  sizeof(*req_dpid));
+                  U322UL(sizeof(*req_dpid)));
         return;
     }
 
@@ -246,6 +288,29 @@ tr_service_request_neigh(void *tr_service,
 }
 
 /**
+ * tr_service_set_loop_detect -
+ *
+ * Enable or disable loop detection on-demand 
+ */
+static void
+tr_service_set_loop_detect(void *tr_service,
+                           struct cbuf *req_b UNUSED,
+                           struct c_ofp_auxapp_cmd *cofp_aac,
+                           bool enable)
+{
+    if (ntohs(cofp_aac->header.length) < sizeof(*cofp_aac)) {
+        c_log_err("%s: Size err (%u) of (%lu)", FN,
+                  ntohs(cofp_aac->header.length),
+                  U322UL(sizeof(*cofp_aac)));
+        return;
+    }
+
+    lldp_service_set_loop_detect(enable);
+    tr_service_success(tr_service);
+    c_log_debug("[loop-tr] %s", enable ? "enabled" : "disabled");
+}
+
+/**
  * tr_service_handler -
  *
  * Handler service requests 
@@ -256,9 +321,9 @@ tr_service_handler(void *tr_service, struct cbuf *b)
     struct c_ofp_auxapp_cmd *cofp_aac = (void *)(b->data);
 
     if (ntohs(cofp_aac->header.length) < sizeof(struct c_ofp_auxapp_cmd)) {
-        c_log_err("%s: Size err (%u) of (%u)", FN,
+        c_log_err("%s: Size err (%u) of (%lu)", FN,
                   ntohs(cofp_aac->header.length),
-                  sizeof(struct c_ofp_auxapp_cmd));
+                  U322UL(sizeof(struct c_ofp_auxapp_cmd)));
         return tr_service_error(tr_service, b, OFPET_BAD_REQUEST, OFPBRC_BAD_LEN);
     }
 

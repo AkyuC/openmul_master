@@ -56,15 +56,23 @@ lldp_send_rt_neigh_conn(void *port_arg, void *u_arg)
 
     assert(neigh_query && neigh_query->tr);
 
+    memset(&lw_pair, 0, sizeof(lw_pair));
     lw_pair.la = port->port_no;
     lw_pair.lb = port->neighbor_port;
     lw_pair.weight = NEIGH_DFL_WEIGHT;
+    lw_pair.flags = NEIGH_FL_ONLINK;
+    if (neigh_query->send_port_state && 
+        (port->loop_status == LOOP_PORT_STATUS_NDP  ||
+         port->loop_status == LOOP_PORT_STATUS_DP_N)) {
+        lw_pair.weight = 100*NEIGH_DFL_WEIGHT;
+        lw_pair.flags |= NEIGH_FL_BLOCK;
+    } 
 
     if (neigh_query->tr->rt.rt_add_neigh_conn) {
         neigh_query->tr->rt.rt_add_neigh_conn(neigh_query->tr, 
                                               neigh_query->src_sw,
                                               neigh_query->dst_sw,
-                                              &lw_pair);
+                                              &lw_pair, false);
     }
 
     return;
@@ -140,7 +148,7 @@ lldp_switch_traverse_all(topo_hdl_t *topo_hdl, GHFunc iter_fn, void *arg)
  * Traverse through all the switch list calling iter_fn for each switch found 
  * Lockless version
  */
-static void 
+void 
 __lldp_switch_traverse_all(topo_hdl_t *topo_hdl, GHFunc iter_fn, void *arg)
 {   
 
@@ -175,7 +183,7 @@ lldp_port_traverse_all(lldp_switch_t *lldpsw, GHFunc iter_fn, void *arg)
  * Traverse through all the ports of a switch calling iter_fn for each port 
  * (Lockless version)
  */
-static void
+void
 __lldp_port_traverse_all(lldp_switch_t *lldpsw, GHFunc iter_fn, void *arg)
 {
 
@@ -192,7 +200,7 @@ __lldp_port_traverse_all(lldp_switch_t *lldpsw, GHFunc iter_fn, void *arg)
  * Return the number of ports in a switch 
  * (Lockless version)
  */
-static unsigned int
+unsigned int
 __lldp_num_ports_in_switch(lldp_switch_t *lldpsw)
 {
     if (lldpsw->ports) {
@@ -358,7 +366,7 @@ lldp_port_connect_to_neigh(lldp_switch_t *this_switch, lldp_port_t *this_port,
          * Neighbor switch is already connected by other port 
          * (just to prevent duplicate)
          */
-        neighbor->ports = g_slist_remove_all(neighbor->ports, this_port); 
+        /* neighbor->ports = g_slist_remove_all(neighbor->ports, this_port); */
     } else {
         /* new neighbor */
         neighbor = malloc(sizeof(lldp_neigh_t));
@@ -376,9 +384,11 @@ lldp_port_connect_to_neigh(lldp_switch_t *this_switch, lldp_port_t *this_port,
     /* add this port to the list of ports */
     neighbor->ports = g_slist_append(neighbor->ports, this_port); 
 
+#ifdef MUL_LLDP_DBG
     c_log_debug("%s:switch %llx port %u <-> switch %llx port %u ", 
                 FN, (unsigned long long)this_switch->dpid, this_port->port_no,
                 (unsigned long long)other_id, other_port_id);
+#endif
 
     tr_invoke_routing(topo_hdl->tr);
 
@@ -430,31 +440,42 @@ lldp_port_disconnect_to_neigh(lldp_switch_t *this_switch,
     if (this_switch->neighbors && 
         (neighbor = g_hash_table_lookup(this_switch->neighbors, 
                                         &this_port->neighbor_dpid))) {
-        g_hash_table_remove(this_switch->neighbors, &this_port->neighbor_dpid);
+        neighbor->ports = g_slist_remove(neighbor->ports, this_port);
+        if (!neighbor->ports || 
+            !g_slist_length(neighbor->ports)) 
+            g_hash_table_remove(this_switch->neighbors,
+                                &this_port->neighbor_dpid);
     }
 
     /* mark port as 'disconnected' */
     this_port->status = LLDP_PORT_STATUS_INIT;
 
+#ifdef MUL_LLDP_DBG
     c_log_debug("%s: port %hx of switch %llx -> marked no neigh" ,FN, 
                 this_port->port_no, (unsigned long long)this_switch->dpid);
+#endif
 
     if (need_lock) c_wr_unlock(&this_switch->lock);
 
     if (tear_pair) {
+        uint64_t dpid = this_switch->dpid;
+        bool r_lock = true;
+
         if (!(this_switch = fetch_and_retain_switch(this_port->neighbor_dpid))) {
             c_log_err("%s: Unknown switch %llx" ,FN,
                       (unsigned long long)this_port->neighbor_dpid);
             return;
         }
 
-        c_wr_lock(&this_switch->lock);
+        if (this_port->neighbor_dpid == dpid) r_lock = false;
+
+        if (r_lock) c_wr_lock(&this_switch->lock);
         if (!(this_port =  __lldp_port_find(this_switch, 
                                             this_port->neighbor_port))) {
             c_log_err("%s: unknown port %hx for switch %llx" ,FN,
                       this_port->neighbor_port, 
                       (unsigned long long)this_switch->dpid);
-            c_wr_unlock(&this_switch->lock);
+            if (r_lock) c_wr_unlock(&this_switch->lock);
             return;
         }
 
@@ -462,7 +483,7 @@ lldp_port_disconnect_to_neigh(lldp_switch_t *this_switch,
                                       this_port,
                                       this_port->neighbor_port,
                                       false, false);
-        c_wr_unlock(&this_switch->lock);
+        if (r_lock) c_wr_unlock(&this_switch->lock);
         lldp_switch_unref(this_switch);
     }
 
@@ -515,6 +536,7 @@ connect_lldp_switch_neigh_pair(uint64_t switch_id,
     }
 
     c_wr_unlock(&lldp_switch->lock);
+
     lldp_switch_unref(lldp_switch); 
 
     return 0;
@@ -587,16 +609,6 @@ lldp_switch_add(mul_switch_t *sw)
     c_rw_lock_init(&new_switch->lock);
     lldp_switch_ref(new_switch);
 
-#if 0
-    num_port = ( ntohs((ofp_sa->header).length) - 
-                sizeof(c_ofp_switch_add_t) ) / sizeof(struct ofp_phy_port);
-
-    for (i = 0; i < num_port; i++){
-        port = &((struct ofp_phy_port *) &(ofp_sa[1]))[i];
-        lldp_port_add(app_arg, new_switch, port, false);
-    }
-#endif
-
     g_hash_table_insert(topo_hdl->switches, &new_switch->dpid, new_switch);
 
     if (new_switch->alias_id > topo_hdl->max_sw_alias) { 
@@ -612,7 +624,7 @@ lldp_switch_add(mul_switch_t *sw)
     of_mask_set_dl_type(&mask);
 
     mul_app_send_flow_add(MUL_TR_SERVICE_NAME, NULL, dpid, &fl, &mask,
-                          (uint32_t)-1, NULL, 0, 0, 0, C_FL_PRIO_DFL,
+                          (uint32_t)-1, NULL, 0, 0, 0, C_FL_PRIO_FWD,
                           C_FL_ENT_LOCAL);
 
     return;
@@ -737,7 +749,7 @@ lldp_port_add(void *app_arg, lldp_switch_t *this_switch,
         return 0;
     }
 
-    c_log_debug("%s: adding %u to switch 0x%llx", FN, port_no, 
+    c_log_debug("|lldp-port-add| %u to switch 0x%llx", port_no,
                 (unsigned long long)this_switch->dpid);
 
     if (need_lock) {
@@ -805,14 +817,13 @@ lldp_port_add_with_dpid(void *app_arg, uint64_t dpid,
     lldp_switch_t *lldp_sw;
 
     if(!(lldp_sw = fetch_and_retain_switch(dpid))) {
-        c_log_err("%s: No switch 0x%llx found", FN, dpid);
+        c_log_err("%s: No switch 0x%llx found", FN, U642ULL(dpid));
         return;
     }
 
     lldp_port_add(app_arg, lldp_sw, port_info, true);
 
     lldp_switch_unref(lldp_sw);
-    
 }
 
 /**
@@ -835,14 +846,14 @@ lldp_port_mod(void *app_arg, uint64_t switch_id, mul_port_t *port_info,
     }
 
     if (!(this_switch = fetch_and_retain_switch(switch_id))) {
-        c_log_err("%s: Switch-id 0x%llx not found", FN, switch_id);
+        c_log_err("%s: Switch-id 0x%llx not found", FN, U642ULL(switch_id));
         return -1;
     }
 
     c_wr_lock(&this_switch->lock);
     if (!(this_port = __lldp_port_find(this_switch, port_info->port_no))) {
         c_log_err("%s: Switch-id 0x%llx port %hu not found", 
-                  FN, switch_id, port_info->port_no);
+                  FN, U642ULL(switch_id), port_info->port_no);
         c_wr_unlock(&this_switch->lock);
         lldp_switch_unref(this_switch);
         return -1;
@@ -857,13 +868,13 @@ lldp_port_mod(void *app_arg, uint64_t switch_id, mul_port_t *port_info,
          * but the port is administratively disabled or link is disconnected.
          */
         c_log_debug("%s: switch 0x%llx port(%u)->DOWN", 
-                    FN, this_switch->dpid, port_no);
+                    FN, U642ULL(this_switch->dpid), port_no);
 
         lldp_port_disconnect_to_neigh(this_switch, this_port, 0, false, true); 
 
     } else {
         c_log_debug("%s: switch 0x%llx port(%u)->UP", 
-                    FN, this_switch->dpid, port_no);
+                    FN, U642ULL(this_switch->dpid), port_no);
 
         lldp_tx(app_arg, this_switch, this_port);
     }
@@ -1025,7 +1036,7 @@ static void
 lldp_create_packet(void *src_addr, uint64_t srcId, uint16_t srcPort, 
                    lldp_pkt_t *buffer)
 {
-    uint8_t dest_addr[OFP_ETH_ALEN] = {0x01,0x80,0xc2,0x00,0x00,0x0e};
+    uint8_t dest_addr[OFP_ETH_ALEN] = {0x01,0x80,0xc2,0x00,0x00,0x00};
 
     memcpy(buffer->eth_head.dest_addr,dest_addr,OFP_ETH_ALEN);
     memcpy(buffer->eth_head.src_addr,src_addr,OFP_ETH_ALEN);

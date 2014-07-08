@@ -2,9 +2,9 @@
 INCLUDES = -I./include -I./ -I$(top_srcdir)/common
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 
-lib_LTLIBRARIES = libzebra.la
+lib_LTLIBRARIES = libcli.la
 
-libzebra_la_SOURCES = \
+libcli_la_SOURCES = \
                       ./src/network.c ./src/pid_output.c \
                       ./src/getopt.c ./src/getopt1.c \
                       ./src/daemon.c ./src/checksum.c \

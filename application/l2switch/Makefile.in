@@ -36,15 +36,19 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = mull2sw$(EXEEXT)
-@HAVE_EXT_GLIB_FALSE@am__append_1 = -Wl,-rpath=$(LIB_GLIB) -L$(LIB_GLIB)
-@HAVE_EXT_GLIB_FALSE@am__append_2 = -I$(GLIB_INCLUDE) -I$(GLIB_INCLUDE)/../
-@HAVE_EXT_LIBEVENT_FALSE@am__append_3 = -Wl,-rpath=$(LIB_EVENT) -L$(LIB_EVENT)
-@HAVE_EXT_LIBEVENT_FALSE@am__append_4 = -I$(LIBEVENT_INCLUDE)
+@HAVE_MUL_VTY_TRUE@am__append_1 = -DMUL_APP_VTY
+@HAVE_EXT_GLIB_FALSE@am__append_2 = -Wl,-rpath=$(LIB_GLIB) -L$(LIB_GLIB)
+@HAVE_EXT_GLIB_FALSE@am__append_3 = -I$(GLIB_INCLUDE) -I$(GLIB_INCLUDE)/../
+@HAVE_EXT_LIBEVENT_FALSE@am__append_4 = -Wl,-rpath=$(LIB_EVENT) -L$(LIB_EVENT)
+@HAVE_EXT_LIBEVENT_FALSE@am__append_5 = -I$(LIBEVENT_INCLUDE)
+@HAVE_MUL_VTY_TRUE@am__append_6 = $(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libcli.a
 subdir = application/l2switch
 DIST_COMMON = $(noinst_HEADERS) $(srcdir)/Makefile.am \
 	$(srcdir)/Makefile.in
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
-am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
+am__aclocal_m4_deps = $(top_srcdir)/m4/ax_pkg_swig.m4 \
+	$(top_srcdir)/m4/ax_python_devel.m4 \
+	$(top_srcdir)/m4/ax_swig_python.m4 $(top_srcdir)/m4/libtool.m4 \
 	$(top_srcdir)/m4/ltoptions.m4 $(top_srcdir)/m4/ltsugar.m4 \
 	$(top_srcdir)/m4/ltversion.m4 $(top_srcdir)/m4/lt~obsolete.m4 \
 	$(top_srcdir)/configure.ac
@@ -57,29 +61,44 @@ CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
 am_mull2sw_OBJECTS = mull2sw-l2switch.$(OBJEXT) \
-	mull2sw-mul_app_main.$(OBJEXT) mull2sw-mul_of_msg.$(OBJEXT) \
-	mull2sw-mul_app_infra.$(OBJEXT) mull2sw-mul_service.$(OBJEXT)
+	mull2sw-mul_app_main.$(OBJEXT)
 mull2sw_OBJECTS = $(am_mull2sw_OBJECTS)
-mull2sw_DEPENDENCIES = $(top_srcdir)/common-libs/3rd-party/derived-lib/.libs/libutil.a \
-	$(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libzebra.a \
+mull2sw_DEPENDENCIES =  \
 	$(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a \
-	$(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a
-mull2sw_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
-	--mode=link $(CCLD) $(mull2sw_CFLAGS) $(CFLAGS) \
-	$(mull2sw_LDFLAGS) $(LDFLAGS) -o $@
+	$(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a \
+	$(am__append_6)
+AM_V_lt = $(am__v_lt_@AM_V@)
+am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
+am__v_lt_0 = --silent
+mull2sw_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
+	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(mull2sw_CFLAGS) \
+	$(CFLAGS) $(mull2sw_LDFLAGS) $(LDFLAGS) -o $@
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)/common
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
-LTCOMPILE = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
-	--mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) \
-	$(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
+LTCOMPILE = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
+	$(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) \
+	$(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) \
+	$(AM_CFLAGS) $(CFLAGS)
+AM_V_CC = $(am__v_CC_@AM_V@)
+am__v_CC_ = $(am__v_CC_@AM_DEFAULT_V@)
+am__v_CC_0 = @echo "  CC    " $@;
+AM_V_at = $(am__v_at_@AM_V@)
+am__v_at_ = $(am__v_at_@AM_DEFAULT_V@)
+am__v_at_0 = @
 CCLD = $(CC)
-LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
-	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
-	$(LDFLAGS) -o $@
+LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
+	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
+	$(AM_LDFLAGS) $(LDFLAGS) -o $@
+AM_V_CCLD = $(am__v_CCLD_@AM_V@)
+am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
+am__v_CCLD_0 = @echo "  CCLD  " $@;
+AM_V_GEN = $(am__v_GEN_@AM_V@)
+am__v_GEN_ = $(am__v_GEN_@AM_DEFAULT_V@)
+am__v_GEN_0 = @echo "  GEN   " $@;
 SOURCES = $(mull2sw_SOURCES)
 DIST_SOURCES = $(mull2sw_SOURCES)
 HEADERS = $(noinst_HEADERS)
@@ -88,11 +107,14 @@ CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
+AM_DEFAULT_VERBOSITY = @AM_DEFAULT_VERBOSITY@
 AR = @AR@
 AUTOCONF = @AUTOCONF@
 AUTOHEADER = @AUTOHEADER@
 AUTOMAKE = @AUTOMAKE@
 AWK = @AWK@
+AX_SWIG_PYTHON_CPPFLAGS = @AX_SWIG_PYTHON_CPPFLAGS@
+AX_SWIG_PYTHON_OPT = @AX_SWIG_PYTHON_OPT@
 CC = @CC@
 CCDEPMODE = @CCDEPMODE@
 CFLAGS = @CFLAGS@
@@ -113,8 +135,6 @@ FGREP = @FGREP@
 GAWK = @GAWK@
 GLIB_INCLUDE = @GLIB_INCLUDE@
 GREP = @GREP@
-HAVE_L2SW_MODULE = @HAVE_L2SW_MODULE@
-HAVE_LLDP_MODULE = @HAVE_LLDP_MODULE@
 INSTALL = @INSTALL@
 INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
@@ -148,11 +168,23 @@ PACKAGE_TARNAME = @PACKAGE_TARNAME@
 PACKAGE_URL = @PACKAGE_URL@
 PACKAGE_VERSION = @PACKAGE_VERSION@
 PATH_SEPARATOR = @PATH_SEPARATOR@
+PYTHON = @PYTHON@
+PYTHON_CPPFLAGS = @PYTHON_CPPFLAGS@
+PYTHON_EXEC_PREFIX = @PYTHON_EXEC_PREFIX@
+PYTHON_EXTRA_LDFLAGS = @PYTHON_EXTRA_LDFLAGS@
+PYTHON_EXTRA_LIBS = @PYTHON_EXTRA_LIBS@
+PYTHON_LDFLAGS = @PYTHON_LDFLAGS@
+PYTHON_PLATFORM = @PYTHON_PLATFORM@
+PYTHON_PREFIX = @PYTHON_PREFIX@
+PYTHON_SITE_PKG = @PYTHON_SITE_PKG@
+PYTHON_VERSION = @PYTHON_VERSION@
 RANLIB = @RANLIB@
 SED = @SED@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
+SWIG = @SWIG@
+SWIG_LIB = @SWIG_LIB@
 VERSION = @VERSION@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
@@ -195,9 +227,13 @@ mandir = @mandir@
 mkdir_p = @mkdir_p@
 oldincludedir = @oldincludedir@
 pdfdir = @pdfdir@
+pkgpyexecdir = @pkgpyexecdir@
+pkgpythondir = @pkgpythondir@
 prefix = @prefix@
 program_transform_name = @program_transform_name@
 psdir = @psdir@
+pyexecdir = @pyexecdir@
+pythondir = @pythondir@
 sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 srcdir = @srcdir@
@@ -212,20 +248,14 @@ INCLUDES = -I. -I$(top_srcdir)/mul -I$(top_srcdir)/common/ \
 	-I$(top_srcdir)/services/loadable/topo_routing/ \
 	-I$(top_srcdir)/common-libs/3rd-party/derived-lib/include/ \
 	-I$(top_srcdir)/common-libs/3rd-party/quagga-lib/include/ \
-	-I$(top_srcdir)/common-libs/mul-lib/include/ $(am__append_2) \
-	$(am__append_4)
-mull2sw_CFLAGS = -DMUL_APP_V2_MLAPI
-mull2sw_SOURCES = l2switch.c $(top_srcdir)/common/mul_app_main.c \
-               $(top_srcdir)/common/mul_of_msg.c \
-               $(top_srcdir)/common/mul_app_infra.c \
-               $(top_srcdir)/common/mul_service.c
-
-LD_FLAGS = @LDFLAGS@ $(am__append_1) $(am__append_3)
-mull2sw_LDADD = $(top_srcdir)/common-libs/3rd-party/derived-lib/.libs/libutil.a  \
-                $(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libzebra.a \
-                $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a  \
-                $(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a -lrt
-
+	-I$(top_srcdir)/common-libs/mul-lib/include/ $(am__append_3) \
+	$(am__append_5)
+mull2sw_CFLAGS = -DMUL_APP_V2_MLAPI $(am__append_1)
+mull2sw_SOURCES = l2switch.c $(top_srcdir)/common/mul_app_main.c
+LD_FLAGS = @LDFLAGS@ $(am__append_2) $(am__append_4)
+mull2sw_LDADD = $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a \
+	$(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a \
+	-lrt -lcrypto -lssl $(am__append_6)
 mull2sw_LDFLAGS = $(LD_FLAGS) -lpthread -lglib-2.0 -levent -lcrypt 
 noinst_HEADERS = l2switch.h
 all: all-am
@@ -307,7 +337,7 @@ clean-binPROGRAMS:
 	rm -f $$list
 mull2sw$(EXEEXT): $(mull2sw_OBJECTS) $(mull2sw_DEPENDENCIES) $(EXTRA_mull2sw_DEPENDENCIES) 
 	@rm -f mull2sw$(EXEEXT)
-	$(mull2sw_LINK) $(mull2sw_OBJECTS) $(mull2sw_LDADD) $(LIBS)
+	$(AM_V_CCLD)$(mull2sw_LINK) $(mull2sw_OBJECTS) $(mull2sw_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -316,101 +346,56 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mull2sw-l2switch.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mull2sw-mul_app_infra.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mull2sw-mul_app_main.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mull2sw-mul_of_msg.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mull2sw-mul_service.Po@am__quote@
 
 .c.o:
-@am__fastdepCC_TRUE@	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$<' object='$@' libtool=no @AMDEPBACKSLASH@
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$<' object='$@' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(COMPILE) -c $<
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(COMPILE) -c $<
 
 .c.obj:
-@am__fastdepCC_TRUE@	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ `$(CYGPATH_W) '$<'`
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$<' object='$@' libtool=no @AMDEPBACKSLASH@
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ `$(CYGPATH_W) '$<'`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$<' object='$@' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(COMPILE) -c `$(CYGPATH_W) '$<'`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(COMPILE) -c `$(CYGPATH_W) '$<'`
 
 .c.lo:
-@am__fastdepCC_TRUE@	$(LTCOMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Plo
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$<' object='$@' libtool=yes @AMDEPBACKSLASH@
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LTCOMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$<' object='$@' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(LTCOMPILE) -c -o $@ $<
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LTCOMPILE) -c -o $@ $<
 
 mull2sw-l2switch.o: l2switch.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-l2switch.o -MD -MP -MF $(DEPDIR)/mull2sw-l2switch.Tpo -c -o mull2sw-l2switch.o `test -f 'l2switch.c' || echo '$(srcdir)/'`l2switch.c
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mull2sw-l2switch.Tpo $(DEPDIR)/mull2sw-l2switch.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='l2switch.c' object='mull2sw-l2switch.o' libtool=no @AMDEPBACKSLASH@
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-l2switch.o -MD -MP -MF $(DEPDIR)/mull2sw-l2switch.Tpo -c -o mull2sw-l2switch.o `test -f 'l2switch.c' || echo '$(srcdir)/'`l2switch.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mull2sw-l2switch.Tpo $(DEPDIR)/mull2sw-l2switch.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='l2switch.c' object='mull2sw-l2switch.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-l2switch.o `test -f 'l2switch.c' || echo '$(srcdir)/'`l2switch.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-l2switch.o `test -f 'l2switch.c' || echo '$(srcdir)/'`l2switch.c
 
 mull2sw-l2switch.obj: l2switch.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-l2switch.obj -MD -MP -MF $(DEPDIR)/mull2sw-l2switch.Tpo -c -o mull2sw-l2switch.obj `if test -f 'l2switch.c'; then $(CYGPATH_W) 'l2switch.c'; else $(CYGPATH_W) '$(srcdir)/l2switch.c'; fi`
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mull2sw-l2switch.Tpo $(DEPDIR)/mull2sw-l2switch.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='l2switch.c' object='mull2sw-l2switch.obj' libtool=no @AMDEPBACKSLASH@
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-l2switch.obj -MD -MP -MF $(DEPDIR)/mull2sw-l2switch.Tpo -c -o mull2sw-l2switch.obj `if test -f 'l2switch.c'; then $(CYGPATH_W) 'l2switch.c'; else $(CYGPATH_W) '$(srcdir)/l2switch.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mull2sw-l2switch.Tpo $(DEPDIR)/mull2sw-l2switch.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='l2switch.c' object='mull2sw-l2switch.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-l2switch.obj `if test -f 'l2switch.c'; then $(CYGPATH_W) 'l2switch.c'; else $(CYGPATH_W) '$(srcdir)/l2switch.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-l2switch.obj `if test -f 'l2switch.c'; then $(CYGPATH_W) 'l2switch.c'; else $(CYGPATH_W) '$(srcdir)/l2switch.c'; fi`
 
 mull2sw-mul_app_main.o: $(top_srcdir)/common/mul_app_main.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-mul_app_main.o -MD -MP -MF $(DEPDIR)/mull2sw-mul_app_main.Tpo -c -o mull2sw-mul_app_main.o `test -f '$(top_srcdir)/common/mul_app_main.c' || echo '$(srcdir)/'`$(top_srcdir)/common/mul_app_main.c
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mull2sw-mul_app_main.Tpo $(DEPDIR)/mull2sw-mul_app_main.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$(top_srcdir)/common/mul_app_main.c' object='mull2sw-mul_app_main.o' libtool=no @AMDEPBACKSLASH@
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-mul_app_main.o -MD -MP -MF $(DEPDIR)/mull2sw-mul_app_main.Tpo -c -o mull2sw-mul_app_main.o `test -f '$(top_srcdir)/common/mul_app_main.c' || echo '$(srcdir)/'`$(top_srcdir)/common/mul_app_main.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mull2sw-mul_app_main.Tpo $(DEPDIR)/mull2sw-mul_app_main.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(top_srcdir)/common/mul_app_main.c' object='mull2sw-mul_app_main.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-mul_app_main.o `test -f '$(top_srcdir)/common/mul_app_main.c' || echo '$(srcdir)/'`$(top_srcdir)/common/mul_app_main.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-mul_app_main.o `test -f '$(top_srcdir)/common/mul_app_main.c' || echo '$(srcdir)/'`$(top_srcdir)/common/mul_app_main.c
 
 mull2sw-mul_app_main.obj: $(top_srcdir)/common/mul_app_main.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-mul_app_main.obj -MD -MP -MF $(DEPDIR)/mull2sw-mul_app_main.Tpo -c -o mull2sw-mul_app_main.obj `if test -f '$(top_srcdir)/common/mul_app_main.c'; then $(CYGPATH_W) '$(top_srcdir)/common/mul_app_main.c'; else $(CYGPATH_W) '$(srcdir)/$(top_srcdir)/common/mul_app_main.c'; fi`
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mull2sw-mul_app_main.Tpo $(DEPDIR)/mull2sw-mul_app_main.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$(top_srcdir)/common/mul_app_main.c' object='mull2sw-mul_app_main.obj' libtool=no @AMDEPBACKSLASH@
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-mul_app_main.obj -MD -MP -MF $(DEPDIR)/mull2sw-mul_app_main.Tpo -c -o mull2sw-mul_app_main.obj `if test -f '$(top_srcdir)/common/mul_app_main.c'; then $(CYGPATH_W) '$(top_srcdir)/common/mul_app_main.c'; else $(CYGPATH_W) '$(srcdir)/$(top_srcdir)/common/mul_app_main.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mull2sw-mul_app_main.Tpo $(DEPDIR)/mull2sw-mul_app_main.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(top_srcdir)/common/mul_app_main.c' object='mull2sw-mul_app_main.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-mul_app_main.obj `if test -f '$(top_srcdir)/common/mul_app_main.c'; then $(CYGPATH_W) '$(top_srcdir)/common/mul_app_main.c'; else $(CYGPATH_W) '$(srcdir)/$(top_srcdir)/common/mul_app_main.c'; fi`
-
-mull2sw-mul_of_msg.o: $(top_srcdir)/common/mul_of_msg.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-mul_of_msg.o -MD -MP -MF $(DEPDIR)/mull2sw-mul_of_msg.Tpo -c -o mull2sw-mul_of_msg.o `test -f '$(top_srcdir)/common/mul_of_msg.c' || echo '$(srcdir)/'`$(top_srcdir)/common/mul_of_msg.c
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mull2sw-mul_of_msg.Tpo $(DEPDIR)/mull2sw-mul_of_msg.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$(top_srcdir)/common/mul_of_msg.c' object='mull2sw-mul_of_msg.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-mul_of_msg.o `test -f '$(top_srcdir)/common/mul_of_msg.c' || echo '$(srcdir)/'`$(top_srcdir)/common/mul_of_msg.c
-
-mull2sw-mul_of_msg.obj: $(top_srcdir)/common/mul_of_msg.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-mul_of_msg.obj -MD -MP -MF $(DEPDIR)/mull2sw-mul_of_msg.Tpo -c -o mull2sw-mul_of_msg.obj `if test -f '$(top_srcdir)/common/mul_of_msg.c'; then $(CYGPATH_W) '$(top_srcdir)/common/mul_of_msg.c'; else $(CYGPATH_W) '$(srcdir)/$(top_srcdir)/common/mul_of_msg.c'; fi`
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mull2sw-mul_of_msg.Tpo $(DEPDIR)/mull2sw-mul_of_msg.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$(top_srcdir)/common/mul_of_msg.c' object='mull2sw-mul_of_msg.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-mul_of_msg.obj `if test -f '$(top_srcdir)/common/mul_of_msg.c'; then $(CYGPATH_W) '$(top_srcdir)/common/mul_of_msg.c'; else $(CYGPATH_W) '$(srcdir)/$(top_srcdir)/common/mul_of_msg.c'; fi`
-
-mull2sw-mul_app_infra.o: $(top_srcdir)/common/mul_app_infra.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-mul_app_infra.o -MD -MP -MF $(DEPDIR)/mull2sw-mul_app_infra.Tpo -c -o mull2sw-mul_app_infra.o `test -f '$(top_srcdir)/common/mul_app_infra.c' || echo '$(srcdir)/'`$(top_srcdir)/common/mul_app_infra.c
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mull2sw-mul_app_infra.Tpo $(DEPDIR)/mull2sw-mul_app_infra.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$(top_srcdir)/common/mul_app_infra.c' object='mull2sw-mul_app_infra.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-mul_app_infra.o `test -f '$(top_srcdir)/common/mul_app_infra.c' || echo '$(srcdir)/'`$(top_srcdir)/common/mul_app_infra.c
-
-mull2sw-mul_app_infra.obj: $(top_srcdir)/common/mul_app_infra.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-mul_app_infra.obj -MD -MP -MF $(DEPDIR)/mull2sw-mul_app_infra.Tpo -c -o mull2sw-mul_app_infra.obj `if test -f '$(top_srcdir)/common/mul_app_infra.c'; then $(CYGPATH_W) '$(top_srcdir)/common/mul_app_infra.c'; else $(CYGPATH_W) '$(srcdir)/$(top_srcdir)/common/mul_app_infra.c'; fi`
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mull2sw-mul_app_infra.Tpo $(DEPDIR)/mull2sw-mul_app_infra.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$(top_srcdir)/common/mul_app_infra.c' object='mull2sw-mul_app_infra.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-mul_app_infra.obj `if test -f '$(top_srcdir)/common/mul_app_infra.c'; then $(CYGPATH_W) '$(top_srcdir)/common/mul_app_infra.c'; else $(CYGPATH_W) '$(srcdir)/$(top_srcdir)/common/mul_app_infra.c'; fi`
-
-mull2sw-mul_service.o: $(top_srcdir)/common/mul_service.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-mul_service.o -MD -MP -MF $(DEPDIR)/mull2sw-mul_service.Tpo -c -o mull2sw-mul_service.o `test -f '$(top_srcdir)/common/mul_service.c' || echo '$(srcdir)/'`$(top_srcdir)/common/mul_service.c
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mull2sw-mul_service.Tpo $(DEPDIR)/mull2sw-mul_service.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$(top_srcdir)/common/mul_service.c' object='mull2sw-mul_service.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-mul_service.o `test -f '$(top_srcdir)/common/mul_service.c' || echo '$(srcdir)/'`$(top_srcdir)/common/mul_service.c
-
-mull2sw-mul_service.obj: $(top_srcdir)/common/mul_service.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -MT mull2sw-mul_service.obj -MD -MP -MF $(DEPDIR)/mull2sw-mul_service.Tpo -c -o mull2sw-mul_service.obj `if test -f '$(top_srcdir)/common/mul_service.c'; then $(CYGPATH_W) '$(top_srcdir)/common/mul_service.c'; else $(CYGPATH_W) '$(srcdir)/$(top_srcdir)/common/mul_service.c'; fi`
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/mull2sw-mul_service.Tpo $(DEPDIR)/mull2sw-mul_service.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$(top_srcdir)/common/mul_service.c' object='mull2sw-mul_service.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-mul_service.obj `if test -f '$(top_srcdir)/common/mul_service.c'; then $(CYGPATH_W) '$(top_srcdir)/common/mul_service.c'; else $(CYGPATH_W) '$(srcdir)/$(top_srcdir)/common/mul_service.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mull2sw_CFLAGS) $(CFLAGS) -c -o mull2sw-mul_app_main.obj `if test -f '$(top_srcdir)/common/mul_app_main.c'; then $(CYGPATH_W) '$(top_srcdir)/common/mul_app_main.c'; else $(CYGPATH_W) '$(srcdir)/$(top_srcdir)/common/mul_app_main.c'; fi`
 
 mostlyclean-libtool:
 	-rm -f *.lo

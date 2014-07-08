@@ -4,7 +4,7 @@
 AC_PREREQ(2.6)
 
 AC_INIT(MuL, 1.1, [http://sourceforge.net/projects/mul/])
-AC_CONFIG_SRCDIR(common/mul_of_msg.h)
+AC_CONFIG_SRCDIR(common/mul_app_main.c)
 AC_CONFIG_MACRO_DIR([m4])
 
 AM_INIT_AUTOMAKE
@@ -22,11 +22,17 @@ dnl -----------------
 dnl System extensions
 dnl -----------------
 AC_GNU_SOURCE
+AC_ENABLE_SHARED
+AC_ENABLE_STATIC
 
 dnl -------
 dnl libtool
 dnl -------
 AC_PROG_LIBTOOL
+AM_PATH_PYTHON(2.7)
+AX_PKG_SWIG(1.3.17, [], [AC_MSG_ERROR([SWIG is required to build..])])
+AX_SWIG_ENABLE_CXX
+AX_SWIG_PYTHON
 
 AC_HEADER_STDBOOL
 AC_C_INLINE
@@ -68,29 +74,16 @@ fi
 AC_ARG_VAR([GAWK],[GNU AWK])
 
 if test "$GCC" = "yes" ; then
-    CFLAGS="$CFLAGS -O2 -Wall -Wno-sign-compare -Wpointer-arith -Wdeclaration-after-statement -Wformat-security -Wunused-parameter -Wstrict-aliasing -Wbad-function-cast -Wcast-align -Wstrict-prototypes -Wold-style-definition -Wmissing-prototypes -Wmissing-field-initializers -Wno-override-init"
-    CFLAGS="$CFLAGS -fno-strict-aliasing"
+    CFLAGS="$CFLAGS -g -O2 -Wall -Wno-sign-compare -Wpointer-arith -Wdeclaration-after-statement -Wformat-security -Wunused-parameter -Wstrict-aliasing -Wbad-function-cast -Wcast-align -Wstrict-prototypes -Wold-style-definition -Wmissing-prototypes -Wmissing-field-initializers -Wno-override-init -fno-strict-aliasing"
 else
   AC_MSG_ERROR([GCC/ICC is required by mul]) 
   exit 1;
 fi
 
-AC_ARG_WITH(lldp,
-[  --with-lldp              Set lldp as "m" for lldp as a module])
-AM_CONDITIONAL(HAVE_LLDP_MODULE, test "$with_lldp" = m)
-
-AC_SUBST([HAVE_LLDP_MODULE])
-
-AC_ARG_WITH(l2sw,
-[  --with-l2sw              Set l2sw as "m" for l2sw as a module])
-AM_CONDITIONAL(HAVE_L2SW_MODULE, test "$with_l2sw" = m)
-
-AC_SUBST([HAVE_L2SW_MODULE])
-
 save_LIBS="$LIBS"
 LIBS=""
 AC_ARG_WITH(glib,
-[  --with-glib              Set glib path])
+[  --with-glib             Set glib path])
 if test "x$with_glib" != "x" ; then
   LIB_GLIB="$with_glib"/glib/.libs ;
   GLIB_INCLUDE="$with_glib"/glib  
@@ -157,5 +150,18 @@ AC_CHECK_LIB(c, inet_ntop, [AC_DEFINE(HAVE_INET_NTOP,,inet_ntop)])
 AC_CHECK_LIB(c, inet_pton, [AC_DEFINE(HAVE_INET_PTON,,inet_pton)])
 AC_CHECK_LIB(crypt, crypt)
 
-AC_CONFIG_FILES([Makefile mul/Makefile application/hello/Makefile application/l2switch/Makefile application/fabric/Makefile application/cli/Makefile services/loadable/topo_routing/Makefile common-libs/3rd-party/derived-lib/Makefile common-libs/3rd-party/quagga-lib/Makefile common-libs/mul-lib/Makefile])
+
+AC_ARG_WITH(vty,
+[  --with-vty              Use vty-shell-support])
+if test "x$with_vty" != "x" ; then
+    have_vty=yes
+else
+    have_vty=no
+fi
+
+AM_CONDITIONAL(HAVE_MUL_VTY, test "$have_vty" = yes)
+
+AM_SILENT_RULES([yes])
+
+AC_CONFIG_FILES([Makefile mul/Makefile application/hello/Makefile application/l2switch/Makefile application/fabric/Makefile application/cli/Makefile application/nbapi/c-swig/Makefile services/loadable/topo_routing/Makefile common-libs/3rd-party/quagga-lib/Makefile common-libs/mul-lib/Makefile])
 AC_OUTPUT

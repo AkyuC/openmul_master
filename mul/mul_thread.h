@@ -19,23 +19,13 @@
 #ifndef __MUL_THREAD_H__
 #define __MUL_THREAD_H__
 
-#if 0
-#define c_print printf
-#define c_err_log c_print
-#define c_dbg_log c_print
-#define c_warn_log c_print
-#define c_log_err
-#endif
-
-
 struct c_main_ctx;
 
 typedef enum thread_state
 {
     THREAD_STATE_PRE_INIT,
     THREAD_STATE_FINAL_INIT,
-    THREAD_STATE_RUNNING,
-    //THREAD_STATE_DESTROY,
+    THREAD_STATE_RUNNING
 }thread_state_t;
 
 typedef struct c_per_thread_dat_
@@ -100,6 +90,8 @@ struct c_main_ctx
     struct event        *c_accept_event;
     struct event        *c_app_accept_event;
     struct event        *c_app_aux_accept_event;
+    struct event        *main_timer_event;
+
 };
 
 
@@ -200,5 +192,10 @@ c_tid_to_app_ipc_wr_fd(struct c_main_ctx *m_ctx, int t_idx)
     app_ctx = m_ctx->app_pool[t_idx];
     return app_ctx->main_wrk_conn.fd;
 }
+
+struct CRYPTO_dynlock_value 
+{ 
+    c_rw_lock_t lock; 
+};
 
 #endif

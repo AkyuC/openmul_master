@@ -44,12 +44,13 @@ fab_add_dhcp_tap_per_switch(void *opq, uint64_t dpid)
 
     /* Add Flow to receive DHCP Packet type */
     memset(&fl, 0, sizeof(fl));
+    fl.dl_type = htons(0x0800);
     of_mask_set_dl_type(&mask);
 
     memset(fl.dl_dst, 0xff, ETH_ADDR_LEN);
     of_mask_set_dl_dst(&mask);
 
-    fl.nw_dst = 0xffffffff;
+    fl.ip.nw_dst = 0xffffffff;
     of_mask_set_nw_dst(&mask, 32);
 
     fl.nw_proto = 0x11;
@@ -108,7 +109,7 @@ fab_dhcp_rcv(void *opq UNUSED, fab_struct_t *fab_ctx UNUSED, struct flow *fl,
 
     if (fl->dl_type != htons(ETH_TYPE_IP) ||
         memcmp(fl->dl_dst, fab_bcast_mac, ETH_ADDR_LEN) ||
-        fl->nw_dst != 0xffffffff || fl->nw_proto != 0x11 ||
+        fl->ip.nw_dst != 0xffffffff || fl->nw_proto != 0x11 ||
         (fl->tp_dst == fl->tp_src) || 
         (fl->tp_dst != htons(0x43) && fl->tp_dst != htons(0x44)) || 
         (fl->tp_src != htons(0x43) && fl->tp_src != htons(0x44)))  {
@@ -191,7 +192,7 @@ fab_add_arp_tap_per_switch(void *opq, uint64_t dpid)
 
 
 void
-fab_arp_rcv(void *opq, fab_struct_t *fab_ctx UNUSED,
+fab_arp_rcv(void *opq UNUSED, fab_struct_t *fab_ctx UNUSED,
             struct flow *fl, uint32_t in_port,
             uint8_t *raw, uint64_t datapath_id)
 {
@@ -206,7 +207,8 @@ fab_arp_rcv(void *opq, fab_struct_t *fab_ctx UNUSED,
     /* Controller does all packet length and other validations
      * so we can ignore doing those
      */
-    arp = (void *)(raw + sizeof(struct eth_header)); 
+    arp = (void *)(raw + sizeof(struct eth_header)  +
+                   (fl->dl_vlan ? VLAN_HEADER_LEN : 0));
 
     /* Here we don't care  to learn a host from gratutious arp
      * as we will learn the host before arp_rcv()

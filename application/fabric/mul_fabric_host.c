@@ -64,7 +64,7 @@ fab_dump_single_host_to_flow(fab_host_t *host, struct flow *fl,
     fl->in_port = htons(host->sw.port);
     fab_add_tenant_id(fl, NULL, fab_tnid_to_tid(host->hkey.tn_id));
     fab_add_network_id(fl, fab_tnid_to_nid(host->hkey.tn_id));
-    fl->nw_src = htonl(host->hkey.host_ip);
+    fl->ip.nw_src = htonl(host->hkey.host_ip);
     memcpy(fl->dl_src, host->hkey.host_mac, 6);
     fl->FL_DFL_GW = host->dfl_gw;
 }
@@ -366,7 +366,7 @@ fab_host_create(uint64_t dpid, uint32_t sw_alias, struct flow *fl)
     FAB_MK_TEN_NET_ID(host->hkey.tn_id, 
                       fab_extract_tenant_id(fl), 
                       fab_extract_network_id(fl)); 
-    host->hkey.host_ip = ntohl(fl->nw_src);
+    host->hkey.host_ip = ntohl(fl->ip.nw_src);
     memcpy(host->hkey.host_mac, fl->dl_src, 6);
     host->dfl_gw = fl->FL_DFL_GW;
 
@@ -471,7 +471,7 @@ done:
  */
 int
 fab_host_delete(fab_struct_t *fab_ctx, struct flow *fl, 
-                bool locked, bool deactivate, bool sync_ha) 
+                bool locked, bool deactivate, bool sync_ha UNUSED) 
 {
     fab_host_t *lkup_host, *host;
     char *host_pstr;
@@ -618,7 +618,7 @@ fab_activate_all_hosts_on_switch_port(fab_struct_t *fab_ctx, uint64_t dpid,
                                      fab_host_on_switch_port,
                                      &host_sw))) {
         memset(&fl, 0, sizeof(fl));
-        fl.nw_src = htonl(host->hkey.host_ip);
+        fl.ip.nw_src = htonl(host->hkey.host_ip);
         fl.in_port = htons(host->sw.port);
         fl.FL_DFL_GW = host->dfl_gw;
         fab_add_tenant_id(&fl, NULL, fab_tnid_to_tid(host->hkey.tn_id));
@@ -688,7 +688,7 @@ fab_host_add_active(fab_struct_t *fab_ctx, fab_host_t *host, uint64_t dpid,
     fab_host_delete_inactive(fab_ctx, host, true);
 
     if(!(sw = __fab_switch_get(fab_ctx, dpid))) {
-        c_log_err("%s:Switch(0x%llx) not valid", FN, dpid);
+        c_log_err("%s:Switch(0x%llx) not valid", FN, U642ULL(dpid));
         goto out_invalid_sw;
     } 
 
@@ -735,7 +735,7 @@ out_host_exists:
         struct flow fl;
 
         c_log_err("%s: Overwriting exisitng port<->host association", FN);
-        fl.nw_src = htonl(exist_host->hkey.host_ip);
+        fl.ip.nw_src = htonl(exist_host->hkey.host_ip);
         fab_add_tenant_id(&fl, NULL, fab_tnid_to_tid(exist_host->hkey.tn_id));
         memcpy(fl.dl_src, exist_host->hkey.host_mac, 6);
         fab_host_delete(fab_ctx, &fl, locked, false, false);

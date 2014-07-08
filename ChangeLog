@@ -1,4 +1,16 @@
 -------------------------
+mul-4.0.1
+-------------------------
+- Support for Openflow 1.4
+- Support for (almost) all Openflow 1.3 features 
+- Backward compatibility with Openflow 1.0, Openflow 1.3
+- Support for RESTapi 
+- Improved documentation
+- Huge improvement in CLI features
+- Many security and stability fixes in infrastructure  
+- Support for overlays 
+
+-------------------------
  mul 3.0.1-beta
 -------------------------
 

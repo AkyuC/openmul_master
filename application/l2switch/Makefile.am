@@ -19,10 +19,11 @@ DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 
 mull2sw_CFLAGS = -DMUL_APP_V2_MLAPI
 
-mull2sw_SOURCES = l2switch.c $(top_srcdir)/common/mul_app_main.c \
-               $(top_srcdir)/common/mul_of_msg.c \
-               $(top_srcdir)/common/mul_app_infra.c \
-               $(top_srcdir)/common/mul_service.c
+if HAVE_MUL_VTY
+mull2sw_CFLAGS += -DMUL_APP_VTY
+endif
+
+mull2sw_SOURCES = l2switch.c $(top_srcdir)/common/mul_app_main.c
 
 LD_FLAGS= @LDFLAGS@ 
 
@@ -36,10 +37,14 @@ LD_FLAGS += -Wl,-rpath=$(LIB_EVENT) -L$(LIB_EVENT)
 INCLUDES += -I$(LIBEVENT_INCLUDE)
 endif
 
-mull2sw_LDADD = $(top_srcdir)/common-libs/3rd-party/derived-lib/.libs/libutil.a  \
-                $(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libzebra.a \
+mull2sw_LDADD = \
                 $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a  \
-                $(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a -lrt
+                $(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a -lrt \
+                -lcrypto -lssl
+
+if HAVE_MUL_VTY
+mull2sw_LDADD += $(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libcli.a
+endif
 
 mull2sw_LDFLAGS = $(LD_FLAGS) -lpthread -lglib-2.0 -levent -lcrypt 
 

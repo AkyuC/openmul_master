@@ -11,6 +11,10 @@ curr_dir=$(dirname $cwd)
 cd $curr_dir
 
 function stop-command {
+    source pythonpath.sh
+    pushd  $curr_dir/application/nbapi/py-tornado/ >> /dev/null
+    sudo PYTHONPATH=$PYTHONPATH python ./server.py stop
+    popd >> /dev/null
     sudo killall -9 mulcli > /dev/null 2>&1
     sudo killall -9 mull2sw > /dev/null 2>&1
     sudo killall -9 mulfab > /dev/null 2>&1
@@ -26,6 +30,27 @@ function stop-command {
 
 function start-command {
 case "$1" in
+"standalone")
+    pushd  $curr_dir/mul/ >> /dev/null
+    sudo ./mul -d
+    popd >> /dev/null
+    pushd  $curr_dir/application/cli/ >> /dev/null
+    sudo ./mulcli -V 10000  -d
+    popd >> /dev/null
+    source pythonpath.sh
+    pushd  $curr_dir/application/nbapi/py-tornado/ >> /dev/null
+    sudo PYTHONPATH=$PYTHONPATH python ./server.py start
+    popd >> /dev/null
+    echo "Mul standalone mode is running.."
+    ;;
+"webserver")
+    source pythonpath.sh
+    pushd  $curr_dir/application/nbapi/py-tornado/ >> /dev/null
+    sudo PYTHONPATH=$PYTHONPATH python ./server.py start
+    popd >> /dev/null
+    echo "Web server is running.."
+    ;;
+
 "l2switch")
     pushd  $curr_dir/mul/ >> /dev/null
     sudo ./mul -d
@@ -35,6 +60,10 @@ case "$1" in
     popd >> /dev/null
     pushd  $curr_dir/application/cli/ >> /dev/null
     sudo ./mulcli -V 10000  -d
+    popd >> /dev/null
+    source pythonpath.sh
+    pushd  $curr_dir/application/nbapi/py-tornado/ >> /dev/null
+    sudo PYTHONPATH=$PYTHONPATH python ./server.py start
     popd >> /dev/null
     echo "Mul l2switch mode is running.."
     ;;
@@ -51,25 +80,28 @@ case "$1" in
     pushd  $curr_dir/application/cli/ >> /dev/null
     sudo ./mulcli -V 10000 -d
     popd >> /dev/null
-
+    source pythonpath.sh
+    pushd  $curr_dir/application/nbapi/py-tornado/ >> /dev/null
+    sudo PYTHONPATH=$PYTHONPATH python ./server.py start
+    popd >> /dev/null
     echo "Mul fabric mode is running.."
     ;;
-*) echo "unknown flow commmand $1"
+*) echo "unknown commmand $1"
     usage mul_startup.sh
 esac
 }
 
-
 function usage {
     echo "Usage :"
-    echo "$1 start l2switch"
-    echo "$1 start fabric"
-    echo "$1 stop"
+    echo "$0 start standalone"
+    echo "$0 start l2switch"
+    echo "$0 start fabric"
+    echo "$0 start webserver"
+    echo "$0 stop"
 }
 
 if [ $# -lt 1 ]
 then
-    echo "Here"
     usage $0 
   exit
 fi

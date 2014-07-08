@@ -35,4 +35,19 @@ lldp_get_port_status_string(uint8_t lldp_port_status)
 	return "INVALID";
 }
 
+static inline const char *
+lldp_get_port_lstatus_string(int lldp_port_status)
+{
+	switch(lldp_port_status){
+	case LOOP_PORT_STATUS_INIT: return "LOOP-INIT";
+	case LOOP_PORT_STATUS_NONE: return "LOOP-NONE";
+	case LOOP_PORT_STATUS_RP: return "LOOP-RP";
+	case LOOP_PORT_STATUS_DP: return "LOOP-DP";
+	case LOOP_PORT_STATUS_NDP: return "LOOP-NDP";
+    case LOOP_PORT_STATUS_DP_N: return "LOOP-DP-N";
+	}
+
+	return "INVALID";
+}
+
 #endif

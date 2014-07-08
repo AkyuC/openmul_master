@@ -497,7 +497,7 @@ thread_master_debug (struct thread_master *m)
 
 /* Allocate new thread master.  */
 struct thread_master *
-thread_master_create ()
+thread_master_create (void)
 {
   if (cpu_record == NULL) 
     cpu_record 
@@ -1098,102 +1098,6 @@ thread_fetch (struct thread_master *m, struct thread *fetch)
     }
 }
 
-/* Fetch next ready thread. -- NAB_21122011*/
-struct thread *
-thread_fetch_nonblock (struct thread_master *m, struct thread *fetch)
-{
-  struct thread *thread;
-  fd_set readfd;
-  fd_set writefd;
-  fd_set exceptfd;
-  struct timeval timer_val = { .tv_sec = 0, .tv_usec = 0 };
-  struct timeval timer_val_bg;
-  struct timeval *timer_wait = &timer_val;
-  struct timeval *timer_wait_bg;
-
-  //while (1)
-    {
-      int num = 0;
-      
-      /* Signals pre-empt everything */
-      quagga_sigevent_process ();
-       
-      /* Drain the ready queue of already scheduled jobs, before scheduling
-       * more.
-       */
-      if ((thread = thread_trim_head (&m->ready)) != NULL)
-        return thread_run (m, thread, fetch);
-      
-      /* To be fair to all kinds of threads, and avoid starvation, we
-       * need to be careful to consider all thread types for scheduling
-       * in each quanta. I.e. we should not return early from here on.
-       */
-       
-      /* Normal event are the next highest priority.  */
-      thread_process (&m->event);
-      
-      /* Structure copy.  */
-      readfd = m->readfd;
-      writefd = m->writefd;
-      exceptfd = m->exceptfd;
-      
-      /* Calculate select wait timer if nothing else to do */
-      if (m->ready.count == 0)
-        {
-          quagga_get_relative (NULL);
-          timer_wait = thread_timer_wait (&m->timer, &timer_val);
-          timer_wait_bg = thread_timer_wait (&m->background, &timer_val_bg);
-          
-          if (timer_wait_bg &&
-              (!timer_wait || (timeval_cmp (*timer_wait, *timer_wait_bg) > 0)))
-            timer_wait = timer_wait_bg;
-        }
-      
-      num = select (FD_SETSIZE, &readfd, &writefd, &exceptfd, timer_wait);
-      
-      /* Signals should get quick treatment */
-      if (num < 0)
-        {
-          if (errno == EINTR)
-      	    return (quagga_sigevent_process ());
-            //continue; /* signal received - process it */ //NAB_21122011
-          zlog_warn ("select() error: %s", safe_strerror (errno));
-            return NULL;
-        }
-
-      /* Check foreground timers.  Historically, they have had higher
-         priority than I/O threads, so let's push them onto the ready
-	 list in front of the I/O threads. */
-      quagga_get_relative (NULL);
-      thread_timer_process (&m->timer, &relative_time);
-      
-      /* Got IO, process it */
-      if (num > 0)
-        {
-          /* Normal priority read thead. */
-          thread_process_fd (&m->read, &readfd, &m->readfd);
-          /* Write thead. */
-          thread_process_fd (&m->write, &writefd, &m->writefd);
-        }
-
-#if 0
-      /* If any threads were made ready above (I/O or foreground timer),
-         perhaps we should avoid adding background timers to the ready
-	 list at this time.  If this is code is uncommented, then background
-	 timer threads will not run unless there is nothing else to do. */
-      if ((thread = thread_trim_head (&m->ready)) != NULL)
-        return thread_run (m, thread, fetch);
-#endif
-
-      /* Background timer/events, lowest priority */
-      thread_timer_process (&m->background, &relative_time);
-      
-      if ((thread = thread_trim_head (&m->ready)) != NULL)
-        return thread_run (m, thread, fetch);
-    }
-}
-
-
 unsigned long
 thread_consumed_time (RUSAGE_T *now, RUSAGE_T *start, unsigned long *cputime)
 {
@@ -1307,7 +1211,7 @@ thread_call (struct thread *thread)
 
 /* Execute thread */
 struct thread *
-funcname_thread_execute (struct thread_master *m,
+funcname_thread_execute (struct thread_master *m __attribute__((unused)),
                 int (*func)(struct thread *), 
                 void *arg,
                 int val,

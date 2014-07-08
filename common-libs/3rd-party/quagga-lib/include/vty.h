@@ -43,6 +43,9 @@ struct vty
   int apply_node_match;
   int apply_node; 
 
+  /* Config replay mode */
+  int replay;
+
   /* What address is this vty comming from. */
   char *address;
 
@@ -122,6 +125,9 @@ struct vty
   /* Timeout seconds and thread. */
   unsigned long v_timeout;
   struct thread *t_timeout;
+
+  /* Switch name associated with a file vty */
+  const char *dpid;
 };
 
 /* Integrated configuration file. */

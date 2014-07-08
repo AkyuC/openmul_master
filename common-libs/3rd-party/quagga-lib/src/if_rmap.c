@@ -220,6 +220,7 @@ DEFUN (if_rmap,
     }
 
   if_rmap = if_rmap_set (argv[2], type, argv[0]);
+  vty_out (vty, "if_rmap set %p%s", if_rmap, VTY_NEWLINE);
 
   return CMD_SUCCESS;
 }      
@@ -312,7 +313,7 @@ config_write_if_rmap (struct vty *vty)
 }
 
 void
-if_rmap_reset ()
+if_rmap_reset (void)
 {
   hash_clean (ifrmaphash, (void (*) (void *)) if_rmap_free);
 }

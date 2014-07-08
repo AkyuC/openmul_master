@@ -1,27 +1,10 @@
 /*
- * Zebra logging funcions.
- * Copyright (C) 1997, 1998, 1999 Kunihiro Ishiguro
+ * c_log.h : MUL logging headers 
  *
- * This file is part of GNU Zebra.
- *
- * GNU Zebra is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2, or (at your option) any
- * later version.
- *
- * GNU Zebra is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
  */
 
-#ifndef _ZEBRA_LOG_H
-#define _ZEBRA_LOG_H
+#ifndef _C_LOG_H
+#define _C_LOG_H
 
 #include <syslog.h>
 
@@ -79,7 +62,7 @@ struct clog
 };
 
 /* Message structure. */
-struct message
+struct cmessage
 {
   int key;
   const char *str;
@@ -114,15 +97,15 @@ extern void c_log_notice (const char *format, ...) PRINTF_ATTRIBUTE(1, 2);
 extern void c_log_debug (const char *format, ...) PRINTF_ATTRIBUTE(1, 2);
 
 /* For bgpd's peer oriented log. */
-extern void plog_err (struct clog *, const char *format, ...)
+extern void clog_err (struct clog *, const char *format, ...)
   PRINTF_ATTRIBUTE(2, 3);
-extern void plog_warn (struct clog *, const char *format, ...)
+extern void clog_warn (struct clog *, const char *format, ...)
   PRINTF_ATTRIBUTE(2, 3);
-extern void plog_info (struct clog *, const char *format, ...)
+extern void clog_info (struct clog *, const char *format, ...)
   PRINTF_ATTRIBUTE(2, 3);
-extern void plog_notice (struct clog *, const char *format, ...)
+extern void clog_notice (struct clog *, const char *format, ...)
   PRINTF_ATTRIBUTE(2, 3);
-extern void plog_debug (struct clog *, const char *format, ...)
+extern void clog_debug (struct clog *, const char *format, ...)
   PRINTF_ATTRIBUTE(2, 3);
 
 /* Set logging level for the given destination.  If the log_level
@@ -130,6 +113,7 @@ extern void plog_debug (struct clog *, const char *format, ...)
    This function should not be used for file logging (use clog_set_file
    or clog_reset_file instead). */
 extern void clog_set_level (struct clog *zl, clog_dest_t, int log_level);
+extern void clog_set_name (struct clog *zl, clog_proto_t protocol, char *name);
 
 /* Set logging to the given filename at the specified level. */
 extern int clog_set_file (struct clog *zl, const char *filename, int log_level);
@@ -142,13 +126,13 @@ extern int clog_rotate (struct clog *);
 /* For hackey massage lookup and check */
 #define LOOKUP(x, y) mes_lookup(x, x ## _max, y, "(no item found)", #x)
 
-extern const char *lookup (const struct message *, int);
-extern const char *mes_lookup (const struct message *meslist, 
+extern const char *clookup (const struct cmessage *, int);
+extern const char *mes_clookup (const struct cmessage *meslist, 
                                int max, int index,
                                const char *no_item, const char *mesname);
 
 extern const char *clog_priority[];
-extern const char *clog_proto_names[];
+extern char *clog_proto_names[];
 
 /* Safe version of strerror -- never returns NULL. */
 extern const char *safe_strerror(int errnum);
@@ -179,7 +163,7 @@ extern size_t log_timestamp(int timestamp_precision /* # subsecond digits */,
 			       char *buf, size_t buflen);
 
 /* structure useful for avoiding repeated rendering of the same timestamp */
-struct timestamp_control {
+struct ctimestamp_control {
    size_t len;		/* length of rendered timestamp */
    int precision;	/* configuration parameter */
    int already_rendered; /* should be initialized to 0 */
@@ -224,4 +208,4 @@ struct timestamp_control {
 
 #define LOGFILE_MASK 0600
 
-#endif /* _ZEBRA_LOG_H */
+#endif /* _C_LOG_H */

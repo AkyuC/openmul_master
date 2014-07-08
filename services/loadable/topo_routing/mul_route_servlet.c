@@ -198,7 +198,7 @@ mul_route_list_size(rt_list_t *rt_list)
  *
  * Dump a route for printing
  */
-static void 
+static void  UNUSED
 mul_print_route(GSList *route_path)
 {
 #define TR_ROUTE_PBUF_SZ 4096
@@ -330,7 +330,7 @@ mul_dump_route(GSList *route_path)
  * mul_route_list_dump -
  *
  */
-static void
+static void UNUSED
 mul_route_list_dump(rt_list_t *path_head)
 {
     rt_list_t *cur_path = path_head;
@@ -353,13 +353,19 @@ mul_route_list_dump(rt_list_t *path_head)
  * Get a list of shortest paths between src and dest 
  */
 static rt_list_t *
-mul_route_apsp_get_subp(rt_apsp_t *rt_apsp_info, int src, int dest)
+mul_route_apsp_get_subp(rt_apsp_t *rt_apsp_info, int src, int dest, int *max_hops)
 {
     int transit_sw = NEIGH_NO_PATH;
     rt_list_t *path = NULL;
     rt_list_t *path_ik;
     rt_list_t *path_jk;
     int n = 0;
+
+    if (*max_hops <= 0) {
+        c_log_debug("%s: max-hops exceeded", FN);
+        return path;
+    }
+    --*max_hops;
 
     for (; n < RT_MAX_EQ_PATHS; n++) {
 
@@ -379,8 +385,12 @@ mul_route_apsp_get_subp(rt_apsp_t *rt_apsp_info, int src, int dest)
             return path;
         }
 
-        path_ik = mul_route_apsp_get_subp(rt_apsp_info, src, transit_sw);
-        path_jk = mul_route_apsp_get_subp(rt_apsp_info, transit_sw, dest);
+        if (src == transit_sw || dest == transit_sw) {
+            return path;
+        }
+
+        path_ik = mul_route_apsp_get_subp(rt_apsp_info, src, transit_sw, max_hops);
+        path_jk = mul_route_apsp_get_subp(rt_apsp_info, transit_sw, dest, max_hops);
 
         mul_route_list_merge(&path, path_ik, path_jk);
 
@@ -431,11 +441,12 @@ mul_route_select_single_and_purge_list(rt_list_t *route_list, size_t rt_select_h
  *
  * Adds inport and flags info for each element or node 
  */
-static void 
+static int 
 mul_route_prep_out(GSList *route)
 {
     GSList *prev = NULL, *curr;
     rt_path_elem_t *rt_prev_elem, *rt_elem;
+    int ret = 0;
 
     for (curr = route; curr; curr = curr->next) {
         rt_elem = curr->data;
@@ -447,6 +458,12 @@ mul_route_prep_out(GSList *route)
         } else {
             rt_elem->flags |= RT_PELEM_FIRST_HOP;
         }
+
+        /* Safety check */
+        if (curr->next && rt_elem->link.la == NEIGH_NO_LINK) {
+            ret = -1;
+        }
+
         prev = curr;
     }
 
@@ -454,6 +471,8 @@ mul_route_prep_out(GSList *route)
         rt_prev_elem = prev->data;
         rt_prev_elem->flags |= RT_PELEM_LAST_HOP;
     }
+
+    return ret;
 }
 
 /**
@@ -468,19 +487,20 @@ mul_route_apsp_get_mp_sp(void *rt_service, int src_sw, int dest_sw, void *u_arg,
                          size_t (*mp_select)(void *u_arg, size_t max_routes))
 {
     unsigned int lock, max_retries = 0;
+    int max_hops; 
     rt_apsp_t *rt_apsp_info = rt_service;
     GSList *route = NULL;
     rt_list_t *route_list = NULL;
     size_t mp_rt_hint = 0, num_mp_routes = 0; 
     lweight_pair_t last_hop = { NEIGH_NO_LINK, NEIGH_NO_LINK, 
-                                NEIGH_NO_PATH, false };
-
+                                NEIGH_NO_PATH, 0 };
 
     if (src_sw == dest_sw) {
         goto route_same_node;
     }
 
 retry:
+    max_hops = MAX_SWITCHES_PER_CLUSTER*RT_MAX_EQ_PATHS;
     if (max_retries++ >= RT_MAX_GET_RETRIES) {
         c_log_err("Too much writer contention or service died");
         return NULL;
@@ -506,7 +526,7 @@ retry:
         return NULL;
     }
 
-    route_list = mul_route_apsp_get_subp(rt_apsp_info, src_sw, dest_sw);
+    route_list = mul_route_apsp_get_subp(rt_apsp_info, src_sw, dest_sw, &max_hops); 
     if (mp_select) {
         num_mp_routes = mul_route_list_size(route_list);
         mp_rt_hint = mp_select(u_arg, num_mp_routes); 
@@ -522,10 +542,18 @@ retry:
         goto retry;
     }
 
+    if (max_hops <= 0) {
+        mul_destroy_route(route);
+        return NULL;
+    }
+
 route_same_node:
     add_route_path_elem(&route, dest_sw, &last_hop, true);
 
-    mul_route_prep_out(route);
+    if (mul_route_prep_out(route)) {
+        mul_destroy_route(route);
+        route = NULL; 
+    }
 
     return route;
 }
@@ -608,7 +636,7 @@ mul_route_get(void *rt_service, int src_sw, int dest_sw)
         ((src_sw != dest_sw) && (src_sw >= rt_apsp_info->state_info->nodes ||
         dest_sw >= rt_apsp_info->state_info->nodes))) {
         c_log_err("%s: src(%d) or dst(%d) out of range(%d)",
-                  FN, src_sw, dest_sw, rt_apsp_info->state_info->nodes);
+                  FN, src_sw, dest_sw, (int)rt_apsp_info->state_info->nodes);
         return NULL;
     }
 
@@ -640,7 +668,7 @@ mul_route_get_mp(void *rt_service, int src_sw, int dest_sw,  void *u_arg,
         ((src_sw != dest_sw) && (src_sw >= rt_apsp_info->state_info->nodes ||
         dest_sw >= rt_apsp_info->state_info->nodes))) {
         c_log_err("%s: src(%d) or dst(%d) out of range(%d)",
-                  FN, src_sw, dest_sw, rt_apsp_info->state_info->nodes);
+                  FN, src_sw, dest_sw, (int)rt_apsp_info->state_info->nodes);
         return NULL;
     }
 

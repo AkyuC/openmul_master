@@ -1,11 +1,12 @@
 /*
  *  mul_app_main.c: MUL application main
  *  Copyright (C) 2012, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
- * 
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
+ * mul_app_main.c: MUL application main
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -27,7 +28,12 @@ struct c_app_service c_app_service_tbl[MUL_MAX_SERVICE_NUM] = {
     { "MISC", MUL_ROUTE_SERVICE_NAME, 0, mul_route_service_get },
     { "CORE", MUL_CORE_SERVICE_NAME, C_AUX_APP_PORT, NULL },
     { FAB_APP_NAME, MUL_FAB_CLI_SERVICE_NAME, MUL_FAB_CLI_PORT, NULL },
-    { MAKDI_APP_NAME, MUL_MAKDI_SERVICE_NAME, MUL_MAKDI_CLI_PORT, NULL }
+    { MAKDI_APP_NAME, MUL_MAKDI_SERVICE_NAME, MUL_MAKDI_CLI_PORT, NULL },
+    { PRISM_APP_NAME, MUL_PRISM_CLI_SERVICE_NAME, MUL_PRISM_CLI_PORT, NULL},
+    { PRISM_APP_NAME, MUL_PRISM_APP_SERVICE_NAME,
+        MUL_PRISM_APP_SERVICE_PORT, NULL },
+    { PRISM_APP_NAME, MUL_PRISM_AGENT_SERVICE_NAME,
+        MUL_PRISM_AGENT_SERVICE_PORT, NULL }
 };
 
 static int c_app_sock_init(c_app_hdl_t *hdl, char *server);
@@ -36,6 +42,7 @@ static int c_app_sock_init(c_app_hdl_t *hdl, char *server);
 c_app_hdl_t c_app_main_hdl;
 char *server = "127.0.0.1";
 struct mul_app_client_cb *app_cbs= NULL;
+c_atomic_t finish_init;
 
 static void c_app_event_notifier(void *h_arg, void *pkt_arg);
 
@@ -44,7 +51,9 @@ static struct option longopts[] =
     { "daemon",                 no_argument,       NULL, 'd'},
     { "help",                   no_argument,       NULL, 'h'},
     { "server-ip",              required_argument, NULL, 's'},
+    { "peer-ip",                required_argument, NULL, 'H'},
     { "vty-shell",              required_argument, NULL, 'V'},
+    { "no-init-conf",           required_argument, NULL, 'N'}
 };
 
 #ifdef MUL_APP_V2_MLAPI
@@ -54,7 +63,9 @@ void c_switch_port_status(c_app_hdl_t *hdl, c_ofp_port_status_t *ofp_psts);
 void c_app_packet_in(c_app_hdl_t *hdl, c_ofp_packet_in_t *ofp_pin);
 void c_controller_reconn(c_app_hdl_t *hdl);
 void c_controller_disconn(c_app_hdl_t *hdl);
-
+void c_app_notify_ha_event(c_app_hdl_t *hdl, uint32_t ha_sysid, uint32_t ha_state);
+void c_app_vendor_msg(c_app_hdl_t *hdl UNUSED, c_ofp_vendor_msg_t *ofp_vm);
+void c_app_tr_status(c_app_hdl_t *hdl UNUSED, c_ofp_tr_status_mod_t *ofp_vm);
 #endif
 int c_app_infra_init(c_app_hdl_t *hdl);
 int c_app_infra_vty_init(c_app_hdl_t *hdl);
@@ -66,6 +77,7 @@ usage(char *progname, int status)
     printf("%s Options:\n", progname);
     printf("-d : Daemon Mode\n");
     printf("-s <server-ip> : Controller server ip address to connect\n");
+    printf("-H <server-ip> : App HA server ip address to connect\n");
     printf("-V <vty-port> : vty port address. (enables vty shell)\n");
     printf("-h : Help\n");
 
@@ -227,7 +239,12 @@ c_app_event_notifier(void *h_arg, void *pkt_arg)
         if (!hdl->ev_cb)
             c_switch_port_status(hdl, (void *)hdr);
         break;
+    case C_OFPT_VENDOR_MSG: 
+	    if (!hdl->ev_cb)
+	        c_app_vendor_msg(hdl, (void *)hdr);
+	break;
 #endif
+    case C_OFPT_AUX_CMD:
     default:
         break;
     }
@@ -294,6 +311,7 @@ static void *
 __mul_app_get_service(char *name,
                       void (*conn_update)(void *service,
                                           unsigned char conn_event),
+                      bool (*keepalive)(void *service),
                       bool retry_conn, const char *server)
 {
     size_t serv_sz = sizeof(c_app_service_tbl)/sizeof(c_app_service_tbl[0]);
@@ -309,7 +327,7 @@ __mul_app_get_service(char *name,
             else 
                 service = mul_service_instantiate(c_app_main_hdl.base, name, 
                                                   serv_elem->port,
-                                                  conn_update, NULL,
+                                                  conn_update, keepalive,
                                                   retry_conn, server);
             return service;
         }
@@ -322,7 +340,7 @@ __mul_app_get_service(char *name,
 void *
 mul_app_get_service(char *name, const char *server)
 {
-    return __mul_app_get_service(name, NULL, false, server);
+    return __mul_app_get_service(name, NULL, NULL, false, server);
 }
  
 void *
@@ -332,10 +350,21 @@ mul_app_get_service_notify(char *name,
                           bool retry_conn,
                           const char *server)
 {
-    return __mul_app_get_service(name, conn_update, retry_conn, server);
+    return __mul_app_get_service(name, conn_update, NULL, retry_conn, server);
+}
+
+void *
+mul_app_get_service_notify_ka(char *name,
+                              void (*conn_update)(void *service,
+                                              unsigned char conn_event),
+                              bool (*keepalive)(void *service),  
+                              bool retry_conn,
+                              const char *server)
+{
+    return __mul_app_get_service(name, conn_update, keepalive,
+                                 retry_conn, server);
 }
  
-
 void
 mul_app_destroy_service(void *service)
 {
@@ -354,6 +383,7 @@ mod_initcalls(c_app_hdl_t *hdl)
     } while (mod_init < &__stop_modinit_sec);
 }
 
+#if !defined(SWIG_INFRA) && defined(MUL_APP_VTY)
 static void
 modvty__initcalls(void *arg)
 {       
@@ -364,15 +394,53 @@ modvty__initcalls(void *arg)
         (*mod_init)(arg);
         mod_init++;
     } while (mod_init < &__stop_modvtyinit_sec);
-}   
+}
 
-DEFUN (show_app_version,
+DEFUN_HIDDEN (show_app_version,
        show_app_version_cmd,
        "show app-host-version",
        SHOW_STR
        "Application Hosting Version")
 {
-    vty_out(vty, " Version 0.99\r\n");
+    vty_out(vty, " Version 3.3\r\n");
+    return CMD_SUCCESS;
+}
+
+DEFUN (c_set_log,
+       c_set_log_cmd,
+       "set controller-log (console|syslog) level (warning|error|debug)", 
+       SET_STR
+       "Controller Logging Info\n"
+       "Console\n"
+       "Or syslog\n"
+       "Log Level\n"
+       "Warning or above\n"
+       "Error or above\n"
+       "Debug or above\n")
+{
+    clog_dest_t dest = 0;
+    int level = 0;
+
+    if (!strncmp(argv[0], "console", strlen(argv[0]))) {
+        dest = CLOG_DEST_STDOUT;
+    } else if (!strncmp(argv[0], "syslog", strlen(argv[0]))) {
+        dest = CLOG_DEST_SYSLOG;
+    } else {
+        NOT_REACHED();
+    }
+
+    if (!strncmp(argv[1], "warning", strlen(argv[1]))) {
+        level = LOG_WARNING;
+    } else if (!strncmp(argv[1], "error", strlen(argv[1]))) {
+        level = LOG_ERR;
+    } else if (!strncmp(argv[1], "debug", strlen(argv[1]))) { 
+        level = LOG_DEBUG;
+    } else {
+        NOT_REACHED();
+    }
+
+    clog_set_level(NULL, dest, level);
+
     return CMD_SUCCESS;
 }
 
@@ -386,22 +454,21 @@ c_app_vty_main(void *arg)
     strncpy(app_vtysh_path, C_APP_VTY_COMMON_PATH, 63 ); 
     strncat(app_vtysh_path, hdl->progname, 63);
 
+
     hdl->vty_master = thread_master_create();
 
     cmd_init(1);
     vty_init(hdl->vty_master);
-#ifdef MUL_APP_V2_MLAPI
-    c_app_infra_vty_init(hdl); 
-#endif
+
     modvty__initcalls(hdl);
     install_element(ENABLE_NODE, &show_app_version_cmd);
+    install_element(CONFIG_NODE, &c_set_log_cmd);
     sort_node();
 
     vty_serv_sock(NULL, hdl->vty_port, app_vtysh_path, 1);
+    vty_serv_sock(NULL, hdl->vty_port+1, app_vtysh_path, 0);
 
-    c_log_debug(" App vty thread running \n");
-    
-     /* Execute each thread. */       
+    /* Execute each thread. */       
     while (thread_fetch(hdl->vty_master, &thread))
         thread_call(&thread);
 
@@ -409,8 +476,28 @@ c_app_vty_main(void *arg)
     return (0);
 } 
 
+#else
+
 int
-main(int argc, char **argv)
+vty_out(struct vty *vty UNUSED, const char *format UNUSED, ...)
+{
+    return 0;
+}
+
+void
+install_element(enum node_type ntype UNUSED, struct cmd_element *cmd UNUSED)
+{
+}
+
+static void *
+c_app_vty_main(void *arg UNUSED)
+{
+    return NULL;
+}
+#endif
+
+static int
+__main(int argc, char **argv)
 {
     char    *p;
     int     daemon_mode = 0;
@@ -433,7 +520,7 @@ main(int argc, char **argv)
     while (1) {
         int opt;
 
-        opt = getopt_long (argc, argv, "dhS:V:", longopts, 0);
+        opt = getopt_long (argc, argv, "dhs:V:H:f:N", longopts, 0);
         if (opt == EOF)
             break;
 
@@ -454,8 +541,21 @@ main(int argc, char **argv)
             vty_shell = 1;
             vty_port = atoi(optarg);
             break;
+        case 'H':
+            c_app_main_hdl.ha_server = optarg;
+            if (!inet_aton(c_app_main_hdl.ha_server, &in_addr)) {
+                printf("Invalid HA peer address");
+                exit(0);
+            }
+            break;
+        case 'f':
+            strcpy(c_app_main_hdl.dpid_file,optarg);
+            break;
         case 'h':
             usage(c_app_main_hdl.progname, 0);
+            break;
+        case 'N':
+            c_app_main_hdl.no_init_conf = 1;
             break;
         default:
             usage(c_app_main_hdl.progname, 1);
@@ -463,16 +563,17 @@ main(int argc, char **argv)
         }
     }
 
-    c_pid_output(app_pid_path);
-
     if (daemon_mode) {
-        c_daemon(1, 0);
+        c_daemon(1, 0, app_pid_path);
+    } else {
+        c_pid_output(app_pid_path);
     }
 
     clog_default = openclog (c_app_main_hdl.progname, CLOG_MUL,
-                             LOG_CONS|LOG_NDELAY|LOG_PID, LOG_DAEMON);
-    clog_set_level(NULL, CLOG_DEST_SYSLOG, LOG_WARNING);
+                             LOG_CONS|LOG_NDELAY, LOG_DAEMON);
+    clog_set_level(NULL, CLOG_DEST_SYSLOG, LOG_ERR);
     clog_set_level(NULL, CLOG_DEST_STDOUT, LOG_DEBUG);
+    clog_set_name(NULL, CLOG_MUL, c_app_main_hdl.progname);
 
     c_app_init(&c_app_main_hdl);
     c_app_infra_init(&c_app_main_hdl);
@@ -488,6 +589,8 @@ main(int argc, char **argv)
         pthread_create(&c_app_main_hdl.vty_thread, NULL, c_app_vty_main, &c_app_main_hdl);
     }
 
+    atomic_inc(&finish_init,1);
+
     while(1) { 
         return event_base_dispatch(c_app_main_hdl.base);
     }
@@ -495,3 +598,44 @@ main(int argc, char **argv)
     /* Not reached. */
     return (0);
 }
+
+#ifndef SWIG_INFRA
+int
+main(int argc, char *argv[])
+{
+    finish_init = 0;
+    __main(argc, argv);
+
+    return 0;
+}
+#else
+
+int nbapi_worker_entry(void);
+
+static void *
+nbapi_init(void *arg UNUSED)
+{
+    char *argv[1];
+
+    argv[0] = "nbapi";
+    __main(1, argv);
+
+    return NULL;
+}
+
+int
+nbapi_worker_entry(void)
+{
+    pthread_t tid;
+    int ret_val;
+    struct timespec interval = {0, 10000};
+
+    finish_init = 0;
+    ret_val = pthread_create(&tid, NULL, nbapi_init, NULL);
+
+    while(!atomic_read(&finish_init)) {
+        nanosleep(&interval, NULL);
+    }
+    return ret_val;
+}
+#endif

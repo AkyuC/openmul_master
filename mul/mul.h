@@ -22,6 +22,11 @@
 #include "config.h"
 #include "mul_common.h"
 
+#include <openssl/crypto.h>
+#include <openssl/rand.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+
 #include "mul_events.h"
 #include "mul_thread.h" 
 #include "mul_priv.h"

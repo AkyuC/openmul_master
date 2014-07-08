@@ -20,6 +20,7 @@
 #ifndef __C_BUF_H__
 #define __C_BUF_H__
 
+#include <assert.h>
 #include "atomic.h"
 
 struct cbuf
@@ -70,6 +71,8 @@ struct cbuf *cbuf_realloc_headroom(struct cbuf *b, size_t room, int do_free);
 void *cbuf_pull(struct cbuf *b, size_t len);
 void *cbuf_push(struct cbuf *b, size_t len);
 void free_cbuf(struct cbuf *b);
+int cbuf_list_count(struct cbuf_head *head);
+
 void cbuf_list_rm_inline_bufs(struct cbuf_head *head);
 
 static inline void *
@@ -94,6 +97,17 @@ cbuf_pull_inline(struct cbuf *b, size_t len)
     b->len -= len;
 
     return (void *)(b->data);
+}
+
+static inline int 
+cbuf_may_pull(struct cbuf *b, size_t len)
+{
+    if (b->data + len > b->end) {
+        return 0;
+    }
+
+    cbuf_pull_inline(b, len);
+    return 1;
 }
 
 static inline void *

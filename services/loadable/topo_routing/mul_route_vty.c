@@ -20,6 +20,7 @@
 
 extern tr_struct_t  *tr_hdl;
 
+#ifdef MUL_APP_VTY
 
 extern void mul_route_apsp_dump_adj_matrix(tr_struct_t *tr);
 
@@ -98,4 +99,9 @@ route_vty_init(void *arg UNUSED)
     install_element(ENABLE_NODE, &show_route_matrix_cmd);
 }
 
-
+#else
+void
+route_vty_init(void *arg UNUSED)
+{
+}
+#endif

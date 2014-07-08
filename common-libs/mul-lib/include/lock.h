@@ -37,8 +37,6 @@ c_rw_lock_destroy(c_rw_lock_t *lock)
     pthread_rwlock_destroy(lock);
 }
 
-//#define LOCK_DEBUG
-
 #ifdef LOCK_DEBUG
 static inline void
 __c_rd_lock(c_rw_lock_t *lock)
@@ -53,8 +51,6 @@ do { \
     __c_rd_lock(lock); \
 }while(0)
 
-
-
 static inline void
 __c_rd_unlock(c_rw_lock_t *lock)
 {
@@ -67,7 +63,6 @@ do { \
     printf ("%s:%s:%d\n", __FILE__, __FUNCTION__, __LINE__); \
     __c_rd_unlock(lock); \
 }while(0)
-
 
 static inline void
 __c_wr_lock(c_rw_lock_t *lock)

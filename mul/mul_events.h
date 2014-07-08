@@ -32,10 +32,12 @@ typedef enum
     C_EVENT_NEW_HA_CONN,
 }c_event_conn_t;
 
+int     c_ssl_accept(c_conn_t *conn);
 void    c_write_event_sched(void *conn_arg);
 int     c_worker_event_new_conn(void *ctx_arg, void *msg_arg);
 void    c_switch_thread_read(evutil_socket_t fd, short events, void *arg);
 void    c_accept(evutil_socket_t listener, short event, void *arg);
+void    c_ha_accept(evutil_socket_t listener, short event, void *arg);
 void    c_app_accept(evutil_socket_t listener, short event, void *arg);
 void    c_aux_app_accept(evutil_socket_t listener, short event, void *arg);
 void    c_worker_ipc_read(evutil_socket_t listener, short event, void *arg);
@@ -61,9 +63,17 @@ c_conn_events_del(c_conn_t *conn)
 static inline void
 c_conn_destroy(c_conn_t *conn)
 {
+    c_wr_lock(&conn->conn_lock);
     c_conn_events_del(conn);
+    if (conn->ssl)
+        SSL_shutdown(conn->ssl);
     c_conn_close(conn);
-    c_conn_clear_buffers(conn);
+    __c_conn_clear_buffers(conn, true);
+    if (conn->ssl)
+        SSL_free(conn->ssl);
+
+    conn->ssl = NULL;
+    c_wr_unlock(&conn->conn_lock);
 }
 
 static inline void
@@ -79,7 +89,7 @@ c_conn_assign_fd(c_conn_t *conn, int fd)
     
     memset(conn->conn_str, 0, sizeof(conn->conn_str));
     if (getpeername(fd, (void *)&peer_addr, &peer_sz) < 0) {
-        c_log_err("get peer failed");
+        c_log_err("get peer failed |%d|", fd);
         return;
     }
 

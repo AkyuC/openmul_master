@@ -57,6 +57,9 @@ struct host
   /* Banner configuration. */
   const char *motd;
   char *motdfile;
+
+  /* MUL */
+  char **(*get_conf_file_params)(int *num);
 };
 
 /* There are some command levels which called from command node. */
@@ -104,11 +107,13 @@ enum node_type
   KULVISOR_NODE,        /* Kulvisor node */ 
   SLICE_NODE,           /* Slice node */ 
   FLOW_NODE,            /* Flow node */
+  INST_NODE,            /* Instruction node */
   MUL_NODE,             /* MuL node */
   MULTR_NODE,           /* MuL TR node */
   MULFAB_NODE,          /* MuL Fab node */
   MULMAKDI_NODE,        /* MuL makdi node */
   GROUP_NODE,           /* Flow node */
+  METER_NODE,           /* Meter node */
   VTY_NODE,			    /* Vty node. */
 };
 
@@ -295,7 +300,7 @@ struct desc
 #define AS_STR "AS number\n"
 #define MBGP_STR "MBGP information\n"
 #define MATCH_STR "Match values from routing table\n"
-#define SET_STR "Set values in destination routing protocol\n"
+#define SET_STR "Set values \n"
 #define OUT_STR "Filter outgoing routing updates\n"
 #define IN_STR  "Filter incoming routing updates\n"
 #define V4NOTATION_STR "specify by IPv4 address notation(e.g. 0.0.0.0)\n"
@@ -367,8 +372,12 @@ extern struct cmd_element config_exit_cmd;
 extern struct cmd_element config_quit_cmd;
 extern struct cmd_element config_help_cmd;
 extern struct cmd_element config_list_cmd;
+extern int config_write_file_all(struct vty *vty);
+extern int config_write_terminal_all(struct vty *vty);
 extern char *host_config_file (void);
 extern void host_config_set (char *);
+extern void host_config_file_cb_set (char *,
+                                     char ** (*conf_file_get_cb)(int *num));
 
 extern void print_version (const char *);
 

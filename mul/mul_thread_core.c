@@ -18,6 +18,8 @@
  */
 #include "mul.h"
 
+extern struct c_rlim_dat crl;
+
 void *c_thread_main(void *arg);
 int  c_vty_thread_run(void *arg);
 
@@ -63,7 +65,7 @@ c_alloc_thread_ctx(struct thread_alloc_args *args)
             assert(args->nthreads > 0 && args->nthreads <= C_MAX_THREADS);
             assert(args->n_appthreads >= 0 && 
                    args->n_appthreads <= C_MAX_APP_THREADS);
-            m_ctx = calloc(1, sizeof(struct c_main_ctx));      
+            m_ctx = calloc(1, sizeof(struct c_main_ctx));
             assert(m_ctx);
 
             ctx = m_ctx;
@@ -149,6 +151,95 @@ c_worker_thread_final_init(struct c_worker_ctx *w_ctx)
     w_ctx->cmn_ctx.run_state = THREAD_STATE_RUNNING;
 
     return 0;
+}
+
+static void
+c_thread_ssl_lock_cb(int mode, int n,
+                     const char * file UNUSED,
+                     int line UNUSED)
+{
+    extern ctrl_hdl_t ctrl_hdl;
+
+    if (mode & CRYPTO_LOCK)
+        c_wr_lock(&ctrl_hdl.ssl_thread_locks[n]);
+    else
+        c_wr_unlock(&ctrl_hdl.ssl_thread_locks[n]);
+}
+
+static
+unsigned long c_thread_ssl_id_cb(void)
+{
+    return ((unsigned long)(pthread_self()));
+}
+
+static struct CRYPTO_dynlock_value *
+c_dyn_lock_create_cb(const char *file UNUSED, int line UNUSED)
+{
+    struct CRYPTO_dynlock_value *value;
+
+    value = (struct CRYPTO_dynlock_value *)
+                malloc(sizeof(struct CRYPTO_dynlock_value));
+    if (!value) {
+        goto err;
+    }
+    c_rw_lock_init(&value->lock);
+    return value;
+
+err:
+    return (NULL);
+}
+
+static void
+c_dyn_lock_cb(int mode, struct CRYPTO_dynlock_value *l,
+              const char *file UNUSED, int line UNUSED)
+{
+    if (mode & CRYPTO_LOCK) {
+        c_wr_lock(&l->lock);
+    } else {
+        c_wr_unlock(&l->lock);
+    }
+}
+
+static void
+c_dyn_lock_destroy_cb(struct CRYPTO_dynlock_value *l,
+                      const char *file UNUSED, int line UNUSED)
+{
+    c_rw_lock_destroy(&l->lock);
+    free(l);
+}
+
+static DH *
+tmp_dh_callback(SSL *ssl UNUSED, int is_export UNUSED, int keylength)
+{
+    struct dh {
+        int keylength;
+        DH *dh;
+        DH *(*constructor)(void);
+    };
+
+    static struct dh dh_table[] = {
+        {1024, NULL, get_dh1024},
+        {2048, NULL, get_dh2048},
+        {4096, NULL, get_dh4096},
+    };
+
+    struct dh *dh;
+    int size = sizeof(dh_table)/sizeof(dh_table[0]);
+
+    for (dh = dh_table; dh < &dh_table[size]; dh++) {
+        if (dh->keylength == keylength) {
+            if (!dh->dh) {
+                dh->dh = dh->constructor();
+                assert(dh->dh);
+            }
+            return dh->dh;
+        }
+    }
+    if (!c_rlim(&crl))
+        c_log_err("|SSL| Diffie-Hellman parameters for key length %d",
+                  keylength);
+
+    return NULL;
 }
 
 static int
@@ -260,18 +351,90 @@ c_main_thread_final_init(struct c_main_ctx *m_ctx)
                                           c_aux_app_accept, (void*)m_ctx);
     event_add(m_ctx->c_app_aux_accept_event, NULL);
 
+    if (ctrl_hdl->ssl_en) {
+        ctrl_hdl->ssl_thread_locks = calloc(CRYPTO_num_locks(),
+                                            sizeof(c_rw_lock_t));
+        assert(ctrl_hdl->ssl_thread_locks);
+        for (thread_idx = 0; thread_idx < CRYPTO_num_locks(); thread_idx++) {
+            c_rw_lock_init(&ctrl_hdl->ssl_thread_locks[thread_idx]);
+        }
+        
+        /* Make ssl calls thread safe - static lock callbacks */
+        CRYPTO_set_id_callback(c_thread_ssl_id_cb);
+        CRYPTO_set_locking_callback(c_thread_ssl_lock_cb);
+
+        /* Make ssl calls thread safe - dynamic lock callbacks */
+        CRYPTO_set_dynlock_create_callback(c_dyn_lock_create_cb);
+        CRYPTO_set_dynlock_lock_callback(c_dyn_lock_cb);
+        CRYPTO_set_dynlock_destroy_callback(c_dyn_lock_destroy_cb);
+
+        /* SSL Library init */
+        SSL_load_error_strings();
+        SSL_library_init();
+
+        /* Common context setup */ 
+        if (!ctrl_hdl->ssl_meth) {
+            ctrl_hdl->ssl_meth = (void *)TLSv1_2_method();
+            assert(ctrl_hdl->ssl_meth);
+        }
+
+        ctrl_hdl->ssl_ctx = SSL_CTX_new(ctrl_hdl->ssl_meth); 
+        assert(ctrl_hdl->ssl_ctx);
+
+        SSL_CTX_set_options(ctrl_hdl->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+        SSL_CTX_set_tmp_dh_callback(ctrl_hdl->ssl_ctx, tmp_dh_callback);
+
+        /* Load the server certificate into the SSL_CTX structure */
+        if (SSL_CTX_use_certificate_file(ctrl_hdl->ssl_ctx,
+                                        C_RSA_SERVER_CERT,
+                                        SSL_FILETYPE_PEM) <= 0) {
+            c_log_err("[SEC] Server cert file load failed");
+            assert(0);
+        }
+ 
+        /* Load the private-key corresponding to the server certificate */
+        if (SSL_CTX_use_PrivateKey_file(ctrl_hdl->ssl_ctx,
+                                       C_RSA_SERVER_KEY,
+                                       SSL_FILETYPE_PEM) <= 0) {
+            c_log_err("[SEC] Private key file load failed");
+            assert(0);
+        }
+ 
+        /* Check if the server certificate and private-key matches */
+        if (!SSL_CTX_check_private_key(ctrl_hdl->ssl_ctx)) {
+            c_log_err("[SEC] Private key <-> Cert mismatch");
+            assert(0);
+        }
+ 
+        /* Load the RSA CA certificate into the SSL_CTX structure */
+        if (!SSL_CTX_load_verify_locations(ctrl_hdl->ssl_ctx,
+                                           C_RSA_CLIENT_CA_CERT, NULL)) {
+            c_log_err("[SEC] Client CACert load failed");
+            assert(0);
+        }
+ 
+        /* Require client certificate verification */
+        SSL_CTX_set_verify(ctrl_hdl->ssl_ctx,
+                           ctrl_hdl->switch_ca_verify ?
+                           SSL_VERIFY_PEER: 
+                           SSL_VERIFY_NONE, 
+                           NULL);
+ 
+        /* Set the verification depth to 1 */
+        SSL_CTX_set_verify_depth(ctrl_hdl->ssl_ctx, 1);
+    }
+
     m_ctx->cmn_ctx.run_state = THREAD_STATE_RUNNING;
 
     c_set_thread_dfl_affinity();
 
-    c_log_debug("%s: running tid(%u)", __FUNCTION__, (unsigned int)pthread_self());
     return 0;
 }
 
 static int
 c_thread_event_loop(struct c_cmn_ctx *cmn_ctx)
 {
-    c_log_debug("%s: tid(%u)", __FUNCTION__, (unsigned int)pthread_self());
+    /* c_log_debug("%s: tid(%u)", __FUNCTION__, (unsigned int)pthread_self()); */
     return event_base_dispatch(cmn_ctx->base);
 }
 
@@ -305,7 +468,7 @@ c_worker_thread_run(struct c_worker_ctx *w_ctx)
     case THREAD_STATE_RUNNING:
         return c_thread_event_loop((void *)w_ctx);
     default:
-        c_log_err("Unknown run state"); 
+        c_log_err("[THREAD] Unknown run state"); 
         break;
     }
 
@@ -403,6 +566,8 @@ c_thread_start(void *hdl, int nthreads, int n_appthreads)
     struct c_main_ctx *main_ctx = c_alloc_thread_ctx(&args);
     ctrl_hdl->main_ctx = (void *)main_ctx;
 
+    c_log_info("[THREAD] INIT |%d| switch-threads |%d| app-threads",
+               nthreads, n_appthreads);
     pthread_create(&main_ctx->cmn_ctx.thread, NULL, c_thread_main, main_ctx);
     return 0;
 }

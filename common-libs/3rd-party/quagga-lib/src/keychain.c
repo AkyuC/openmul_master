@@ -850,16 +850,16 @@ DEFUN (send_lifetime_duration_month_day,
 
 static struct cmd_node keychain_node =
 {
-  KEYCHAIN_NODE,
-  "%s(config-keychain)# ",
-  1
+  .node = KEYCHAIN_NODE,
+  .prompt = "%s(config-keychain)# ",
+  .vtysh = 1
 };
 
 static struct cmd_node keychain_key_node =
 {
-  KEYCHAIN_KEY_NODE,
-  "%s(config-keychain-key)# ",
-  1
+  .node = KEYCHAIN_KEY_NODE,
+  .prompt = "%s(config-keychain-key)# ",
+  .vtysh = 1
 };
 
 static int
@@ -937,7 +937,7 @@ keychain_config_write (struct vty *vty)
 }
 
 void
-keychain_init ()
+keychain_init (void)
 {
   keychain_list = list_new ();
 

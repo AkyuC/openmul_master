@@ -160,7 +160,7 @@ fab_dump_single_host_from_flow(uint64_t dpid, struct flow *fl)
                     "0x%016llx port %4hu (%s)\r\n",
                     fab_extract_tenant_id(fl), 
                     fab_extract_network_id(fl), 
-                    ntohl(fl->nw_src),
+                    ntohl(fl->ip.nw_src),
                     fl->dl_src[0], fl->dl_src[1],
                     fl->dl_src[2], fl->dl_src[3],
                     fl->dl_src[4], fl->dl_src[5],
