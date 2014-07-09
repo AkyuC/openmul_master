@@ -263,6 +263,7 @@ nbapi_endian_convert_c_ofp_flow_info(struct c_ofp_flow_info *cofp_fi,
     cofp_fi->datapath_id = convll(cofp_fi->datapath_id);
     nbapi_endian_convert_flow(&(cofp_fi->flow), convs, convl, convll);
     cofp_fi->flags = convll(cofp_fi->flags);
+    cofp_fi->oport = convl(cofp_fi->oport);
     cofp_fi->priority = convs(cofp_fi->priority);
     cofp_fi->byte_count = convll(cofp_fi->byte_count);
     cofp_fi->packet_count = convll(cofp_fi->packet_count);

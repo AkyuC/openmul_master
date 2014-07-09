@@ -27,7 +27,7 @@ add_static_flow(uint64_t datapath_id,
                 struct flow *fl,
                 struct flow *mask, 
                 uint16_t priority,
-                uint8_t flag UNUSED,
+                uint8_t flags,
                 mul_act_mdata_t *mdata) 
 {
     size_t action_len = 0;
@@ -46,8 +46,9 @@ add_static_flow(uint64_t datapath_id,
                               0xffffffff, 
                               mdata->act_base,
                               action_len, 
-                              0, 0, priority,
-                              C_FL_ENT_GSTATS | C_FL_ENT_STATIC);
+                              0, 0,
+                              priority,
+                              C_FL_ENT_STATIC | flags);
     if (c_service_timed_wait_response(nbapi_app_data->mul_service) > 0) {
         c_log_err("%s: Failed to add a flow.", FN);
         ret = -1;
@@ -71,21 +72,25 @@ int
 delete_static_flow(uint64_t datapath_id, 
                    struct flow *fl,
                    struct flow *mask,
-                   uint16_t out_port_no UNUSED, 
+                   uint16_t out_port_no, 
                    uint16_t priority,
-                   uint8_t flag UNUSED)
+                   uint8_t flag)
 
 {
     int ret = 0;
+
+    if (!nbapi_app_data->mul_service)
+        return -1;
 
     hton_flow(fl);
 
     c_wr_lock(&nbapi_app_data->lock);
     mul_service_send_flow_del(nbapi_app_data->mul_service,
                               datapath_id,
-                              fl, mask, 0,
+                              fl, mask,
+                              out_port_no,
                               priority,
-                              C_FL_ENT_STATIC,
+                              flag | C_FL_ENT_STATIC,
                               OFPG_ANY);
     if (c_service_timed_wait_response(nbapi_app_data->mul_service) > 0) {
         c_log_err("%s: Failed to delete flow.", FN);

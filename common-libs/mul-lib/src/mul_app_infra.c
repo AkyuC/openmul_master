@@ -897,7 +897,7 @@ mul_app_send_flow_del(void *app_name UNUSED, void *sw_arg UNUSED,
 int
 mul_service_send_flow_del(void *service,
                       uint64_t dpid, struct flow *fl,
-                      struct flow *mask, uint32_t oport UNUSED,
+                      struct flow *mask, uint32_t oport,
                       uint16_t prio, uint64_t flags,
                       uint32_t ogroup)
 {

@@ -27,14 +27,17 @@
 #define NBAPI_SERVICE_NAME MUL_APP_NAME
 #define NBAPI_CONF_FILE "mulnbapi.conf"
 
+#define MUL_NB_TIMEO (2)
+
 typedef struct {
     c_rw_lock_t   lock;
     void          *base;
-    mul_service_t *mul_service; /* Traffic-Routing Service Instance */
-    mul_service_t *route_service; /* Route Service Instance */
-    mul_service_t *fab_service; /* Fabric Service Instance */
-    mul_service_t *tr_service; /* Traffic-Routing Service Instance */
-    mul_service_t *makdi_service; /* Traffic-Routing Service Instance */
+    struct event  *nbapi_timer_event;
+    mul_service_t *mul_service;       /* Traffic-Routing Service Instance */
+    mul_service_t *route_service;     /* Route Service Instance */
+    mul_service_t *fab_service;       /* Fabric Service Instance */
+    mul_service_t *tr_service;        /* Traffic-Routing Service Instance */
+    mul_service_t *makdi_service;     /* iChain Service Instance */
 } nbapi_struct_t;
 
 extern nbapi_struct_t *nbapi_app_data;

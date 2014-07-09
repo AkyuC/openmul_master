@@ -49,7 +49,7 @@ class FlowTableHandler(BaseHandler):
         try:
             body = FlowSchema().deserialize(json.loads(self.request.body))
         except :
-            self.raise_error(-1, "Failed to add flow", reason="Marformed input data")
+            self.raise_error(-1, "Failed to add flow", reason="Malformed input data")
 
         logger.debug(str(body))
 
@@ -119,9 +119,9 @@ class FlowTableHandler(BaseHandler):
                     if flow.dl_type != 0x0800:
                         self.raise_error(-1, 'Failed to add flow', reason="SET_TP_SRC, eth-type != ETH_TYPE_IP ")
                     if flow.nw_proto == 17:#mul.IP_TYPE_UDP
-                        check = mul.nbapi_dayoung_action_to_mdata(mdata, 'SET_TP_UDP_SRC', str(action['value']))
+                        check = mul.nbapi_action_to_mdata(mdata, 'SET_TP_UDP_SRC', str(action['value']))
                     elif flow.nw_proto == 6:#mul.IP_TYPE_TCP
-                        check = mul.nbapi_dayoung_action_to_mdata(mdata, 'SET_TP_TCP_SRC', str(action['value']))
+                        check = mul.nbapi_action_to_mdata(mdata, 'SET_TP_TCP_SRC', str(action['value']))
                     else:
                         self.raise_error(-1, 'Failed to add flow', reason="SET_TP_SRC, nw_proto != IP_TYPE_UDP or IP_TYPE_TCP")
                         continue
@@ -130,9 +130,9 @@ class FlowTableHandler(BaseHandler):
                     if flow.dl_type != 0x0800:
                         self.raise_eroor(-1,'Failed to add flow', reason="SET_TP_DST, eth-type != ETH_TYPE_IP ")
                     if flow.nw_proto == 17:#mul.IP_TYPE_UDP:
-                        check = mul.nbapi_dayoung_action_to_mdata(mdata, 'SET_TP_UDP_DST', str(action['value']))
+                        check = mul.nbapi_action_to_mdata(mdata, 'SET_TP_UDP_DST', str(action['value']))
                     elif flow.nw_proto == 6:#mul.IP_TYPE_TCP:
-                        check = mul.nbapi_dayoung_action_to_mdata(mdata, 'set_TP_TCP_DST', str(action['value']))
+                        check = mul.nbapi_action_to_mdata(mdata, 'set_TP_TCP_DST', str(action['value']))
                     else:
                         self.raise_error(-1, 'Failed to add flow', reason="SET_TP_DST, nw_proto != IP_TYPE_UDP or IP_TYPE_TCP")
                         continue
@@ -146,7 +146,7 @@ class FlowTableHandler(BaseHandler):
 
         ret = mul.add_static_flow(int(dpid, 16), flow, mask,
                                   int(body['priority']),
-                                  int(body['flags']),
+                                  int(body['flag']),
                                   mdata)
         if ret is 0:
             flow_id = FlowHolder.getInstance().save(int(dpid, 16), flow)
@@ -156,7 +156,7 @@ class FlowTableHandler(BaseHandler):
             else:
                 self.raise_error(-1, "Failed to add flow")
         else:
-            self.raise_error(-1, "Failed to add flow  (or Existed flow)")
+            self.raise_error(-1, "Failed to add flow (or flow exists)")
 
     def put(self, dpid=None, flow_id=None):
         pass
@@ -164,11 +164,12 @@ class FlowTableHandler(BaseHandler):
     def delete(self, dpid=None, flow_id=None):
         try:
             flow = FlowHolder.getInstance().get(flow_id)
-
             res = mul.delete_static_flow(flow.datapath_id,
                                          flow.flow,
                                          flow.mask,
-                                         0, 0, 0)
+                                         0,
+                                         flow.priority,
+                                         flow.flags)
             if res != 0:
                 self.raise_error(-1, "Failed to delete flow")
             else:
@@ -373,4 +374,4 @@ class FlowSchema(colander.MappingSchema):
     name =colander.SchemaNode(colander.Int(), missing=0)
     flag =colander.SchemaNode(colander.Int(), missing=0)
     instructions = InstructionList()
-    priority = colander.SchemaNode(colander.Int(), missing=0)
+    priority = colander.SchemaNode(colander.Int(), missing=0, validator=colander.Range(min=0,max=65535))

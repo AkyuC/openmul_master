@@ -78,6 +78,52 @@ nbapi_service_ka(void *serv_arg UNUSED)
     return true;
 }
 
+static void
+nbapi_timer_cb(evutil_socket_t fd UNUSED,
+               short event UNUSED,
+               void *arg UNUSED)
+{
+    struct cbuf *b;
+    struct c_ofp_auxapp_cmd *cofp_auc;
+#define NBAPI_SERVICE_LEN 4
+    mul_service_t *serv_arr[NBAPI_SERVICE_LEN];
+    mul_service_t *service = NULL;
+    int i = 0;
+    struct timeval tv = { MUL_NB_TIMEO, 0 };
+
+    serv_arr[0] = nbapi_app_data->mul_service;
+    serv_arr[1] = nbapi_app_data->tr_service;
+    serv_arr[2] = nbapi_app_data->fab_service;
+    serv_arr[3] = nbapi_app_data->makdi_service;
+
+    c_wr_lock(&nbapi_app_data->lock);
+    for (i = 0; i < NBAPI_SERVICE_LEN; i++) {
+        service = serv_arr[i];
+
+        if (!service) continue;
+
+        if (service->conn.dead || service->ext_ka_flag)
+            continue;
+
+        b = of_prep_msg(sizeof(*cofp_auc), C_OFPT_AUX_CMD, 0);
+
+        cofp_auc = (void *)(b->data);
+        cofp_auc->cmd_code = htonl(C_AUX_CMD_ECHO);
+
+        c_service_send(service, b);
+        b = c_service_wait_response(service);
+        if (b) {
+            free_cbuf(b);
+            service->ext_ka_flag = 0;
+        } else {
+            service->ext_ka_flag = 1;
+        }
+    }
+    c_wr_unlock(&nbapi_app_data->lock);
+
+    evtimer_add(nbapi_app_data->nbapi_timer_event, &tv);
+}
+
 /**
  * nbapi_module_init -
  *
@@ -87,6 +133,7 @@ void
 nbapi_module_init(void *base_arg)
 {
     struct event_base *base = base_arg;
+    struct timeval tv = { MUL_NB_TIMEO, 0 };
     
     c_log_debug("%s", FN);
 
@@ -138,6 +185,14 @@ nbapi_module_init(void *base_arg)
     mul_register_app_cb(NULL, NBAPI_APP_NAME,
                         C_APP_ALL_SW, NBAPI_DP_EVENTS,
                         0, NULL, &nbapi_app_cbs);
+
+    nbapi_app_data->nbapi_timer_event = evtimer_new(base,
+                                                    nbapi_timer_cb,
+                                                    nbapi_app_data);
+    if (nbapi_app_data->nbapi_timer_event) {
+        evtimer_add(nbapi_app_data->nbapi_timer_event, &tv);
+    }
+
     return;
 }
 

@@ -1,6 +1,6 @@
 /*
- *  mul_app_main.h: MUL application main headers
- *  Copyright (C) 2012, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
+ *  mul_nbapi_init.h: MUL nbapi init headers
+ *  Copyright (C) 2012-2014, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -16,23 +16,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
-#ifndef __MUL_APP_MAIN_H___
-#define __MUL_APP_MAIN_H___
+#ifndef __MUL_NBAPI_INIT_H___
+#define __MUL_NBAPI_INIT_H___
 
-#define C_APP_RCV_BUF_SZ 4096
-#define C_APP_VTY_COMMON_PATH "/var/run/app_"
-
-struct c_app_hdl_
-{
-    char *progname;
-    c_conn_t conn;
-    struct event_base *base;
-    struct event *reconn_timer_event;
-    void (*ev_cb)(void *app, void *buf);
-
-};
-typedef struct c_app_hdl_ c_app_hdl_t;
-
+#include "mul_app_main.h"
 int nbapi_worker_entry(void);
 
 #endif
