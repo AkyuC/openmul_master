@@ -1,4 +1,4 @@
-Mul is provided under what is known as GPLv2 license : 
+openmul is provided under what is known as GPLv2 license : 
 
 =======================  
   This program is free software; you can redistribute it and/or
@@ -16,6 +16,5 @@ Mul is provided under what is known as GPLv2 license :
   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 ===================== 
 
-Mul also uses third party (open-source) libraries which can be found in common-libs/3rd-party/
-directory. The copyright notices are available in the corresponding source files.
-Credit for them goes to original authors as mentioned in the source.
+If any organization is in need of openmul in BSD (or other permissive) license, 
+they should write to support@openmul.org
