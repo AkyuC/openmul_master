@@ -5,10 +5,14 @@ mul-4.0.1
 - Support for (almost) all Openflow 1.3 features 
 - Backward compatibility with Openflow 1.0, Openflow 1.3
 - Support for RESTapi 
+  * Python tornado based
 - Improved documentation
 - Huge improvement in CLI features
+  * Tons of configuration options
 - Many security and stability fixes in infrastructure  
-- Support for overlays 
+- Support for Overlays 
+- SSL support (TLSv1.2)
+- Python bindings( Apis )
 
 -------------------------
  mul 3.0.1-beta
