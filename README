@@ -55,7 +55,8 @@ For getting source code based on permissive license (eg Apache or BSD), please c
    For x86-64, we can pass the following CFLAGS :
    $ export CFLAGS="-I /usr/include/glib-2.0/ -I /usr/lib/x86_64-linux-gnu/glib-2.0/include/"
 
- c) If you build and install glib and libevent separately, we can simply use:
+ c) Run configure script 
+
    $ ./configure --with-vty=yes
 
    If you are building for release, use the following option with configure script: 
