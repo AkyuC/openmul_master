@@ -1,6 +1,6 @@
 ## How to get openmul source-code ?
 
-$ git clone git@github.com:openmul/openmul.git
+$  git clone https://github.com/openmul/openmul.git
 
 For getting source code based on permissive license (eg Apache or BSD), please contact support@openmul.org
 
@@ -18,7 +18,7 @@ For getting source code based on permissive license (eg Apache or BSD), please c
   $ yum install flex bison gettext wxGTK-devel.x86_64 wxGTK.x86_64 make autoconf automake expect libstdc++-devel.x86_64 libstdc++.x86_64 zlib-devel.x86_64 zlib.x86_64 gawk libffi-devel.x86_64 libevent-devel.x86_64 libglib2.0-dev.x86_64
 
 
- b) Install Python libararies
+ b) Install Python libraries
 
     Upgrade `pip` to the latest version
 
