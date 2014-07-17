@@ -53,6 +53,16 @@ l2_fdb_ent_free(void *arg)
     free(arg);
 }
 
+static void
+l2_mfdb_ent_free(void *arg)
+{
+    l2mfdb_ent_t *mfdb = arg;
+
+    if (mfdb->port_list)
+        g_slist_free_full(mfdb->port_list, l2_fdb_ent_free);
+    free(mfdb);
+}
+
 static unsigned int 
 l2fdb_key(const void *p)
 {   
@@ -113,6 +123,13 @@ l2sw_add(mul_switch_t *sw)
                                              l2_fdb_ent_free);
     assert(l2sw->l2fdb_htbl);
 
+    l2sw->l2mfdb_htbl = g_hash_table_new_full(g_int_hash,
+                                              g_int_equal,
+                                              NULL,
+                                              l2_mfdb_ent_free);
+    assert(l2sw->l2fdb_htbl);
+
+
 #ifndef CONFIG_L2SW_FDB_CACHE
     /* Let controller handle exception forwarding */
     l2sw_set_fp_ops(l2sw);
@@ -129,13 +146,13 @@ l2sw_install_dfl_flows(uint64_t dpid)
 {
     struct flow                 fl;
     struct flow                 mask;
-
+    struct mul_act_mdata mdata;  
     memset(&fl, 0, sizeof(fl));
     of_mask_set_dc_all(&mask);
 
     /* Clear all entries for this switch */
-    mul_app_send_flow_del(L2SW_APP_NAME, NULL, dpid, &fl,
-                          &mask, OFPP_NONE, 0, C_FL_ENT_NOCACHE, OFPG_ANY);
+    /*mul_app_send_flow_del(L2SW_APP_NAME, NULL, dpid, &fl,
+                          &mask, 0, 0, C_FL_ENT_NOCACHE, OFPG_ANY);*/
 
     /* Zero DST MAC Drop */
     of_mask_set_dl_dst(&mask); 
@@ -156,16 +173,34 @@ l2sw_install_dfl_flows(uint64_t dpid)
                           L2SW_UNK_BUFFER_ID, NULL, 0, 0, 0,
                           C_FL_PRIO_DRP, C_FL_ENT_NOCACHE);
 
-#ifdef CONFIG_L2SW_FDB_CACHE
+
     /* Send any unknown flow to app */
     memset(&fl, 0, sizeof(fl));
     of_mask_set_dc_all(&mask);
     mul_app_send_flow_add(L2SW_APP_NAME, NULL, dpid, &fl, &mask,
                           L2SW_UNK_BUFFER_ID, NULL, 0, 0, 0, C_FL_PRIO_DFL, 
                           C_FL_ENT_LOCAL);
-#endif
-}
+    
+    /* Default flow to be added in switch so that switch sends all 
+     * IGMP packets to Controller */
+    memset(&fl, 0, sizeof(fl));
+    of_mask_set_dc_all(&mask);
+    of_mask_set_dl_type(&mask);
+    of_mask_set_nw_proto(&mask);
+    fl.dl_type = htons(ETH_TYPE_IP);
+    fl.nw_proto = IP_TYPE_IGMP;
 
+    mul_app_act_alloc(&mdata);
+    mul_app_act_set_ctors(&mdata, dpid);
+    mul_app_action_output(&mdata, 0);
+    mul_app_send_flow_add(L2SW_APP_NAME, NULL, dpid, &fl, 
+                          &mask, 0xffffffff,
+                          mdata.act_base, mul_app_act_len(&mdata),
+                          0, 0,
+                          C_FL_PRIO_EXM, C_FL_ENT_NOCACHE);
+
+    mul_app_act_free(&mdata);
+}
 
 static void
 l2sw_del(mul_switch_t *sw)
@@ -212,6 +247,355 @@ l2sw_mod_flow(l2sw_t *l2sw, l2fdb_ent_t *fdb,
     return 0;
 }
 
+static void
+__l2sw_mod_mflow_add_oport(void *mport_arg,
+                           void *mdata_arg)
+{
+    const l2mcast_port_t *mport = mport_arg;
+    struct mul_act_mdata *mdata = mdata_arg;
+
+    mul_app_action_output(mdata, mport->port); 
+}
+
+static int 
+__l2sw_mod_mflow(l2sw_t *l2sw, l2mfdb_ent_t *mfdb,  bool add)
+{
+    struct mul_act_mdata mdata;  
+    struct flow          fl; 
+    struct flow          mask;
+
+    memset(&fl, 0, sizeof(fl));
+    of_mask_set_dc_all(&mask);
+    of_mask_set_nw_dst(&mask, 32);
+    of_mask_set_dl_type(&mask);
+    fl.ip.nw_dst = htonl(mfdb->group);
+    fl.dl_type = htons(ETH_TYPE_IP);
+
+    if (add) {
+        assert(mfdb->port_list);
+        mul_app_act_alloc(&mdata);
+        mul_app_act_set_ctors(&mdata, l2sw->swid);
+        g_slist_foreach(mfdb->port_list, __l2sw_mod_mflow_add_oport, &mdata);
+        mul_app_send_flow_add(L2SW_APP_NAME, NULL, l2sw->swid, &fl, 
+                              &mask, 0xffffffff,
+                              mdata.act_base, mul_app_act_len(&mdata),
+                              0, 0,
+                              C_FL_PRIO_DFL, C_FL_ENT_NOCACHE); 
+        mul_app_act_free(&mdata);
+    } else {
+        mul_app_send_flow_del(L2SW_APP_NAME, NULL, l2sw->swid, &fl,
+                              &mask, OFPP_NONE, C_FL_PRIO_DFL,
+                              C_FL_ENT_NOCACHE, OFPG_ANY);
+    }
+
+    return 0;
+}
+
+static int 
+__l2sw_mod_umflow(l2sw_t *l2sw, struct flow *in_fl, uint32_t port)
+{
+    struct mul_act_mdata mdata;  
+    struct flow fl; 
+    struct flow mask;
+
+    memset(&fl, 0, sizeof(fl));
+    of_mask_set_dc_all(&mask);
+    of_mask_set_dl_dst(&mask);
+    of_mask_set_in_port(&mask);
+    memcpy(fl.dl_dst, in_fl->dl_dst, OFP_ETH_ALEN);
+    fl.in_port = htonl(port);
+
+    mul_app_act_alloc(&mdata);
+    mul_app_act_set_ctors(&mdata, l2sw->swid);
+    mul_app_action_output(&mdata, OF_ALL_PORTS);
+    mul_app_send_flow_add(L2SW_APP_NAME, NULL, l2sw->swid, &fl, 
+                          &mask, 0xffffffff,
+                          mdata.act_base, mul_app_act_len(&mdata),
+                          L2MFDB_ITIMEO_DFL, L2MFDB_HTIMEO_DFL,
+                          C_FL_PRIO_DFL, C_FL_ENT_NOCACHE);
+    mul_app_act_free(&mdata);
+
+    return 0;
+}
+
+static int
+l2sw_port_in_mfdb(void *mp_arg, void *u_arg)
+{
+    uint32_t port = *(uint32_t *)(u_arg);
+    l2mcast_port_t *mport = mp_arg;
+
+    if (port == mport->port) return 0;
+    return -1;
+}
+
+static l2mcast_port_t *
+mport_alloc(uint32_t port)
+{
+    l2mcast_port_t *mport= NULL;
+
+    mport = calloc(1, sizeof(*mport));
+    if (!mport) {
+        return NULL;
+    }
+
+    mport->port = port;
+    mport->installed = time(NULL);
+    return mport;
+}
+
+static l2mfdb_ent_t *
+mfdb_alloc(uint32_t group, uint64_t dpid)
+{
+    l2mfdb_ent_t *mfdb = NULL;
+
+    mfdb = calloc(1, sizeof(*mfdb));
+    if (!mfdb) {
+        return NULL;
+    }
+
+    mfdb->group = group;
+    mfdb->dpid = dpid;
+    return mfdb;
+}
+
+static void 
+l2sw_add_mcast_group(uint32_t group, l2sw_t *sw, uint32_t inport)
+{
+    l2mfdb_ent_t *mfdb;
+    l2mcast_port_t  *mport= NULL;
+    
+    c_wr_lock(&sw->lock);
+
+    if ((mfdb = g_hash_table_lookup(sw->l2mfdb_htbl, &group))) {
+        if (g_slist_find_custom(mfdb->port_list, &inport,
+                                (GCompareFunc)l2sw_port_in_mfdb)) {
+            c_log_err("%s: DP (0x%llx) Port (%lu) already in group (0x%x)",
+                      FN, U642ULL(sw->swid), U322UL(inport), group);
+            goto out;
+        }
+
+        mport = mport_alloc(inport);
+        if (!mport) goto out;
+
+        mfdb->port_list = g_slist_append(mfdb->port_list, mport);
+
+        __l2sw_mod_mflow(sw, mfdb, false); /* Del for modify */
+        __l2sw_mod_mflow(sw, mfdb, true); /* Add */
+    } else {
+        mfdb = mfdb_alloc(group, sw->swid); 
+        if (!mfdb) goto out;
+
+        mport = mport_alloc(inport);
+        if (!mport) {
+            free(mfdb);
+            goto out;
+        }
+
+        mfdb->port_list = g_slist_append(mfdb->port_list, mport);
+        __l2sw_mod_mflow(sw, mfdb, true); /* Add */
+
+        /*Insert mfdb in hash table*/
+        g_hash_table_insert(sw->l2mfdb_htbl, &mfdb->group, mfdb);
+
+    }
+    
+out:
+    c_wr_unlock(&sw->lock);
+
+    return;
+}
+
+static void 
+l2sw_del_mcast_group(uint32_t group, l2sw_t *sw, uint32_t inport)
+{
+    l2mfdb_ent_t *mfdb;
+    GSList *elem = NULL;
+
+    c_wr_lock(&sw->lock);
+    if ((mfdb = g_hash_table_lookup(sw->l2mfdb_htbl, &group))) {
+        if (!(elem = g_slist_find_custom(mfdb->port_list, &inport, 
+                                         (GCompareFunc)l2sw_port_in_mfdb))) {
+            c_log_err("%s: DP (0x%llx) Port (%lu) has no group (0x%x)",
+                      FN, U642ULL(sw->swid), U322UL(inport), group);
+            goto out;
+        }
+
+        mfdb->port_list = g_slist_remove(mfdb->port_list, elem->data);
+
+        __l2sw_mod_mflow(sw, mfdb, false); /* Del for modify */
+
+        if (g_slist_length(mfdb->port_list))
+            __l2sw_mod_mflow(sw, mfdb, true); /* Add */
+        else {
+            g_hash_table_remove(sw->l2mfdb_htbl, &group);
+        }
+    }
+    else {
+        c_log_err("%s: No Records were found for sw (0x%llx) Group (0x%x) and"
+				" port (%u)",FN, U642ULL(sw->swid), group, inport);
+    }
+out:
+    c_wr_unlock(&sw->lock);
+
+    return;
+}
+
+static int
+__l2sw_mfdb_traverse_all(l2sw_t *l2sw, GHFunc iter_fn, void *arg) 
+{
+    if (l2sw->l2mfdb_htbl) {
+        g_hash_table_foreach(l2sw->l2mfdb_htbl,
+                             (GHFunc)iter_fn, arg);
+    }
+
+    return 0;
+}
+
+
+static void
+l2sw_mcast_learn_and_fwd(l2sw_t *sw, struct flow *fl, uint32_t inport,
+                         uint32_t buffer_id, uint8_t *raw, size_t pkt_len)
+{
+    uint8_t  grec_type = 0, grec_auxwords = 0;
+    uint16_t ngrec = 0, grp_counter = 0,grec_nsrcs = 0;
+    uint32_t group;
+    struct igmphdr *igmp_hdr;
+    struct ip_header *ip;
+    size_t ip_len;
+    size_t grp_len = 0;
+    size_t rem_pkt_len = pkt_len;
+    struct of_pkt_out_params parms;
+    struct mul_act_mdata mdata;  
+    struct igmpv3_report *igmpv3_rep = NULL;
+    struct igmpv3_grec   *grp_rec    = NULL;
+
+    if (fl->dl_type == htons(ETH_TYPE_LLDP)) {
+        return;
+    }
+
+    if (fl->nw_proto != IP_TYPE_IGMP) {
+        goto add_mcast;
+    }
+
+    ip = INC_PTR8(raw, sizeof(struct eth_header) + 
+                      (fl->dl_vlan ? VLAN_HEADER_LEN : 0));
+
+    ip_len = ((ip->ip_ihl_ver & 0x0f) *4); 
+    if (rem_pkt_len < ip_len + sizeof(*igmp_hdr)) {
+        c_log_err("%s: Something wrong with IGMP packet", FN);
+        return; /* Something wrong with IGMP packet */
+    }
+
+    igmp_hdr = INC_PTR8(ip, ((ip->ip_ihl_ver & 0x0f) *4));
+    switch (igmp_hdr->type) {
+    case IGMPV2_HOST_MEMBERSHIP_REPORT:
+		
+		/*Remaining packet length*/
+    	rem_pkt_len -= ip_len + sizeof(*igmp_hdr);
+
+		/*Getting the MCAST group*/
+        group = ntohl(igmp_hdr->group);
+		
+		/*Adding mcast group in MFDB*/
+        l2sw_add_mcast_group(group, sw, inport);
+        goto fwd_pkt;
+    
+	case IGMP_HOST_LEAVE_MESSAGE: 
+		
+		/*Remaining packet length*/
+    	rem_pkt_len -= ip_len + sizeof(*igmp_hdr);
+        
+		/*Getting the MCAST group*/
+		group = ntohl(igmp_hdr->group);
+        
+		/*Deleting mcast group from MFDB*/
+		l2sw_del_mcast_group(group, sw, inport);
+        goto fwd_pkt;
+    case IGMPV3_HOST_MEMBERSHIP_REPORT:
+		igmpv3_rep = (void*)igmp_hdr;
+		
+		/*Getting the number of MCAST grp records*/
+		ngrec = ntohs(igmpv3_rep->ngrec);
+
+		grp_rec = igmpv3_rep->grec;
+		rem_pkt_len -= (ip_len + sizeof(struct igmpv3_report));
+		while(grp_counter < ngrec) {
+
+			grec_type = grp_rec->grec_type;
+
+			/*Getting the number of Src IPs*/
+			grec_nsrcs = ntohs(grp_rec->grec_nsrcs);
+			grec_auxwords = grp_rec->grec_auxwords;
+			/*Calculating grp length*/
+			grp_len = sizeof(struct igmpv3_grec) +  
+					 (sizeof(uint32_t) * grec_nsrcs) + /*sizeof(srcip) * nsrc*/
+					 (sizeof(uint32_t) * grec_auxwords); /*Total Aux data*/
+
+			if (rem_pkt_len < grp_len) {
+				c_log_err("%s: Something wrong with the IGMPv3 report header", FN);
+				return; /* Something wrong with IGMP packet */
+			}
+			
+			switch(grec_type) {
+				case IGMPV3_MODE_IS_INCLUDE:
+					/*Getting the MCAST grp*/
+					group = ntohl(grp_rec->grec_mca);
+					l2sw_add_mcast_group(group, sw, inport);
+					break;
+
+				case IGMPV3_BLOCK_OLD_SOURCES:
+					/*Getting the MCAST grp*/
+					group = ntohl(grp_rec->grec_mca);
+					l2sw_del_mcast_group(group, sw, inport);
+					break;
+				default:
+					c_log_err("IGMP Group Mode (%u) not supported",grec_type);
+					break;
+
+			}
+
+			
+			/*Remaining packet length*/
+    		rem_pkt_len -= grp_len;
+
+			/*Jump to next grp record*/
+			grp_rec = INC_PTR8(grp_rec, grp_len);
+
+			/*Increment the grp counter*/
+			++grp_counter;
+		}
+
+		goto fwd_pkt;
+	default:
+		c_log_err("%s: Something wrong with IGMP packet - Wrong Message type", FN);
+		goto fwd_pkt;
+		} 
+
+add_mcast:
+    __l2sw_mod_umflow(sw, fl, inport); 
+
+fwd_pkt:
+
+    if (buffer_id != L2SW_UNK_BUFFER_ID) {
+        pkt_len = 0;
+    }
+
+    mul_app_act_alloc(&mdata);
+    mdata.only_acts = true;
+    mul_app_act_set_ctors(&mdata, sw->swid);
+    mul_app_action_output(&mdata, OF_ALL_PORTS);
+    parms.buffer_id = buffer_id;
+    parms.in_port = inport;
+    parms.action_list = mdata.act_base;
+    parms.action_len = mul_app_act_len(&mdata);
+    parms.data_len = pkt_len;
+    parms.data = raw;
+    mul_app_send_pkt_out(NULL, sw->swid, &parms);
+    mul_app_act_free(&mdata);
+
+    return;
+}
+
 static void 
 l2sw_learn_and_fwd(mul_switch_t *sw, struct flow *fl, uint32_t inport,
                    uint32_t buffer_id, uint8_t *raw, size_t pkt_len)
@@ -231,8 +615,13 @@ l2sw_learn_and_fwd(mul_switch_t *sw, struct flow *fl, uint32_t inport,
         is_zero_ether_addr(fl->dl_dst) ||
         is_multicast_ether_addr(fl->dl_src) || 
         is_broadcast_ether_addr(fl->dl_src)) {
-        c_log_debug("%s: Invalid src/dst mac addr", FN);
+        //c_log_err("%s: Invalid src/dst mac addr", FN);
         return;
+    }
+    
+    if (is_multicast_ether_addr(fl->dl_dst)) {
+        return l2sw_mcast_learn_and_fwd(l2sw, fl, inport,
+                                        buffer_id, raw, pkt_len); 
     }
 
 #ifdef CONFIG_L2SW_FDB_CACHE
@@ -242,7 +631,7 @@ l2sw_learn_and_fwd(mul_switch_t *sw, struct flow *fl, uint32_t inport,
         /* Station moved ? */
         if (ntohl(fl->in_port) != fdb->lrn_port) {
             l2sw_mod_flow(l2sw, fdb, false, (uint32_t)(-1));
-            fdb->lrn_port = ntohs(fl->in_port); 
+            fdb->lrn_port = ntohl(fl->in_port); 
             l2sw_mod_flow(l2sw, fdb, true, (uint32_t)(-1));
         }  
 
@@ -266,7 +655,6 @@ l2_fwd:
     if (buffer_id != L2SW_UNK_BUFFER_ID) {
         pkt_len = 0;
     }
-
 
     mul_app_act_alloc(&mdata);
     mdata.only_acts = true;
@@ -378,7 +766,7 @@ l2sw_module_init(void *base_arg)
     return;
 }
 
-
+#ifdef MUL_APP_VTY
 #ifdef CONFIG_L2SW_FDB_CACHE
 static void
 show_l2sw_fdb_info(void *key UNUSED, void *fdb_arg, void *uarg)
@@ -441,6 +829,76 @@ DEFUN (show_l2sw_fdb,
 }
 #endif
 
+static void
+show_l2sw_mfdb_port_info(void *port_arg, void *u_arg)
+{
+    struct vty *vty = u_arg;
+    l2mcast_port_t *mport = port_arg;
+
+    vty_out(vty, "0x%x(%us)", mport->port, (unsigned int)mport->installed);
+}
+
+static void
+show_l2sw_mfdb_info(void *key UNUSED, void *fdb_arg, void *uarg)
+{
+    l2mfdb_ent_t *mfdb = fdb_arg;
+    struct vty  *vty = uarg;
+
+    vty_out(vty, "0x%08x : ", mfdb->group);
+    if (mfdb->port_list) {
+        g_slist_foreach(mfdb->port_list, show_l2sw_mfdb_port_info, vty);
+    }
+    vty_out(vty, "%s", VTY_NEWLINE);
+}
+
+DEFUN (show_l2sw_mfdb,
+       show_l2sw_mfdb_cmd,
+       "show l2-switch X mfdb",
+       SHOW_STR
+       "L2 switches\n"
+       "Datapath-id in 0xXXX format\n"
+       "Learned Multicast Forwarding database\n")
+{
+    uint64_t        swid;
+    mul_switch_t    *sw;
+    l2sw_t          *l2sw;
+
+    swid = strtoull(argv[0], NULL, 16);
+
+    sw = c_app_switch_get_with_id(swid);
+    if (!sw) {
+        vty_out(vty, "No such switch 0x%llx\r\n", U642ULL(swid));
+        return CMD_SUCCESS;
+    }
+
+    l2sw = MUL_PRIV_SWITCH(sw);
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    vty_out (vty, "%8s %18s%s", "groups", "ports", VTY_NEWLINE);
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    c_rd_lock(&l2sw->lock);
+    __l2sw_mfdb_traverse_all(l2sw, show_l2sw_mfdb_info, vty);
+    c_rd_unlock(&l2sw->lock);
+
+    c_app_switch_put(sw);
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    return CMD_SUCCESS;
+}
+
 void
 l2sw_module_vty_init(void *arg UNUSED)
 {
@@ -448,7 +906,10 @@ l2sw_module_vty_init(void *arg UNUSED)
 #ifdef CONFIG_L2SW_FDB_CACHE
     install_element(ENABLE_NODE, &show_l2sw_fdb_cmd);
 #endif
+    install_element(ENABLE_NODE, &show_l2sw_mfdb_cmd);
 }
 
-module_init(l2sw_module_init);
 module_vty_init(l2sw_module_vty_init);
+#endif
+
+module_init(l2sw_module_init);

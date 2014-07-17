@@ -22,6 +22,9 @@
 #define L2FDB_ITIMEO_DFL (60) 
 #define L2FDB_HTIMEO_DFL (0) 
 
+#define L2MFDB_ITIMEO_DFL (5) 
+#define L2MFDB_HTIMEO_DFL  (20) 
+
 #define L2SW_UNK_BUFFER_ID (0xffffffff)
 //#define CONFIG_L2SW_FDB_CACHE 1
 
@@ -32,12 +35,28 @@ struct l2fdb_ent_
 };
 typedef struct l2fdb_ent_ l2fdb_ent_t;
 
+struct l2mcast_port
+{
+    uint32_t port;
+    time_t installed;
+};
+typedef struct l2mcast_port l2mcast_port_t;
+
+struct l2mfdb_ent_
+{
+    uint32_t group;
+    uint32_t dpid;
+    GSList *port_list;
+};
+typedef struct l2mfdb_ent_ l2mfdb_ent_t;
+
 struct l2sw_
 {
     c_rw_lock_t lock;
     c_atomic_t  ref;
     uint64_t    swid;
     GHashTable  *l2fdb_htbl;
+    GHashTable  *l2mfdb_htbl;
 };
 
 typedef struct l2sw_ l2sw_t;
