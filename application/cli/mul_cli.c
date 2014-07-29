@@ -4453,7 +4453,7 @@ __add_fab_host_cmd(struct vty *vty, const char **argv, bool is_gw)
     tenant_id = atoi(argv[0]);
     network_id = atoi(argv[1]);
     dpid = strtoull(argv[4], NULL, 16);
-    fl.in_port= htons(atoi(argv[5]));
+    fl.in_port= htonl(atoi(argv[5]));
 
     ret = str2prefix(argv[2], (void *)&host_ip);
     if (ret <= 0) {

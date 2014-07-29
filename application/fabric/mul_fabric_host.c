@@ -362,7 +362,7 @@ fab_host_create(uint64_t dpid, uint32_t sw_alias, struct flow *fl)
     c_rw_lock_init(&host->lock);
     host->sw.swid = dpid;
     host->sw.alias = sw_alias;
-    host->sw.port = ntohs(fl->in_port);
+    host->sw.port = ntohl(fl->in_port);
     FAB_MK_TEN_NET_ID(host->hkey.tn_id, 
                       fab_extract_tenant_id(fl), 
                       fab_extract_network_id(fl)); 
@@ -619,7 +619,7 @@ fab_activate_all_hosts_on_switch_port(fab_struct_t *fab_ctx, uint64_t dpid,
                                      &host_sw))) {
         memset(&fl, 0, sizeof(fl));
         fl.ip.nw_src = htonl(host->hkey.host_ip);
-        fl.in_port = htons(host->sw.port);
+        fl.in_port = htonl(host->sw.port);
         fl.FL_DFL_GW = host->dfl_gw;
         fab_add_tenant_id(&fl, NULL, fab_tnid_to_tid(host->hkey.tn_id));
         memcpy(fl.dl_src, host->hkey.host_mac, 6);
