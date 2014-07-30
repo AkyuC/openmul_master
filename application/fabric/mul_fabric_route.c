@@ -251,6 +251,9 @@ fab_per_switch_route_install(void *rt, void *u_arg)
 
     if (tenant_id) {
         if (lhop && fhop) { 
+#ifdef CONFIG_HAVE_PROXY_ARP
+            set_dmac_lhop = true;
+#endif
             goto apply_route;
         } else if (fhop) {
             add_pkt_tenant = true;
