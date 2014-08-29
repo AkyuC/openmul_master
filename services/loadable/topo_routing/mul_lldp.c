@@ -1172,6 +1172,8 @@ lldp_update_timer(evutil_socket_t fd UNUSED, short event UNUSED, void *arg)
     topo_hdl_t *hdl = arg;
     struct timeval tv = { LLDP_UPDATE_INTVL_SEC , LLDP_UPDATE_INTVL_USEC };
     time_t check_time = time(NULL);
+    time_t next_rt_trig = 0;
+    bool trig_core = hdl->tr->loop_trigger;
 
     c_rd_lock(&topo_hdl->switch_lock);
     g_hash_table_foreach(topo_hdl->switches, lldp_per_switch_timer, &check_time);
@@ -1184,9 +1186,19 @@ lldp_update_timer(evutil_socket_t fd UNUSED, short event UNUSED, void *arg)
         c_wr_lock(&topo_hdl->switch_lock);
         __tr_invoke_routing(hdl->tr);
         c_wr_unlock(&topo_hdl->switch_lock);
-        hdl->tr->rt.rt_next_trigger_ts = check_time + RT_PERIODIC_TRIGGER_TS;        
+        
+        next_rt_trig = RT_PERIODIC_TRIGGER_TS;
+        hdl->tr->rt.rt_next_trigger_ts = check_time + next_rt_trig;
+        hdl->tr->rt_timeo_set = false;
+        trig_core = true;
     }
 
+    /* Send route convergence notification to MUL Core*/
+    if (trig_core) {
+        mul_app_send_tr_status(C_RT_APSP_CONVERGED);
+        TR_LOOP_TRIGGER_OFF(hdl->tr);
+    }
+    
     /* next event */
     evtimer_add(hdl->lldp_update_event, &tv);
 

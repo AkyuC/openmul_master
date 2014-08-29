@@ -31,8 +31,7 @@ static void __c_l2fdb_destroy(c_switch_t *sw, bool locked, bool need_free);
 void
 c_l2_topo_change(c_switch_t *sw, uint64_t new_state UNUSED, bool locked)
 {
-    if (ctrl_hdl.loop_en)
-        __c_l2fdb_destroy(sw, locked, false);
+    __c_l2fdb_destroy(sw, locked, false);
 }
 
 void
@@ -111,8 +110,8 @@ c_l2fdb_install(c_switch_t *sw, c_l2fdb_ent_t *ent)
     memcpy(&fl.dl_dst, ent->mac, OFP_ETH_ALEN);
     fl.table_id = 0;
     sw->ofp_ctors->act_output(&mdata, ent->port);
-    ent->installed = 1;
     c_l2fdb_uninstall(sw, ent);
+    ent->installed = 1;
     of_send_flow_add_direct(sw, &fl, &l2_fl_mask, (uint32_t)(-1),
                             mdata.act_base, of_mact_len(&mdata),
                             C_FDB_ITIMEO, C_FDB_HTIMEO,
@@ -133,7 +132,7 @@ c_l2fdb_evict(c_switch_t *sw, uint8_t *mac, uint16_t port,
 }
 
 void
-c_l2fdb_aging(c_switch_t *sw)
+c_l2fdb_aging(c_switch_t *sw, uint32_t port, bool check_port)
 {
     unsigned int bkt_idx = 0, ent_idx = 0, new_ent_idx = 0;
     int32_t dst_ent_idx = -1;
@@ -142,7 +141,8 @@ c_l2fdb_aging(c_switch_t *sw)
     c_l2fdb_bkt_t  *new_bkt = NULL;
     c_l2fdb_bkt_t  *prev_bkt = NULL;
     c_l2fdb_bkt_t  *dst_bkt = NULL;
-    bool empty_bkt = true;
+    bool empty_bkt = true, invalid = false;
+    c_port_t *sw_port = NULL;
     
     c_wr_lock(&sw->lock);
     if (sw->app_flow_tbl) {
@@ -161,15 +161,29 @@ c_l2fdb_aging(c_switch_t *sw)
                         ent_idx < C_FDB_ENT_PER_BKT;
                         ent_idx++) {
 
+                    invalid = false;
                     ent = &bkt->fdb_ent[ent_idx];
                     if (ent->valid) {
-                        /* Check if Entry needs to be aged out*/
-                        if(curr_time > ent->timestamp + C_FDB_ITIMEO + 2) { 
+                        if (((sw_port = __c_switch_port_find(sw, ent->port)) &&
+                           (sw_port->sw_port.state & C_MLPS_DOWN ||
+                            sw_port->sw_port.config & C_MLPC_DOWN)) || 
+                            (check_port && ent->port == port))
+                            invalid = true;
+                        /*
+                         * Check if Entry needs to be aged out.We are checking for htimeo
+                         * + delta here and doing aging based on the fact that if entry is
+                         * deleted because of htimeo, we would get the next learning immediately
+                         * and timestamp will be updated accordingly
+                         */
+                        if(curr_time > ent->timestamp + C_FDB_HTIMEO + 2 ||
+                           invalid) {
 
                             /* Entry needs to be aged out*/
                             ent->valid = false;
 
-                            continue;
+                            if (invalid) {
+                                c_l2fdb_uninstall(sw, ent);
+                            }
 
                             /* Check if any free location is not there then
                              * keep a record for the same*/
@@ -377,6 +391,7 @@ __c_l2fdb_destroy(c_switch_t *sw, bool locked, bool need_free)
                 ent = &bkt->fdb_ent[ent_idx];
                 if (!ent->valid) continue; 
                 c_l2fdb_uninstall(sw, ent);
+                ent->valid = false;
             }
                  
             prev = bkt;
@@ -391,6 +406,7 @@ __c_l2fdb_destroy(c_switch_t *sw, bool locked, bool need_free)
                     ent = &bkt->fdb_ent[ent_idx];
                     if (!ent->valid) continue; 
                     c_l2fdb_uninstall(sw, ent);
+                    ent->valid = false;
                 }
 
                 bkt = bkt->next;
@@ -410,6 +426,23 @@ void
 c_l2fdb_destroy(c_switch_t *sw, bool locked)
 {
     __c_l2fdb_destroy(sw, locked, true);
+}
+
+static void
+c_l2fdb_deactivate_on_port_down(c_switch_t *sw UNUSED, uint32_t port UNUSED)
+{
+    time_t ctime = time(NULL);
+    time_t time_diff;
+
+    c_wr_lock(&ctrl_hdl.lock);
+
+    time_diff = ctime - sw->last_fp_aging_time;
+    if (time_diff > C_SWITCH_FP_AGING_TIMEO)
+        return;
+    else
+        sw->last_fp_aging_time = ctime - C_SWITCH_FP_AGING_TIMEO + 2;
+
+    c_wr_unlock(&ctrl_hdl.lock);
 }
 
 static void
@@ -475,6 +508,7 @@ c_l2_lrn_fwd(c_switch_t *sw, struct cbuf *b UNUSED, void *data, size_t pkt_len,
         c_l2_proc_slow_path(sw, b, data, pkt_len, pkt_mdata, in_port);
         return 0;
     }
+
     c_wr_lock(&sw->lock);
 
     if (unlikely(ctrl_hdl.loop_en)) {
@@ -529,8 +563,13 @@ c_l2_lrn_fwd(c_switch_t *sw, struct cbuf *b UNUSED, void *data, size_t pkt_len,
 }
 
 int 
-c_l2_port_status(c_switch_t *sw UNUSED, uint32_t cfg UNUSED, uint32_t state UNUSED)
+c_l2_port_status(c_switch_t *sw, uint32_t port,
+                 uint32_t cfg UNUSED, uint32_t state UNUSED,
+                 struct c_port_cfg_state_mask *mask)
 {
-    /* Nothing to do for now */
+    if (mask->config_mask & C_MLPC_DOWN ||
+        mask->state_mask & C_MLPS_DOWN) {
+        c_l2fdb_deactivate_on_port_down(sw, port);
+    }
     return 0;
 }

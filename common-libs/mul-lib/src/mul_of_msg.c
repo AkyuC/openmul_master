@@ -1465,6 +1465,21 @@ err_out:
     return NULL;
 }
 
+bool
+of_check_flow_wildcard_generic(struct flow *fl UNUSED, struct flow *mask)
+{
+    if (memcmp(mask->dl_src, zero_mac_addr, OFP_ETH_ALEN) ||
+        memcmp(mask->dl_dst, zero_mac_addr, OFP_ETH_ALEN) ||
+        mask->dl_type || mask->dl_vlan || mask->dl_vlan_pcp ||
+        mask->mpls_label || mask->mpls_tc || mask->mpls_bos ||
+        mask->dl_type || mask->in_port || mask->tunnel_id ||
+        mask->metadata) {
+        return false;
+    }
+
+    return true;
+}
+
 char *
 of_dump_flow_generic(struct flow *fl, struct flow *mask)
 {
@@ -1610,6 +1625,14 @@ of_dump_flow_generic(struct flow *fl, struct flow *mask)
         len += snprintf(pbuf+len, FL_PBUF_SZ-len-1,
                     "%s:0x%llx ", " tunnel-id",
                     U642ULL(ntohll(fl->tunnel_id)));
+        assert(len < FL_PBUF_SZ-1);
+    }
+
+    if (mask->metadata) {
+        len += snprintf(pbuf+len, FL_PBUF_SZ-len-1,
+                    "%s:0x%llx(0x%llx) ", " metadata",
+                    U642ULL(ntohll(fl->metadata)),
+                    U642ULL(ntohll(mask->metadata)));
         assert(len < FL_PBUF_SZ-1);
     }
 
@@ -2343,6 +2366,19 @@ of131_add_oxm_fields(uint8_t *buf,
         *(uint32_t *)(oxm->data) = flow->in_port;
         oxm = INC_PTR8(buf, oxm_field_sz);
     }
+    if (mask->metadata) {
+        uint64_t *mdata;
+        oxm->oxm_class = OFPXMC_OPENFLOW_BASIC;
+        OFP_OXM_SHDR_HM(oxm, 1);
+        OFP_OXM_SHDR_FIELD(oxm, OFPXMT_OFB_METADATA);
+        oxm->length = 2*OFPXMT_OFB_METADATA_SZ;
+        oxm_field_sz += sizeof(*oxm) + oxm->length;
+        HTON_OXM_HDR(oxm);
+        mdata = (void *)(oxm->data);
+        *mdata++ = flow->metadata;
+        *mdata++ = mask->metadata;
+        oxm = INC_PTR8(buf, oxm_field_sz);
+    }
     if (memcmp(mask->dl_dst, zero_mac_addr, OFP_ETH_ALEN)) {
         oxm->oxm_class = OFPXMC_OPENFLOW_BASIC;
         OFP_OXM_SHDR_HM(oxm, 0);
@@ -2376,11 +2412,11 @@ of131_add_oxm_fields(uint8_t *buf,
     if (mask->dl_vlan) {
         oxm->oxm_class = OFPXMC_OPENFLOW_BASIC;
         OFP_OXM_SHDR_HM(oxm, 0);
-        OFP_OXM_SHDR_FIELD(oxm, OFPXMT_OFB_VLAN_VID); // FIXME : OFPVID_PRESENT ??
+        OFP_OXM_SHDR_FIELD(oxm, OFPXMT_OFB_VLAN_VID);
         oxm->length = OFPXMT_OFB_VLAN_VID_SZ;
         oxm_field_sz += sizeof(*oxm) + oxm->length;
         HTON_OXM_HDR(oxm);
-        *(uint16_t *)(oxm->data) = flow->dl_vlan;
+        *(uint16_t *)(oxm->data) = flow->dl_vlan | htons(OFPVID_PRESENT);
         oxm = INC_PTR8(buf, oxm_field_sz);
     }
     if (mask->dl_vlan && mask->dl_vlan_pcp) {
@@ -2433,11 +2469,15 @@ of131_add_oxm_fields(uint8_t *buf,
     }
 
     if (mask->dl_type &&
-        htons(flow->dl_type) == ETH_TYPE_IP) {
+        (htons(flow->dl_type) == ETH_TYPE_ARP ||
+         htons(flow->dl_type) == ETH_TYPE_IP)) {
         if (mask->ip.nw_src) {
+            int oxm_field = 
+                htons(flow->dl_type) == ETH_TYPE_ARP ?
+                OFPXMT_OFB_ARP_SPA : OFPXMT_OFB_IPV4_SRC;                 
             oxm->oxm_class = OFPXMC_OPENFLOW_BASIC;
             OFP_OXM_SHDR_HM(oxm, 1);
-            OFP_OXM_SHDR_FIELD(oxm, OFPXMT_OFB_IPV4_SRC);
+            OFP_OXM_SHDR_FIELD(oxm, oxm_field);
             oxm->length = 2*OFPXMT_OFB_IPV4_SZ;
             oxm_field_sz += sizeof(*oxm) + oxm->length;
             HTON_OXM_HDR(oxm);
@@ -2447,9 +2487,12 @@ of131_add_oxm_fields(uint8_t *buf,
             oxm = INC_PTR8(buf, oxm_field_sz);
         }
         if (mask->ip.nw_dst) {
+            int oxm_field =
+                htons(flow->dl_type) == ETH_TYPE_ARP ?
+                OFPXMT_OFB_ARP_TPA : OFPXMT_OFB_IPV4_DST;
             oxm->oxm_class = OFPXMC_OPENFLOW_BASIC;
             OFP_OXM_SHDR_HM(oxm, 1);
-            OFP_OXM_SHDR_FIELD(oxm, OFPXMT_OFB_IPV4_DST);
+            OFP_OXM_SHDR_FIELD(oxm, oxm_field);
             oxm->length = 2*OFPXMT_OFB_IPV4_SZ;
             oxm_field_sz += sizeof(*oxm) + oxm->length;
             HTON_OXM_HDR(oxm);
@@ -2699,7 +2742,7 @@ of131_ofpx_match_to_flow(struct ofpx_match *ofx,
                     c_log_err("%s: vlan-vid err", FN);
                 return -1;
             }
-            flow->dl_vlan = *(uint16_t *)(oxm_ptr->data);
+            flow->dl_vlan = *(uint16_t *)(oxm_ptr->data) & htons(0xfff);
             if (OFP_OXM_GHDR_HM(oxm)) {
                 mask->dl_vlan = *(uint16_t *)(oxm_ptr->data +
                                               OFPXMT_OFB_VLAN_VID_SZ);
@@ -2764,6 +2807,38 @@ of131_ofpx_match_to_flow(struct ofpx_match *ofx,
             flow->mpls_bos = *(uint8_t *)(oxm_ptr->data);
             mask->mpls_bos = 0xff;
             break;
+        case OFPXMT_OFB_ARP_SPA:
+            hm = OFP_OXM_GHDR_HM(oxm);
+            if (flow->dl_type != htons(ETH_TYPE_ARP)) break;
+            min_tlv_len = hm ? 2 * OFPXMT_OFB_IPV4_SZ: OFPXMT_OFB_IPV4_SZ;
+            if (len < min_tlv_len || oxm->length != min_tlv_len) {
+                if (!c_rlim(&rl))
+                    c_log_err("%s: arp-ipv4-src err", FN);
+                return -1;
+            }
+            flow->ip.nw_src = *(uint32_t *)(oxm_ptr->data);
+            if (hm) {
+                mask->ip.nw_src = *(uint32_t *)(oxm_ptr->data + OFPXMT_OFB_IPV4_SZ);
+            } else {
+                mask->ip.nw_src = 0xffffffff;
+            }
+            break;
+        case OFPXMT_OFB_ARP_TPA:
+            hm = OFP_OXM_GHDR_HM(oxm);
+            if (flow->dl_type != htons(ETH_TYPE_ARP)) break; 
+            min_tlv_len = hm ? 2 * OFPXMT_OFB_IPV4_SZ: OFPXMT_OFB_IPV4_SZ;
+            if (len < min_tlv_len || oxm->length != min_tlv_len) {
+                if (!c_rlim(&rl))
+                    c_log_err("%s: arp-ipv4-dst err", FN);
+                return -1;
+            }
+            flow->ip.nw_dst = *(uint32_t *)(oxm_ptr->data);
+            if (hm) {
+                mask->ip.nw_dst = *(uint32_t *)(oxm_ptr->data + OFPXMT_OFB_IPV4_SZ);
+            } else {
+                mask->ip.nw_dst = 0xffffffff;
+            }
+            break;
         case OFPXMT_OFB_IPV4_SRC:
             hm = OFP_OXM_GHDR_HM(oxm);
             if (flow->dl_type != htons(ETH_TYPE_IP)) break;
@@ -2782,7 +2857,7 @@ of131_ofpx_match_to_flow(struct ofpx_match *ofx,
             break;
         case OFPXMT_OFB_IPV4_DST:
             hm = OFP_OXM_GHDR_HM(oxm);
-            if (flow->dl_type != htons(ETH_TYPE_IP)) break;
+            if (flow->dl_type != htons(ETH_TYPE_IP)) break; 
             min_tlv_len = hm ? 2 * OFPXMT_OFB_IPV4_SZ: OFPXMT_OFB_IPV4_SZ;
             if (len < min_tlv_len || oxm->length != min_tlv_len) {
                 if (!c_rlim(&rl))
@@ -2903,6 +2978,23 @@ of131_ofpx_match_to_flow(struct ofpx_match *ofx,
                                                 OFPXMT_OFB_TUNNEL_ID_SZ);
             } else {
                 mask->tunnel_id = (uint64_t)(-1);
+            }
+            break;
+        case OFPXMT_OFB_METADATA:
+            hm = OFP_OXM_GHDR_HM(oxm);
+            min_tlv_len = hm ? 2 * OFPXMT_OFB_METADATA_SZ:
+                               OFPXMT_OFB_METADATA_SZ;
+            if (len < min_tlv_len || oxm->length != min_tlv_len) {
+                if (!c_rlim(&rl))
+                    c_log_err("%s: metadata err", FN);
+                return -1;
+            }
+            flow->metadata = *(uint64_t *)(oxm_ptr->data);
+            if (hm) {
+                mask->metadata = *(uint64_t *)(oxm_ptr->data +
+                                                OFPXMT_OFB_METADATA_SZ);
+            } else {
+                mask->metadata = (uint64_t)(-1);
             }
             break;
         default:
@@ -3571,6 +3663,32 @@ of131_make_inst_meter(mul_act_mdata_t *mdata, uint32_t meter)
 }
 
 size_t 
+of131_make_inst_wr_meta(mul_act_mdata_t *mdata, uint64_t metadata, 
+        uint64_t metadata_mask)
+{
+    struct ofp_instruction_write_metadata *ofp_wm;
+
+    if (mdata->inst_bm & (1 << OFPIT_WRITE_METADATA)) {
+        c_log_err("|OF13| Cant add > 1 meter inst");
+        return 0;
+    }
+    mdata->inst_bm |= (1 << OFPIT_WRITE_METADATA);
+
+    of_check_realloc_act(mdata, sizeof(*ofp_wm));
+
+    ofp_wm = (void *)(mdata->act_wr_ptr);
+    ofp_wm->type = htons(OFPIT_WRITE_METADATA);
+    ofp_wm->len = htons(sizeof(*ofp_wm));
+
+    ofp_wm->metadata = htonll(metadata);
+    ofp_wm->metadata_mask = htonll(metadata_mask);
+
+    mdata->act_wr_ptr += sizeof(*ofp_wm);
+    return (sizeof(*ofp_wm)); 
+}
+
+
+size_t 
 of131_make_inst_clear_act(mul_act_mdata_t *mdata)
 {
     struct ofp_instruction_actions *ofp_ica;
@@ -3647,10 +3765,10 @@ of131_make_action_set_vid(mul_act_mdata_t *mdata, uint16_t vid)
     oxm = (void *)(ofp_sf->field);
     oxm->oxm_class = OFPXMC_OPENFLOW_BASIC;
     OFP_OXM_SHDR_HM(oxm, 0);
-    OFP_OXM_SHDR_FIELD(oxm, OFPXMT_OFB_VLAN_VID); //OFPVID_PRESENT ??
+    OFP_OXM_SHDR_FIELD(oxm, OFPXMT_OFB_VLAN_VID);
     oxm->length = OFPXMT_OFB_VLAN_VID_SZ;
     HTON_OXM_HDR(oxm);  
-    *(uint16_t *)(oxm->data) = htons(vid & 0xfff);
+    *(uint16_t *)(oxm->data) = htons((vid & 0xfff) | OFPVID_PRESENT);
 
     mdata->act_wr_ptr += len;
     of131_fini_inst_actions(mdata);
@@ -4512,6 +4630,7 @@ of131_make_meter_band_drop(mul_act_mdata_t *mdata,
 
     mb_drp = (void *)(mdata->act_wr_ptr);
     of131_make_meter_band_common(mb_drp, OFPMBT_DROP, bparms);
+    mb_drp->len = htons(sizeof(*mb_drp));
 
     mdata->act_wr_ptr += sizeof(*mb_drp);
     /*of131_fini_inst_actions(mdata); */
@@ -4530,6 +4649,7 @@ of131_make_meter_band_mark_dscp(mul_act_mdata_t *mdata,
     of131_make_meter_band_common(mb_dm, OFPMBT_DSCP_REMARK,
                                  bparms);
     mb_dm->prec_level = bparms->prec_level;
+    mb_dm->len = htons(sizeof(*mb_dm));
 
     mdata->act_wr_ptr += sizeof(*mb_dm);
     /*of131_fini_inst_actions(mdata); */
@@ -5351,7 +5471,7 @@ of131_dump_set_field_dl_vlan(struct ofp_oxm_header *oxm, void *arg)
     if (OFP_OXM_GHDR_HM(oxm)) return -1;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "%s-0x%x,", "set-vlan", ntohs(*vid));
+                        "%s-0x%x,", "set-vlan", ntohs(*vid) & 0xfff);
     assert(dp->len < OF_DUMP_INST_SZ-1);
     return oxm->length;
 }
@@ -5365,7 +5485,7 @@ of131_dump_cmd_set_field_dl_vlan(struct ofp_oxm_header *oxm, void *arg)
     if (OFP_OXM_GHDR_HM(oxm)) return -1;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "action-add set-vlan-id %d\r\n", ntohs(*vid));
+                        "action-add set-vlan-id %d\r\n", ntohs(*vid) & 0xfff);
     assert(dp->len < OF_DUMP_INST_SZ-1);
     return oxm->length;
 }
@@ -7414,6 +7534,204 @@ of131_port_stats_dump(void *feat, size_t feat_len)
                     U642ULL(ntohll(ofp_ps->collisions)));
 
     assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                    "\r\nDuration:%lu sec %lu nsec\r\n",
+                    U322UL(ntohl(ofp_ps->duration_sec)),
+                    U322UL(ntohl(ofp_ps->duration_nsec)));
+
+    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+    return pbuf;
+}
+
+char *
+of140_port_stats_dump(void *feat, size_t feat_len)
+{
+    char *pbuf;
+    size_t len = 0;
+    struct ofp140_port_stats *ofp_ps = feat;
+
+    if (feat_len < sizeof(*ofp_ps)) {
+        c_log_err("%s: Can't dump size err", FN);
+        return NULL;
+    }
+    pbuf =  calloc(1, OF_DUMP_PORT_STATS_SZ);
+    assert(pbuf);
+    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                    "Port No. %u\r\n", ntohl(ofp_ps->port_no));
+
+    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                    "%12s%10llu ", "Rx Packets:",
+                    U642ULL(ntohll(ofp_ps->rx_packets)));
+
+    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                    "%12s%10llu ", "Tx Packets:",
+                    U642ULL(ntohll(ofp_ps->tx_packets)));
+
+    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                    "%12s%10llu ", "Rx Bytes:",
+                    U642ULL(ntohll(ofp_ps->rx_bytes)));
+
+    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                    "%12s%10llu\r\n", "Tx Bytes:",
+                    U642ULL(ntohll(ofp_ps->tx_bytes)));
+
+    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                    "%12s%10llu ", "Rx Dropped:", 
+                    U642ULL(ntohll(ofp_ps->rx_dropped)));
+
+    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                    "%12s%10llu ", "Tx Dropped:",
+                    U642ULL(ntohll(ofp_ps->tx_dropped)));
+
+    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                    "%12s%10llu ", "RX Errors:",
+                    U642ULL(ntohll(ofp_ps->rx_errors)));
+
+    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                    "%12s%10llu\r\n", "Tx Errors:",
+                    U642ULL(ntohll(ofp_ps->tx_errors)));
+
+    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+    if(feat_len > sizeof(*ofp_ps)) {
+        struct ofp_port_stats_prop_header *properties = ofp_ps->properties;
+        struct ofp_port_stats_prop_ethernet *eth_prop = NULL;
+        struct ofp_port_stats_prop_optical *opt_prop = NULL;
+        switch(properties->type) {
+            case OFPPSPT_ETHERNET:
+                {
+                    if(properties->length < sizeof(struct
+                                ofp_port_stats_prop_ethernet)) {
+                        c_log_err("%s: Can't dump size err in ethernet port"\
+                                " properties", FN);
+                        return NULL;
+                    }
+
+                    eth_prop = (struct ofp_port_stats_prop_ethernet *)properties;
+
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu ", "RxFrameErr:",
+                            U642ULL(ntohll(eth_prop->rx_frame_err)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu ", "RxOverErr:",
+                            U642ULL(ntohll(eth_prop->rx_over_err)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu ", "RxCRCErr:",
+                            U642ULL(ntohll(eth_prop->rx_crc_err)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu\r\n", "Collisions:",
+                            U642ULL(ntohll(eth_prop->collisions)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+                }
+                break;
+            case OFPPSPT_OPTICAL:
+                {
+                    if(properties->length < sizeof(struct
+                                ofp_port_stats_prop_optical)) {
+                        c_log_err("%s: Can't dump size err in optical port"\
+                                " properties", FN);
+                        return NULL;
+                    }
+
+                    opt_prop = (struct ofp_port_stats_prop_optical *)properties;
+
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu ", "Flags:",
+                            U642ULL(ntohll(opt_prop->flags)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+                    
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu ", "TxFreqLmda:",
+                            U642ULL(ntohll(opt_prop->tx_freq_lmda)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+                    
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu\r\n", "TxOffset:",
+                            U642ULL(ntohll(opt_prop->tx_offset)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+                    
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu ", "TxGridSpan:",
+                            U642ULL(ntohll(opt_prop->tx_grid_span)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+ 
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu ", "RxFreqLmda:",
+                            U642ULL(ntohll(opt_prop->tx_freq_lmda)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+                    
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu\r\n", "RxOffset:",
+                            U642ULL(ntohll(opt_prop->tx_offset)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+                    
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu ", "RxGridSpan:",
+                            U642ULL(ntohll(opt_prop->tx_grid_span)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+ 
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu ", "TxPwr:",
+                            U642ULL(ntohll(opt_prop->tx_pwr)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+ 
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu\r\n", "RxPwr:",
+                            U642ULL(ntohll(opt_prop->rx_pwr)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+ 
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu ", "BiasCurrent:",
+                            U642ULL(ntohll(opt_prop->bias_current)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+                    
+                    len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
+                            "%12s%10llu\r\n", "Temperature:",
+                            U642ULL(ntohll(opt_prop->temperature)));
+
+                    assert(len < OF_DUMP_METER_FEAT_SZ-1);
+                }
+                break;
+        }
+    }
 
     len += snprintf(pbuf + len, OF_DUMP_PORT_STATS_SZ - len - 1,
                     "\r\nDuration:%lu sec %lu nsec\r\n",

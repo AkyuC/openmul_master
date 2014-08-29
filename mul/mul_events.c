@@ -149,7 +149,7 @@ c_per_sw_timer(void *arg_sw, void *arg_time)
         time_diff = ctime - sw->last_fp_aging_time;
         if (time_diff > C_SWITCH_FP_AGING_TIMEO) {
             if(sw->fp_ops.fp_aging && !ctrl_hdl.aging_off) {
-                sw->fp_ops.fp_aging(sw);
+                sw->fp_ops.fp_aging(sw, 0, false);
             }
             sw->last_fp_aging_time = time(NULL);
         }

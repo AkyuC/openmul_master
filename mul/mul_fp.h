@@ -22,7 +22,7 @@
 #define __MUL_FP_H__
 
 #define C_FDB_ITIMEO 30
-#define C_FDB_HTIMEO 60
+#define C_FDB_HTIMEO 60*5
 
 #define C_L2FDB_SZ (524288)
 #define C_FDB_ENT_PER_BKT 2

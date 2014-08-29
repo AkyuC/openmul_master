@@ -218,6 +218,12 @@ struct c_port_chg_mdata
     uint8_t reason;
 };
 
+struct c_port_cfg_state_mask
+{
+    uint32_t config_mask;
+    uint32_t state_mask;
+};
+
 struct c_vendor_mdata
 {
     uint32_t    vendor_id;
@@ -235,11 +241,13 @@ struct c_switch_fp_ops
                   struct c_pkt_in_mdata *mdata,
                   uint32_t iport);
     int (*fp_port_status)(struct c_switch *sw,
+                          uint32_t port,
                           uint32_t cfg,
-                          uint32_t state);
+                          uint32_t state,
+                          struct c_port_cfg_state_mask *mask);
     void (*fp_topo_change)(struct c_switch *sw, uint64_t new_state,
                            bool locked);
-    void (*fp_aging)(struct c_switch *sw);
+    void (*fp_aging)(struct c_switch *sw, uint32_t port, bool check_port);
     int (*fp_db_ctor)(struct c_switch *sw, bool locked);
     void (*fp_db_dtor)(struct c_switch *sw, bool locked);
     void (*fp_db_dump)(struct c_switch *sw,
@@ -560,12 +568,6 @@ struct c_buf_iter_arg
     uint64_t dpid;
 };
 
-struct c_port_cfg_state_mask
-{
-    uint32_t config_mask;
-    uint32_t state_mask;
-};
-
 static inline void
 g_slist_cmn_ent_free(void *arg)
 {
@@ -619,8 +621,10 @@ void    c_l2fdb_show(c_switch_t *sw, void *arg,
              void (*show_fn)(void *arg, c_fl_entry_t *ent));
 int     c_l2_lrn_fwd(c_switch_t *sw, struct cbuf *b, void *opi, size_t pkt_len, 
                      struct c_pkt_in_mdata *arg, uint32_t in_port); 
-int     c_l2_port_status(c_switch_t *sw, uint32_t cfg, uint32_t state);
-void    c_l2fdb_aging(c_switch_t *sw);
+int     c_l2_port_status(c_switch_t *sw, uint32_t port,
+                         uint32_t cfg, uint32_t state,
+                         struct c_port_cfg_state_mask *mask);
+void    c_l2fdb_aging(c_switch_t *sw, uint32_t port, bool check_port);
 int     c_l2fdb_init(c_switch_t *sw, bool locked);
 void    c_l2fdb_destroy(c_switch_t *sw, bool locked);
 void    c_l2_topo_change(c_switch_t *sw, uint64_t new_state, bool locked);

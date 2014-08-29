@@ -269,34 +269,34 @@ c_per_sw_topo_change_notify(void *k, void *v UNUSED, void *arg)
 }
 
 void
-c_topo_change_notify(uint64_t new_state, bool root_locked,
-                     bool clr_fdb)
+c_topo_loop_change_notify(bool loop_chg, uint64_t new_state,
+                          bool root_locked, bool clr_fdb)
 {
     if (!root_locked) c_wr_lock(&ctrl_hdl.lock);
 
-    if (ctrl_hdl.loop_status != new_state) {
-        c_log_debug("|TOPO| State change %llu to %llu",
-                    U642ULL(ctrl_hdl.loop_status), U642ULL(new_state));
-        if (clr_fdb) {
-            __c_switch_traverse_all(&ctrl_hdl, c_per_sw_topo_change_notify,
-                                    &new_state);
+    if (loop_chg) {
+        if (ctrl_hdl.loop_status != new_state) {
+            c_log_debug("|TOPO| State change %llu to %llu",
+                        U642ULL(ctrl_hdl.loop_status), U642ULL(new_state));
+            if (clr_fdb && ctrl_hdl.loop_en) {
+                __c_switch_traverse_all(&ctrl_hdl,
+                                        c_per_sw_topo_change_notify,
+                                        &new_state);
+            }
+            ctrl_hdl.loop_status = new_state;
+            mb();
         }
-        ctrl_hdl.loop_status = new_state;
-        mb();
-    }
-    if (!root_locked) c_wr_unlock(&ctrl_hdl.lock);
-}
-
-void
-c_set_tr_status(uint64_t new_status, bool root_locked)
-{
-    if(!root_locked) c_wr_lock(&ctrl_hdl.lock);
-
-    if(ctrl_hdl.tr_status != new_status) {
-        c_log_debug("|TOPO| RT Conv Status change %llu to %llu",
-                    U642ULL(ctrl_hdl.tr_status), U642ULL(new_status));
-        ctrl_hdl.tr_status = new_status;
-        mb();
+    } else {
+        if (clr_fdb && !ctrl_hdl.loop_en)
+            __c_switch_traverse_all(&ctrl_hdl,
+                                    c_per_sw_topo_change_notify,
+                                    &new_state);
+        if(ctrl_hdl.tr_status != new_state) {
+            ctrl_hdl.tr_status = new_state;
+            mb();
+            c_log_debug("|TOPO| RT Conv Status change %llu to %llu",
+                         U642ULL(ctrl_hdl.tr_status), U642ULL(new_state));
+        }
     }
     if (!root_locked) c_wr_unlock(&ctrl_hdl.lock);
 }
@@ -309,7 +309,12 @@ c_flow_mod_validate_parms(c_switch_t *sw,
         (!fl_parms->app_owner) ||
         (fl_parms->flags & C_FL_ENT_CLONE && fl_parms->flags & C_FL_ENT_LOCAL) ||
         (fl_parms->flags & C_FL_ENT_NOCACHE)) { 
-        c_log_err("[FLOW] Invalid flow mod flags");
+        c_log_err("[FLOW] Invalid flow mod flags %d %d %d %d",
+                  !of_switch_table_supported(sw, fl_parms->flow->table_id),
+                  (!fl_parms->app_owner), 
+                  (fl_parms->flags & C_FL_ENT_CLONE && 
+                   fl_parms->flags & C_FL_ENT_LOCAL),
+                  (int)(fl_parms->flags & C_FL_ENT_NOCACHE));
         return -1;
     }
 
@@ -1454,7 +1459,8 @@ c_match_flow_ip_addr_generic(struct flow *fl1, struct flow *fl2,
             return true;
         }
         return false;                        
-    } else if (fl1->dl_type == htons(ETH_TYPE_IP)) {
+    } else if (fl1->dl_type == htons(ETH_TYPE_IP) ||
+               fl1->dl_type == htons(ETH_TYPE_ARP)) {
         if ((fl1->ip.nw_dst & mask->ip.nw_dst) == fl2->ip.nw_dst &&
             (fl1->ip.nw_src & mask->ip.nw_src) == fl2->ip.nw_src) {
             return true;
@@ -1633,7 +1639,7 @@ __c_flow_lookup_rule(c_switch_t *sw UNUSED, struct flow *fl, c_flow_tbl_t *tbl)
             (!mask->tp_src || fl->tp_src == ent_fl->tp_src) &&
             (!memcmp(mask->dl_src, zero_mac, 6) || 
              !memcmp(fl->dl_src, ent_fl->dl_src, 6)) &&
-            (!memcmp(mask->dl_dst, zero_mac, 0) 
+            (!memcmp(mask->dl_dst, zero_mac, 6) 
              || !memcmp(fl->dl_dst, ent_fl->dl_dst, 6)) &&
             (!mask->dl_type || fl->dl_type == ent_fl->dl_type) && 
             (!mask->dl_vlan || fl->dl_vlan == ent_fl->dl_vlan) &&
@@ -1830,6 +1836,7 @@ c_flow_rule_add(c_switch_t *sw, struct of_flow_mod_params *fl_parms)
     c_fl_entry_t *new_ent, *ent;
     c_flow_tbl_t *tbl;
     int          ret = 0;
+    char         *err_str = NULL;
     bool         modify = false;
     uint8_t      table_id = fl_parms->flow->table_id;
     bool         hw_sync = FL_NEED_HW_SYNC(fl_parms); 
@@ -1874,22 +1881,29 @@ c_flow_rule_add(c_switch_t *sw, struct of_flow_mod_params *fl_parms)
            goto out_err_free; 
         }
 
-        if (!(ent->FL_FLAGS & C_FL_ENT_RESIDUAL) &&
-            (!__c_flow_find_app_owner(NULL, ent, fl_parms->app_owner) || /* FIXME : Race condition */
-            (new_ent->action_len == ent->action_len &&
-            !memcmp(new_ent->actions,  ent->actions, ent->action_len)))) {
-            ret = -EEXIST;
-            if (!c_rlim(&crl))
-                c_log_debug("[FLOW] already present (OR) flow mod owner mismatch");
-            goto out_err_free;
+        if (!(ent->FL_FLAGS & C_FL_ENT_RESIDUAL)) {
+            if (!__c_flow_find_app_owner(NULL, ent, fl_parms->app_owner)) {
+            /* FIXME : Race condition above */
+                ret = -EPERM;
+                err_str = "owner mismatch";
+                goto out_err_free;
+            } 
+            if ((new_ent->action_len == ent->action_len &&
+                !memcmp(new_ent->actions ,ent->actions, ent->action_len))) {
+                ent->FL_FLAGS &= ~C_FL_ENT_STALE;
+                ret = -EEXIST;
+                err_str = "existing entry";
+                goto out_err_free;
+            }
         }
 
         if (c_flow_rule_mod(sw, ent, fl_parms, &hw_sync)) {
             ret = -EINVAL;
-            if (!c_rlim(&crl))
-                c_log_debug("[FLOW] Mod failed");
+            err_str = "modify err";
             goto out_err_free;
         }
+
+        ent->FL_FLAGS &= ~C_FL_ENT_STALE;
 
         modify = true;
         if (hw_sync) {
@@ -1902,15 +1916,13 @@ c_flow_rule_add(c_switch_t *sw, struct of_flow_mod_params *fl_parms)
     }
 
     if (__c_flow_rule_associate_grps(sw, new_ent, fl_parms->grp_dep)) {
-        if (!c_rlim(&crl))
-            c_log_debug("[FLOW] rule grp associate fail");
+        err_str = "group associate err";
         ret = -EINVAL;
         goto out_err_free;
     }
 
     if (__c_flow_rule_associate_meters(sw, new_ent, fl_parms->meter_dep)) {
-        if (!c_rlim(&crl))
-            c_log_debug("[FLOW] rule meter associate fail");
+        err_str = "meter associate err";
         ret = -EINVAL;
         goto out_err_free_groups;
     }
@@ -1922,6 +1934,8 @@ c_flow_rule_add(c_switch_t *sw, struct of_flow_mod_params *fl_parms)
     sw->fl_idx_cookie++;
     new_ent->FL_COOKIE = fl_parms->cookie ? : sw->fl_idx_cookie;
     new_ent->FL_INSTALLED = true;
+    if (new_ent->FL_FLAGS & C_FL_ENT_RESIDUAL)
+        new_ent->FL_INSTALLED = true;
     g_hash_table_insert(sw->fl_cookies, new_ent, new_ent);
     c_wr_unlock(&sw->lock);
 
@@ -1938,6 +1952,20 @@ out_err_free_groups:
     __c_flow_rule_disassociate_grps(sw, new_ent); 
 out_err_free:
     c_wr_unlock(&sw->lock);
+    if (!c_rlim(&crl)) {
+        char *act_str = NULL;
+        char *fl_str = of_dump_flow_generic(fl_parms->flow, fl_parms->mask);
+        if (sw->ofp_ctors && sw->ofp_ctors->dump_acts) 
+            act_str = sw->ofp_ctors->dump_acts(new_ent->actions,
+                                               new_ent->action_len, false);
+        c_log_err("[FLOW] Mod fail (%s) 0x%llx t%d (FL-%s) (Act-%s)",
+                  err_str?:"Unknown", U642ULL(sw->DPID), 
+                  fl_parms->flow->table_id,
+                  fl_str?:"", act_str?:"");
+        if (fl_str) free(fl_str);
+        if (act_str) free(act_str);
+    }
+    if (new_ent->actions) free(new_ent->actions);
     free(new_ent);
     return ret;
 }
@@ -2046,8 +2074,13 @@ c_flow_rule_del(c_switch_t *sw, struct of_flow_mod_params *fl_parms)
     if (!__c_flow_rule_del_strict(&tbl->rule_fl_tbl, &flow, 
                                   fl_parms->mask, fl_parms->prio, 
                                   fl_parms->app_owner)) {
-        c_log_err("[FLOW] Del failed-No such flow");
         c_wr_unlock(&sw->lock);
+        if (!c_rlim(&crl)) {
+            char *fl_str = of_dump_flow_generic(fl_parms->flow, fl_parms->mask);
+            c_log_err("[FLOW] Flow Del fail- 0x%llx t%d No such %s",
+                       sw->DPID, fl_parms->flow->table_id, fl_str);
+            if (fl_str) free(fl_str);
+        }
         return -1;
     }
 
@@ -4013,6 +4046,12 @@ of10_recv_port_status(c_switch_t *sw, struct cbuf *b)
     mdata.port_desc = &phy_port_desc->sw_port;
     c_signal_app_event(sw, b, C_PORT_CHANGE, NULL, &mdata, false);
 
+    if (sw->fp_ops.fp_port_status)
+        sw->fp_ops.fp_port_status(sw,
+                                  phy_port_desc->sw_port.port_no,
+                                  phy_port_desc->sw_port.config, 
+                                  phy_port_desc->sw_port.state,
+                                  &chg_mask);
     free(phy_port_desc);
 }
 
@@ -4650,8 +4689,9 @@ out:
 }
 
 int
-of_dfl_port_status(c_switch_t *sw UNUSED, uint32_t cfg UNUSED,
-                   uint32_t state UNUSED)
+of_dfl_port_status(c_switch_t *sw UNUSED, uint32_t port UNUSED,
+                   uint32_t cfg UNUSED, uint32_t state UNUSED,
+                   struct c_port_cfg_state_mask *mask UNUSED)
 {
     /* Nothing to do for now */
     return 0;
@@ -5640,7 +5680,88 @@ of131_recv_barrier_reply(c_switch_t *sw UNUSED, struct cbuf *b UNUSED)
 {
     /* Nothing to do */
 }
- 
+
+static void of131_process_port_stats(c_switch_t *sw, struct ofp_multipart_reply *ofp_mr)
+{
+    struct ofp131_port_stats *ofp_ps = (void *)(ofp_mr->body);
+    ssize_t stat_length = ntohs(ofp_mr->header.length) -
+        sizeof(*ofp_mr);
+    c_port_t *port = NULL;
+    uint32_t port_no;
+
+    int loops = OFSW_MAX_PORT_STATS_COLL;
+    while (loops-- > 0 &&
+            stat_length >= (int)(sizeof(*ofp_ps))) {
+
+        c_wr_lock(&sw->lock);
+        port_no = ntohl(ofp_ps->port_no);
+        if ((port = g_hash_table_lookup(sw->sw_ports,
+                        &port_no))) {
+            if(!port->port_stats) {
+                port->port_stats = calloc(1,sizeof(*ofp_ps));
+                port->port_stat_len = sizeof(*ofp_ps);
+            }
+            if (port->port_stat_len == sizeof(*ofp_ps))
+                memcpy(port->port_stats,ofp_ps,port->port_stat_len);
+        }
+        else {
+            if (!c_rlim(&crl)) {
+                c_log_err("[OF13] mpart-rx:|0x%llx| no port %u",
+                        sw->DPID, ntohl(ofp_ps->port_no));
+            }
+        }
+        c_wr_unlock(&sw->lock);
+
+        stat_length -= sizeof(*ofp_ps);
+        ofp_ps = INC_PTR8(ofp_ps, sizeof(*ofp_ps));
+    }
+}
+
+static void of140_process_port_stats(c_switch_t *sw, struct ofp_multipart_reply *ofp_mr)
+{
+    struct ofp140_port_stats *ofp_ps = (void *)(ofp_mr->body);
+    ssize_t stat_length = ntohs(ofp_mr->header.length) -
+        sizeof(*ofp_mr);
+    c_port_t *port = NULL;
+    uint32_t port_no;
+    size_t port_stat_length = 0;
+
+    int loops = OFSW_MAX_PORT_STATS_COLL;
+    while (loops-- > 0 &&
+            stat_length >= (int)(sizeof(*ofp_ps))) {
+
+        c_wr_lock(&sw->lock);
+        port_no = ntohl(ofp_ps->port_no);
+        port_stat_length = ntohs(ofp_ps->length);
+        if ((port = g_hash_table_lookup(sw->sw_ports,
+                        &port_no))) {
+            if(!port->port_stats) {
+                port->port_stats = calloc(1, port_stat_length);
+                port->port_stat_len =  port_stat_length;
+            }
+            if (port->port_stat_len ==  port_stat_length)
+                memcpy(port->port_stats,ofp_ps,port->port_stat_len);
+            else {
+                c_log_err("[OF14] port-stats-rx:|0x%llx| port %u Len err:"
+                        "|%d:%d|",
+                        sw->DPID, ntohl(ofp_ps->port_no),(int)port_stat_length,
+                        (int)port->port_stat_len);
+            }
+
+        }
+        else {
+            if (!c_rlim(&crl)) {
+                c_log_err("[OF14] mpart-rx:|0x%llx| no port %u",
+                        sw->DPID, ntohl(ofp_ps->port_no));
+            }
+        }
+        c_wr_unlock(&sw->lock);
+
+        stat_length -= (port_stat_length);
+        ofp_ps = INC_PTR8(ofp_ps, port_stat_length);
+    }
+}
+
 static void
 of13_14_mpart_process(c_switch_t *sw, struct cbuf *b)
 {
@@ -6143,39 +6264,13 @@ next_group:
         }
     case OFPMP_PORT_STATS:
         {
-            struct ofp131_port_stats *ofp_ps = (void *)(ofp_mr->body);
-            ssize_t stat_length = ntohs(ofp_mr->header.length) -
-                                    sizeof(*ofp_mr);
-            c_port_t *port = NULL;
-            uint32_t port_no;
-
-            loops = OFSW_MAX_PORT_STATS_COLL;
-            while (loops-- > 0 &&
-                    stat_length >= (int)(sizeof(*ofp_ps))) {
-
-                c_wr_lock(&sw->lock);
-                port_no = ntohl(ofp_ps->port_no);
-                if ((port = g_hash_table_lookup(sw->sw_ports,
-                                &port_no))) {
-                    if(!port->port_stats) {
-                        port->port_stats = calloc(1,sizeof(*ofp_ps));
-                        port->port_stat_len = sizeof(*ofp_ps);
-                    }
-                    if (port->port_stat_len == sizeof(*ofp_ps))
-                        memcpy(port->port_stats,ofp_ps,port->port_stat_len);
-                }
-                else {
-                    if (!c_rlim(&crl)) {
-                        c_log_err("[OF13] mpart-rx:|0x%llx| no port %u",
-                                  sw->DPID, ntohl(ofp_ps->port_no));
-                    }
-                }
-                c_wr_unlock(&sw->lock);
-
-                stat_length -= sizeof(*ofp_ps);
-                ofp_ps = INC_PTR8(ofp_ps, sizeof(*ofp_ps));
+            if(sw->version == OFP_VERSION_131) {
+                of131_process_port_stats(sw, ofp_mr);
             }
-            break;
+            else {
+                of140_process_port_stats(sw, ofp_mr);
+            }
+                        break;
         }
  
     case OFPMP_TABLE:
@@ -6396,6 +6491,13 @@ of131_recv_port_status(c_switch_t *sw, struct cbuf *b)
     mdata.chg_mask = &chg_mask; 
     mdata.port_desc = &port_desc->sw_port;
     c_signal_app_event(sw, b, C_PORT_CHANGE, NULL, &mdata, false);
+
+    if (sw->fp_ops.fp_port_status)
+        sw->fp_ops.fp_port_status(sw,
+                                  port_desc->sw_port.port_no,
+                                  port_desc->sw_port.config,
+                                  port_desc->sw_port.state,
+                                  &chg_mask);
     free(port_desc);
 }
 

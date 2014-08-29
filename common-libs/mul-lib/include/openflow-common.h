@@ -125,6 +125,7 @@ enum ofp_oxm_class {
 #define OFPXMT_OFB_MPLS_BOS_SZ (1)
 #define OFPXMT_OFB_IPV6_SZ (16)
 #define OFPXMT_OFB_TUNNEL_ID_SZ (8) 
+#define OFPXMT_OFB_METADATA_SZ (8)
 
 /* OXM Flow match field types for OpenFlow basic class. */
 enum oxm_ofb_match_fields {

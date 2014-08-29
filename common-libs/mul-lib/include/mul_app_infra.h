@@ -31,7 +31,6 @@ struct mul_switch
 #define MUL_PRIV_SWITCH(X) (X->priv)
     void        *priv;
 
-    uint32_t    ofp_version;
     uint32_t    n_buffers;
     uint8_t     n_tables;
     uint8_t     ofp_ver;
@@ -141,6 +140,8 @@ size_t mul_app_act_buf_room(mul_act_mdata_t *mdata);
 int mul_app_act_set_ctors(mul_act_mdata_t *mdata, uint64_t dpid);
 int mul_app_inst_goto(mul_act_mdata_t *mdata, uint8_t table);
 int mul_app_inst_meter(mul_act_mdata_t *mdata, uint32_t meter);
+int mul_app_inst_wr_meta(mul_act_mdata_t *mdata, uint64_t metadata,
+                     uint64_t metadata_mask);
 int mul_app_set_inst_write(mul_act_mdata_t *mdata);
 int mul_app_set_inst_apply(mul_act_mdata_t *mdata);
 int mul_app_action_output(mul_act_mdata_t *mdata, uint32_t oport);

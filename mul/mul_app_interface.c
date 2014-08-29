@@ -487,9 +487,9 @@ c_remote_app_error(void *app_arg, struct cbuf *b,
 
     cofp_em = (void *)(new_b->data);
     cofp_em->type = htons(type);
-    cofp_em->code = htonl(code);
+    cofp_em->code = htons(code);
 
-    data = (void *)(cofp_em + 1);
+    data = ASSIGN_PTR(cofp_em->data);
     memcpy(data, b->data, data_len);
 
     c_remote_app_event(app_arg, new_b);
@@ -947,7 +947,7 @@ c_signal_app_event(c_switch_t *sw, void *b, c_app_event_t event,
          * else it will lead to strange deadlocks
          */ 
         assert(!locked);
-        c_topo_change_notify(C_LOOP_STATE_NONE, false, false);
+        c_topo_loop_change_notify(true, C_LOOP_STATE_NONE, false, false);
     default:
         break;
     }
@@ -1617,6 +1617,37 @@ out:
     RETURN_APP_ERR(app_arg, b, ret, OFPET131_METER_MOD_FAILED, OFPFMFC_GENERIC); 
 }
 
+static struct cbuf *
+c_prep_tr_status(uint64_t status) 
+{
+    struct cbuf *b;
+    struct c_ofp_auxapp_cmd *cofp_aac;
+    struct c_ofp_tr_status_mod *cofp_trsm;
+    size_t tot_len = 0;
+
+    tot_len = sizeof(*cofp_trsm) + sizeof(*cofp_aac);
+
+    b = of_prep_msg(tot_len, C_OFPT_AUX_CMD, 0);
+
+    cofp_aac = CBUF_DATA(b);
+    cofp_aac->cmd_code =  htonl(C_AUX_CMD_MUL_TR_STATUS);
+
+    cofp_trsm = ASSIGN_PTR(cofp_aac->data);
+
+    cofp_trsm->tr_status = htonll(status);
+    
+    return b;
+}
+
+static void
+c_tr_notify(ctrl_hdl_t *c_hdl, void *app)
+{
+    struct cbuf *b = c_prep_tr_status(c_hdl->tr_status);
+
+    c_signal_app_event(NULL, b, C_TR_STATUS, app, NULL, false);
+    free_cbuf(b);
+}
+
 static int 
 c_app_register_app_command(void *app_arg, struct cbuf *b, void *data)
 {
@@ -1658,6 +1689,7 @@ c_app_register_app_command(void *app_arg, struct cbuf *b, void *data)
                        OFPBRC_BAD_APP_REG);
     }
     c_switch_replay_all(&ctrl_hdl, app);
+    c_tr_notify(&ctrl_hdl, app);
     return 0;
 }
 
@@ -2653,7 +2685,7 @@ c_app_set_loop_status(void *app_arg, struct cbuf *b)
         return;
     }
 
-    c_topo_change_notify(loop_status, false, true);
+    c_topo_loop_change_notify(true, loop_status, false, true);
     c_remote_app_notify_success(app_arg);
 
     return;
@@ -2684,7 +2716,7 @@ c_app_set_tr_status(void *app_arg, struct cbuf *b)
     }
 
     /*Set route convergence status in MUL Core*/
-    c_set_tr_status(tr_status, false);
+    c_topo_loop_change_notify(false, tr_status, false, true);
     c_signal_app_event(NULL, b, C_TR_STATUS, NULL, NULL, false);
     c_remote_app_notify_success(app_arg);
 

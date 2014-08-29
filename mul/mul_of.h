@@ -35,7 +35,8 @@
                                     (parms)->flags & C_FL_ENT_LOCAL) ? false : true;
 
 void            c_per_sw_topo_change_notify(void *k, void *v UNUSED, void *arg);
-void            c_topo_change_notify(uint64_t new_state, bool root_locked, bool clr_fdb);
+void            c_topo_loop_change_notify(bool loop_chg, uint64_t new_state,
+                                          bool root_locked, bool clr_fdb);
 void            c_set_tr_status(uint64_t new_status, bool root_locked);
 bool            of_switch_port_validate_cb(void *sw, uint32_t port);
 bool            of_switch_port_valid(c_switch_t *sw, struct flow *fl,
@@ -149,7 +150,9 @@ void            c_switch_port_q_traverse_all(c_switch_t *sw, uint32_t port_no,
 int             of_dfl_fwd(struct c_switch *sw, struct cbuf *b, void *data,
                            size_t pkt_len, struct c_pkt_in_mdata *mdata,
                            uint32_t in_port);
-int             of_dfl_port_status(c_switch_t *sw, uint32_t cfg, uint32_t state);
+int             of_dfl_port_status(c_switch_t *sw, uint32_t port,
+                                   uint32_t cfg, uint32_t state,
+                                   struct c_port_cfg_state_mask *mask);
 void            of131_send_pkt_out_inline(void *arg, struct of_pkt_out_params *parms);
 
 bool            c_of_fl_group_check_add(void *sw_arg, uint32_t group_id, void *arg);

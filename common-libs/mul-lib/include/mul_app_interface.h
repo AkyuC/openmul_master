@@ -233,6 +233,7 @@ struct c_ofp_flow_mod {
 #define C_FL_ENT_SWALIAS    (0x40)
 #define C_FL_ENT_BARRIER    (0x80)
 #define C_FL_ENT_RESIDUAL   (0x100)
+#define C_FL_ENT_STALE      (0x200)
     uint64_t             flags;
     uint8_t              pad0;
 #define C_OFPC_ADD  0

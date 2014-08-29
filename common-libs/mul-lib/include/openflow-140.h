@@ -72,14 +72,6 @@ enum ofp140_type {
     OFPT140_BUNDLE_ADD_MESSAGE = 34,
 };
 
-/* Port stats property types.
-   */
-enum ofp_port_stats_prop_type {
-    OFPPSPT_ETHERNET = 0, /* Ethernet property. */
-    OFPPSPT_OPTICAL = 1, /* Optical property. */
-    OFPPSPT_EXPERIMENTER = 0xFFFF, /* Experimenter property. */
-};
-
 /* Common header for all port description properties. */
 struct ofp_port_desc_prop_header {
     uint16_t type; /* One of OFPPDPT_*. */
@@ -496,6 +488,79 @@ struct ofp140_table_stats {
 };
 OFP_ASSERT(sizeof(struct ofp140_table_stats) == 24);
 
+/* Port stats property types.
+   */
+enum ofp_port_stats_prop_type {
+    OFPPSPT_ETHERNET = 0, /* Ethernet property. */
+    OFPPSPT_OPTICAL = 1, /* Optical property. */
+    OFPPSPT_EXPERIMENTER = 0xFFFF, /* Experimenter property. */
+};
+
+/* Common header for all port stats properties. */
+struct ofp_port_stats_prop_header {
+    uint16_t type; /* One of OFPPSPT_*. */
+    uint16_t length; /* Length in bytes of this property. */
+};
+OFP_ASSERT(sizeof(struct ofp_port_stats_prop_header) == 4);
+
+/* Ethernet port stats property. */
+struct ofp_port_stats_prop_ethernet {
+    uint16_t type; /* OFPPSPT_ETHERNET. */
+    uint16_t length; /* Length in bytes of this property. */
+    uint8_t pad[4]; /* Align to 64 bits. */
+    uint64_t rx_frame_err; /* Number of frame alignment errors. */
+    uint64_t rx_over_err; /* Number of packets with RX overrun. */
+    uint64_t rx_crc_err; /* Number of CRC errors. */
+    uint64_t collisions; /* Number of collisions. */
+};
+OFP_ASSERT(sizeof(struct ofp_port_stats_prop_ethernet) == 40);
+
+/* Optical port stats property. */
+struct ofp_port_stats_prop_optical {
+    uint16_t type; /* OFPPSPT_OPTICAL. */
+    uint16_t length; /* Length in bytes of this property. */
+    uint8_t pad[4]; /* Align to 64 bits. */
+    uint32_t flags; /* Features enabled by the port. */
+    uint32_t tx_freq_lmda; /* Current TX Frequency/Wavelength */
+    uint32_t tx_offset; /* TX Offset */
+    uint32_t tx_grid_span; /* TX Grid Spacing */
+    uint32_t rx_freq_lmda; /* Current RX Frequency/Wavelength */
+    uint32_t rx_offset; /* RX Offset */
+    uint32_t rx_grid_span; /* RX Grid Spacing */
+    uint16_t tx_pwr; /* Current TX power */
+    uint16_t rx_pwr; /* Current RX power */
+    uint16_t bias_current; /* TX Bias Current */
+    uint16_t temperature; /* TX Laser Temperature */
+};
+OFP_ASSERT(sizeof(struct ofp_port_stats_prop_optical) == 44);
+
+/* Flags is one of OFPOSF_ below */
+enum ofp_port_stats_optical_flags {
+    OFPOSF_RX_TUNE = 1 << 0, /* Receiver tune info valid */
+    OFPOSF_TX_TUNE = 1 << 1, /* Transmit tune info valid */
+    OFPOSF_TX_PWR = 1 << 2, /* TX Power is valid */
+    OFPOSF_RX_PWR = 1 << 4, /* RX power is valid */
+    OFPOSF_TX_BIAS = 1 << 5, /* Transmit bias is valid */
+    OFPOSF_TX_TEMP = 1 << 6, /* TX Temp is valid */
+};
+
+/* Experimenter port stats property. */
+struct ofp_port_stats_prop_experimenter {
+    uint16_t type; /* OFPPSPT_EXPERIMENTER. */
+    uint16_t length; /* Length in bytes of this property. */
+    uint32_t experimenter; /* Experimenter ID which takes the same
+                              form as in struct
+                              ofp_experimenter_header. */
+    uint32_t exp_type; /* Experimenter defined. */
+    /* Followed by:
+       * - Exactly (length - 12) bytes containing the experimenter data,
+       * then
+       * - Exactly (length + 7)/8*8 - (length) (between 0 and 7)
+       * bytes of all-zero bytes */
+    uint32_t experimenter_data[0];
+};
+OFP_ASSERT(sizeof(struct ofp_port_stats_prop_experimenter) == 12);
+
 /* Body for ofp_multipart_request of type OFPMP_PORT. */
 struct ofp140_port_stats_request {
     uint32_t port_no; /* OFPMP_PORT message must request statistics
@@ -509,8 +574,13 @@ OFP_ASSERT(sizeof(struct ofp140_port_stats_request) == 8);
 /* Body of reply to OFPMP_PORT request. If a counter is unsupported, set
 * the field to all ones. */
 struct ofp140_port_stats {
+    uint16_t length; /* Length of this entry. */
+    uint8_t pad[2]; /* Align to 64 bits. */
     uint32_t port_no;
-    uint8_t pad[4]; /* Align to 64-bits. */
+    uint32_t duration_sec; /* Time port has been alive in seconds. */
+    uint32_t duration_nsec; /* Time port has been alive in nanoseconds
+                               beyond
+                               duration_sec. */
     uint64_t rx_packets; /* Number of received packets. */
     uint64_t tx_packets; /* Number of transmitted packets. */
     uint64_t rx_bytes; /* Number of received bytes. */
@@ -518,22 +588,17 @@ struct ofp140_port_stats {
     uint64_t rx_dropped; /* Number of packets dropped by RX. */
     uint64_t tx_dropped; /* Number of packets dropped by TX. */
     uint64_t rx_errors; /* Number of receive errors. This is a super-set
-                            of more specific receive errors and should be
-                            greater than or equal to the sum of all
-                            rx_*_err values. */
+                           of more specific receive errors and should be
+                           greater than or equal to the sum of all
+                           rx_*_err values in properties. */
     uint64_t tx_errors; /* Number of transmit errors. This is a super-set
-                            of more specific transmit errors and should be
-                            greater than or equal to the sum of all
-                            tx_*_err values (none currently defined.) */
-    uint64_t rx_frame_err; /* Number of frame alignment errors. */
-    uint64_t rx_over_err; /* Number of packets with RX overrun. */
-    uint64_t rx_crc_err; /* Number of CRC errors. */
-    uint64_t collisions; /* Number of collisions. */
-    uint32_t duration_sec; /* Time port has been alive in seconds. */
-    uint32_t duration_nsec; /* Time port has been alive in nanoseconds beyond
-                                duration_sec. */
+                           of more specific transmit errors and should be
+                           greater than or equal to the sum of all
+                           tx_*_err values (none currently defined.) */
+    /* Port description property list - 0 or more properties */
+    struct ofp_port_stats_prop_header properties[0];
 };
-OFP_ASSERT(sizeof(struct ofp140_port_stats) == 112);
+OFP_ASSERT(sizeof(struct ofp140_port_stats) == 80);
 
 struct ofp140_queue_stats_request {
     uint32_t port_no; /* All ports if OFPP_ANY. */

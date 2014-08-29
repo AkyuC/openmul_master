@@ -151,4 +151,14 @@ void cbuf_init_on_stack(struct cbuf *b, void *data, size_t alloc_len)
     b->nofree = 1;
 }
 
+static inline
+void cbuf_reset(struct cbuf *b)
+{
+    b->data = (unsigned char *)(b + 1);
+    b->tail = b->data;
+    b->len = 0;
+    b->nofree = 0;
+    b->next = NULL;
+}
+
 #endif

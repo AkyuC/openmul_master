@@ -286,6 +286,14 @@ of_mact_inst_act_len(mul_act_mdata_t *mdata)
     return (size_t)(mdata->act_wr_ptr - inst_ptr);
 }
 
+static inline bool
+of_mask_is_dc_all(struct flow *mask)
+{
+    struct flow m;
+    memset(&m, 0, sizeof(m));
+    return !memcmp(mask, &m, sizeof(*mask));
+}
+
 static inline void
 of_mask_set_dc_all(struct flow *mask)
 {
@@ -339,7 +347,7 @@ static inline void
 of_mask_set_nw_src(struct flow *mask, size_t prefixlen)
 {
     assert(prefixlen <= 32);
-    mask->ip.nw_src = make_inet_mask(prefixlen);
+    mask->ip.nw_src = htonl(make_inet_mask(prefixlen));
 }
 
 static inline void
@@ -352,7 +360,7 @@ static inline void
 of_mask_set_nw_dst(struct flow *mask, size_t prefixlen)
 {
     assert(prefixlen <= 32);
-    mask->ip.nw_dst = make_inet_mask(prefixlen);
+    mask->ip.nw_dst = htonl(make_inet_mask(prefixlen));
 }
 static inline void
 of_mask_set_tp_src(struct flow *mask)
@@ -394,6 +402,12 @@ static inline void
 of_mask_clr_dl_vlan(struct flow *mask)
 {
     mask->dl_vlan = 0x0;
+}
+
+static inline bool
+of_mask_has_in_port(struct flow *mask)
+{
+    return mask->in_port ? true: false;
 }
 
 static inline void
@@ -629,6 +643,8 @@ struct c_ofp_ctors {
     int (*set_act_inst)(struct mul_act_mdata *mdata, uint16_t act_type);
     size_t (*inst_goto)(struct mul_act_mdata *mdata, uint8_t table_id);
     size_t (*inst_meter)(struct mul_act_mdata *mdata, uint32_t meter);
+    size_t (*inst_wr_meta)(struct mul_act_mdata *mdata, uint64_t metadata,
+                            uint64_t metadata_mask);
     size_t (*act_output)(struct mul_act_mdata *mdata, uint32_t oport);
     size_t (*act_set_vid)(struct mul_act_mdata *mdata, uint16_t vid);
     size_t (*act_strip_vid)(struct mul_act_mdata *mdata);
@@ -805,6 +821,8 @@ size_t of131_make_inst_actions(mul_act_mdata_t *mdata, uint16_t type);
 void of131_fini_inst_actions(mul_act_mdata_t *mdata);
 size_t of131_make_inst_goto(mul_act_mdata_t *mdata, uint8_t tbl_id);
 size_t of131_make_inst_meter(mul_act_mdata_t *mdata, uint32_t meter);
+size_t of131_make_inst_wr_meta(mul_act_mdata_t *mdata, uint64_t metadata, 
+        uint64_t metadata_mask);
 size_t of131_make_inst_clear_act(mul_act_mdata_t *mdata);
 size_t of131_make_action_output(mul_act_mdata_t *mdata, uint32_t oport);
 size_t of131_make_action_push(mul_act_mdata_t *mdata, uint16_t eth_type);
@@ -924,5 +942,6 @@ struct cbuf *of140_prep_meter_del_msg(uint32_t meter);
 struct cbuf * of140_prep_port_mod_msg(uint32_t port_no, 
                         struct of_port_mod_params *pm_params, 
                         uint8_t *hw_addr);
+char * of140_port_stats_dump(void *feat, size_t feat_len);
 
 #endif

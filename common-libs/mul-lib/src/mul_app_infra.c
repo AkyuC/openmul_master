@@ -33,6 +33,7 @@ void c_controller_reconn(c_app_hdl_t *hdl);
 void c_app_notify_ha_event(c_app_hdl_t *hdl, uint32_t ha_sysid, uint32_t ha_state);
 void c_controller_disconn(c_app_hdl_t *hdl);
 void c_app_vendor_msg(c_app_hdl_t *hdl UNUSED, c_ofp_vendor_msg_t *ofp_vm);
+void c_app_tr_status(c_app_hdl_t *hdl UNUSED, c_ofp_tr_status_mod_t *ofp_trsm);
 int c_app_infra_init(c_app_hdl_t *hdl);
 void c_app_infra_vty_init(void *hdl);
 static void __c_app_traverse_all_switches(GHFunc iter_fn, void *arg);
@@ -62,6 +63,7 @@ static struct c_ofp_ctors of131_ctors = {
     .set_act_inst = of131_set_inst_action_type,
     .inst_goto = of131_make_inst_goto,
     .inst_meter = of131_make_inst_meter,
+    .inst_wr_meta = of131_make_inst_wr_meta,
     .act_output = of131_make_action_output,
     .act_set_vid = of131_make_action_set_vid,
     .act_strip_vid = of131_make_action_strip_vlan,
@@ -105,6 +107,7 @@ static struct c_ofp_ctors of140_ctors = {
     .set_act_inst = of131_set_inst_action_type,
     .inst_goto = of131_make_inst_goto,
     .inst_meter = of131_make_inst_meter,
+    .inst_wr_meta = of131_make_inst_wr_meta,
     .act_output = of131_make_action_output,
     .act_set_vid = of131_make_action_set_vid,
     .act_strip_vid = of131_make_action_strip_vlan,
@@ -179,17 +182,18 @@ mul_switch_t *
 c_app_switch_get_with_id(uint64_t dpid)
 {
     mul_switch_t *sw = NULL;
+    int lock = 0;
 
-    c_rd_lock(&hdl->infra_lock);
+    lock = c_rd_trylock(&hdl->infra_lock);
     if (!(sw = g_hash_table_lookup(hdl->switches, &dpid))) {
-        c_rd_unlock(&hdl->infra_lock);
+        if (!lock) c_rd_unlock(&hdl->infra_lock);
         c_log_err("[infra] unknown switch (0x%llx)",
                   (unsigned long long)dpid);
         return NULL;
     }
 
     atomic_inc(&sw->ref, 1);
-    c_rd_unlock(&hdl->infra_lock);
+    if (!lock)  c_rd_unlock(&hdl->infra_lock);
     return sw;
 }
 
@@ -242,29 +246,31 @@ c_app_switch_get_version_with_id(uint64_t dpid)
 {
     mul_switch_t *sw = NULL;
     uint8_t ver;
+    int lock = 0;
 
-    c_rd_lock(&hdl->infra_lock);
+    lock = c_rd_trylock(&hdl->infra_lock);
     if (!(sw = g_hash_table_lookup(hdl->switches, &dpid))) {
-        c_rd_unlock(&hdl->infra_lock);
+        if (!lock) c_rd_unlock(&hdl->infra_lock);
         c_log_err("[infra] Unknown switch-id (0x%llx)",
                   (unsigned long long)dpid);
         return 0;
     }
 
     ver = sw->ofp_ver;
-    c_rd_unlock(&hdl->infra_lock);
+    if (!lock) c_rd_unlock(&hdl->infra_lock);
     return ver;
 }
 
 void
 c_app_traverse_all_switches(GHFunc iter_fn, void *arg)
 {
-    c_rd_lock(&hdl->infra_lock);
+    int lock = 0;
+    lock = c_rd_trylock(&hdl->infra_lock);
     if (hdl->switches) {
         g_hash_table_foreach(hdl->switches,
                              (GHFunc)iter_fn, arg);
     }
-    c_rd_unlock(&hdl->infra_lock);
+    if (!lock) c_rd_unlock(&hdl->infra_lock);
 
     return;
 }
@@ -424,9 +430,13 @@ c_app_switch_del(c_app_hdl_t *hdl, c_ofp_switch_delete_t *cofp_sa)
         return;
     }
     c_app_traverse_switch_ports(sw, mul_app_swports_del_notify, NULL);
+    c_wr_unlock(&hdl->infra_lock);
+
     if (app_cbs && app_cbs->switch_del_cb) {
         app_cbs->switch_del_cb(sw);
     }
+
+    c_wr_lock(&hdl->infra_lock);
     c_app_switch_put(sw);
     g_hash_table_remove(hdl->switches, &dpid); /* c_app_sw_free() */
     c_wr_unlock(&hdl->infra_lock);
@@ -558,6 +568,14 @@ c_app_vendor_msg(c_app_hdl_t *hdl UNUSED, c_ofp_vendor_msg_t *ofp_vm)
 
     if (app_cbs && app_cbs->process_vendor_msg_cb) {
         app_cbs->process_vendor_msg_cb(sw,ofp_vm->data,pkt_len);
+    }
+}
+
+void
+c_app_tr_status(c_app_hdl_t *hdl UNUSED, c_ofp_tr_status_mod_t *ofp_trsm)
+{
+    if (app_cbs && app_cbs->topo_route_status_cb) {
+        app_cbs->topo_route_status_cb(ntohll(ofp_trsm->tr_status));
     }
 }
 
@@ -699,33 +717,35 @@ mul_register_app_cb(void *app_arg, char *app_name, uint32_t app_flags,
     uint8_t num_dpid = 0;
     assert(app_cbs);
 
-    if(strcmp(hdl->dpid_file,"\0")) {
-        fp = fopen(hdl->dpid_file,"r");
-        c_log_debug("Reading DPIDs from %s",hdl->dpid_file);
-        if( fp == NULL) {
-            perror("Error while opening the file");
-        }
-        else {
+    if(!n_dpid) {
+        if(strcmp(hdl->dpid_file,"\0")) {
+            fp = fopen(hdl->dpid_file,"r");
+            c_log_debug("Reading DPIDs from %s",hdl->dpid_file);
+            if( fp == NULL) {
+                perror("Error while opening the file");
+            }
+            else {
 
-            do {
-                c = fscanf(fp,"%s",dpid_str); /* got one dpid from the file */
-                if(c != EOF) {
-                    dpid = strtoull(dpid_str, NULL, 16);
-                    if (dpid == ULONG_MAX && errno == ERANGE) {
-                        c_log_err("%s: Incorrect DPID format - %s", FN,
-                                dpid_str);
-                        continue;
+                do {
+                    c = fscanf(fp,"%s",dpid_str); /* scan dpid from the file */
+                    if(c != EOF) {
+                        dpid = strtoull(dpid_str, NULL, 16);
+                        if (dpid == ULONG_MAX && errno == ERANGE) {
+                            c_log_err("%s: Incorrect DPID format - %s", FN,
+                                    dpid_str);
+                            continue;
+                        }
+
+                        new_dpid_list[num_dpid] = dpid;
+                        num_dpid++;
                     }
-
-                    new_dpid_list[num_dpid] = dpid;
-                    num_dpid++;
-                }
-                /* Repeat until EOF character or maximum limit of DPIDs is
-                 * achieved */
-            } while (c != EOF && num_dpid < MAX_NUMBER_DPID); 
-            dpid_list = new_dpid_list;
-            n_dpid = num_dpid;
-            app_flags = 0;
+                    /* Repeat until EOF character or maximum limit of DPIDs is
+                     * achieved */
+                } while (c != EOF && num_dpid < MAX_NUMBER_DPID); 
+                dpid_list = new_dpid_list;
+                n_dpid = num_dpid;
+                app_flags = 0;
+            }
         }
     }
     return _commom_reg_app(app_arg, app_name, app_flags, ev_mask, n_dpid,
@@ -1364,6 +1384,25 @@ mul_app_inst_meter(mul_act_mdata_t *mdata, uint32_t meter)
 }
 
 int
+mul_app_inst_wr_meta(mul_act_mdata_t *mdata, uint64_t metadata,
+                     uint64_t metadata_mask)
+{
+    struct c_ofp_ctors *ctors = mdata->ofp_ctors;
+
+    if (ctors && ctors->inst_wr_meta) {
+        if (!ctors->inst_wr_meta(mdata, metadata, metadata_mask)) {
+            return -1;
+        }
+    } else {
+        c_log_err("%s: Write Metadata not supported", FN);
+        return -1;
+    }
+
+    return 0;
+}
+
+
+int
 mul_app_action_output(mul_act_mdata_t *mdata, uint32_t oport)
 {
     struct c_ofp_ctors *ctors = mdata->ofp_ctors;
@@ -1453,8 +1492,6 @@ mul_app_action_push_hdr(mul_act_mdata_t *mdata, uint16_t eth_type)
 
     if (ctors && ctors->act_push) {
         return ctors->act_push(mdata, eth_type);
-    } else {
-        c_log_err("%s: push hdr action not supported", FN);
     }
     return -1;
 }
@@ -1778,7 +1815,8 @@ vty_show_switch_info(void *key UNUSED, void *sw_arg, void *uarg)
     mul_switch_t *sw = sw_arg;
     struct vty  *vty = uarg;
 
-    vty_out(vty, "0x%-16llx ", (unsigned long long)sw->dpid);
+    vty_out(vty, "0x%16llx ", (unsigned long long)sw->dpid);
+    vty_out(vty, "0x%-5d ", sw->ofp_ver);
     c_app_traverse_switch_ports(sw, vty_show_port_info, vty);
     vty_out(vty, "%s%s", VTY_NEWLINE, VTY_NEWLINE);
 }
@@ -1796,7 +1834,7 @@ DEFUN_HIDDEN (show_switches,
             "----------------------------------%s",
             VTY_NEWLINE);
 
-    vty_out(vty, "%10s %18s %s%s", "DP-id",
+    vty_out(vty, "%16s %5s %18s %s%s", "DP-id", "ver",
             "Port-list","<port-num>(admin:link)", VTY_NEWLINE);
     vty_out (vty,
             "-------------------------------------------"
