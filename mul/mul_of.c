@@ -784,17 +784,13 @@ c_switch_try_publish(c_switch_t *sw, bool need_ha_sync_req UNUSED)
                                     SW_METER_PROBED | SW_METER_PROBE_DONE |
                                     SW_GROUP_PROBED | SW_GROUP_PROBE_DONE);
             if (!(sw->switch_state & SW_PUBLISHED)) {
-                __of_send_flow_del_direct(sw, &flow, &mask, 0,
-                                      false, C_FL_PRIO_DFL, OFPG_ANY);
-                __of_send_clear_all_groups(sw);
-                __of_send_clear_all_meters(sw);
                 if (!(sw->switch_state & SW_OFP_TBL_FEAT)) {
                     /* OVS1.3+ does not support Table features so we enable our
                      * minimal required tables 
                      */
                     if (sw->n_tables >= C_OPT_NO_TABLES) {
                         c_switch_flow_table_enable(sw, 2);
-                       c_switch_flow_table_enable(sw, 1);
+                        c_switch_flow_table_enable(sw, 1);
                         c_switch_flow_table_enable(sw, 0);
                     }
                     sw->switch_state |= SW_OFP_TBL_FEAT;
@@ -4178,8 +4174,12 @@ c_register_switch(c_switch_t *sw, struct cbuf *reg_pkt, bool trig_event)
         __of_send_role_request(sw);
         __of_send_set_config(sw, 0, OF_MAX_MISS_SEND_LEN);
         if (trig_event) {
-            __of_send_flow_del_direct(sw, &flow, &mask, 0, 
-                                      false, C_FL_PRIO_DFL, OFPG_ANY);
+            int i = 0;
+            for (; i < sw->n_tables; i++) {
+                flow.table_id = i;
+                __of_send_flow_del_direct(sw, &flow, &mask, 0, 
+                                          false, C_FL_PRIO_DFL, OFPG_ANY);
+            }
             __of_send_clear_all_groups(sw);
             __of_send_clear_all_meters(sw);
 
@@ -5705,6 +5705,12 @@ static void
 of131_recv_features_reply(c_switch_t *sw, struct cbuf *b)
 {
     struct ofp131_switch_features  *osf = CBUF_DATA(b);
+    int tbl = 0;
+    struct flow  flow;
+    struct flow  mask;
+
+    memset(&flow, 0, sizeof(flow));
+    of_mask_set_dc_all(&mask);
 
     if (!c_switch_features_check(sw, ntohll(osf->datapath_id))) {
         return;
@@ -5715,6 +5721,14 @@ of131_recv_features_reply(c_switch_t *sw, struct cbuf *b)
                            ntohl(osf->capabilities));                           
 
     c_register_switch(sw, b, false);
+
+    for (tbl = 0; tbl < sw->n_tables; tbl++) {
+         flow.table_id = tbl;
+         __of_send_flow_del_direct(sw, &flow, &mask, 0,
+                                    false, C_FL_PRIO_DFL, OFPG_ANY);
+     }
+     __of_send_clear_all_groups(sw);
+     __of_send_clear_all_meters(sw);
 
     /* Get all the table features */
     c_switch_tx(sw, of131_prep_mpart_msg(OFPMP_TABLE_FEATURES, 0, 0), false);
@@ -6889,6 +6903,12 @@ static void
 of140_recv_features_reply(c_switch_t *sw, struct cbuf *b)
 {
     struct ofp140_switch_features  *osf = CBUF_DATA(b);
+    struct flow  flow;
+    struct flow  mask;
+    int tbl = 0;
+
+    memset(&flow, 0, sizeof(flow));
+    of_mask_set_dc_all(&mask);
 
     if (!c_switch_features_check(sw, ntohll(osf->datapath_id))) {
         return;
@@ -6899,6 +6919,12 @@ of140_recv_features_reply(c_switch_t *sw, struct cbuf *b)
                            ntohl(osf->capabilities));                           
 
     c_register_switch(sw, b, false);
+
+    for (tbl = 0; tbl < sw->n_tables; tbl++) {
+         flow.table_id = tbl;
+         __of_send_flow_del_direct(sw, &flow, &mask, 0,
+                                    false, C_FL_PRIO_DFL, OFPG_ANY);
+     }
 
     /* Get all the table features */
     c_switch_tx(sw, of140_prep_mpart_msg(OFPMP_TABLE_FEATURES, 0, 0), false);
