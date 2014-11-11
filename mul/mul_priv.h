@@ -43,6 +43,7 @@
 #define C_MAX_RULE_FLOW_TBLS        (255)
 #define C_TBL_HW_IDX_DFL            (0)
 
+#define C_OPT_NO_TABLES             (3)
 #define C_MAX_Q_PROP_LEN            (2048)
 
 #define C_VTY_PORT                  7000

@@ -28,6 +28,7 @@ static void of_send_flow_del(c_switch_t *sw, c_fl_entry_t *ent,
                              uint16_t oport, bool strict, uint32_t group);
 static void of_send_flow_del_strict(c_switch_t *sw, c_fl_entry_t *ent,
                                     uint16_t oport, uint32_t group);
+static void c_switch_flow_table_enable(c_switch_t *sw, uint8_t table_id);
 static c_fl_entry_t *__c_flow_get_exm(c_switch_t *sw, struct flow *fl);
 static void c_flow_rule_free(void *arg, void *u_arg);
 static void port_config_to_ofxlate(uint32_t *of_port_config, uint32_t config);
@@ -451,6 +452,34 @@ of_switch_table_valid(c_switch_t *sw, uint8_t table)
     return valid;
 }
 
+/* 
+ * of_switch_get_next_valid_table - 
+ *
+ */
+static int
+of_switch_get_next_valid_table(c_switch_t *sw, uint8_t table)
+{
+    c_flow_tbl_t *tbl;
+    int i = 0;
+
+    if (!sw->ofp_ctors ||
+        !sw->ofp_ctors->multi_table_support)
+        return -1;
+
+    c_rd_lock(&sw->lock);
+    for (i = table+1; i < C_MAX_RULE_FLOW_TBLS; i++) {
+        tbl = &sw->rule_flow_tbls[i];
+        if (tbl->hw_tbl_active) {
+            c_rd_unlock(&sw->lock);
+            return i;
+        }
+    }
+    c_rd_unlock(&sw->lock);
+
+    return -1;
+}
+
+
 void
 c_sw_port_hton(struct c_sw_port *dst, struct c_sw_port *src)
 {
@@ -759,6 +788,18 @@ c_switch_try_publish(c_switch_t *sw, bool need_ha_sync_req UNUSED)
                                       false, C_FL_PRIO_DFL, OFPG_ANY);
                 __of_send_clear_all_groups(sw);
                 __of_send_clear_all_meters(sw);
+                if (!(sw->switch_state & SW_OFP_TBL_FEAT)) {
+                    /* OVS1.3+ does not support Table features so we enable our
+                     * minimal required tables 
+                     */
+                    if (sw->n_tables >= C_OPT_NO_TABLES) {
+                        c_switch_flow_table_enable(sw, 2);
+                       c_switch_flow_table_enable(sw, 1);
+                        c_switch_flow_table_enable(sw, 0);
+                    }
+                    sw->switch_state |= SW_OFP_TBL_FEAT;
+                }
+ 
                 c_log_debug("|SWITCH| Publishing 0x%llx", U642ULL(sw->DPID));
                 c_signal_app_event(sw, sw->sav_b, C_DP_REG, NULL, NULL, false);
                 if (sw->sav_b) free (sw->sav_b);
@@ -4745,6 +4786,7 @@ of_recv_hello(c_switch_t *sw, struct cbuf *b)
         sw->ofp_ctors = &of10_ctors;
         sw->ofp_priv_procs = &ofp_priv_procs;
         sw->switch_state |= SW_OFP_NEGOTIATED;
+        of_send_hello(sw);
         of_send_features_request(sw);
     } else if (h->version == OFP_VERSION_131) {
         sw->ofp_rx_handler_sz = OFPT131_METER_MOD;
@@ -4752,6 +4794,7 @@ of_recv_hello(c_switch_t *sw, struct cbuf *b)
         sw->ofp_ctors = &of131_ctors;
         sw->ofp_priv_procs = &ofp131_priv_procs;
         sw->switch_state |= SW_OFP_NEGOTIATED;
+        of_send_hello(sw);
         of_send_features_request(sw);
     } else if (h->version == OFP_VERSION_140) {
         sw->ofp_rx_handler_sz = OFPT140_BUNDLE_ADD_MESSAGE;
@@ -4759,7 +4802,8 @@ of_recv_hello(c_switch_t *sw, struct cbuf *b)
         sw->ofp_ctors = &of140_ctors;
         sw->ofp_priv_procs = &ofp140_priv_procs;
         sw->switch_state |= SW_OFP_NEGOTIATED;
-        //of_send_features_request(sw);
+        of_send_hello(sw);
+        of_send_features_request(sw);
     } else {
         c_log_err("[OF] |%u| ver unsupported", h->version);
         of_send_hello(sw);
@@ -5313,6 +5357,7 @@ c_switch_flow_table_enable(c_switch_t *sw, uint8_t table_id)
     c_flow_tbl_t  *tbl;
     bool en = false;
     mul_act_mdata_t mdata;
+    int next_valid_tbl = -1;
 
     memset(&flow, 0, sizeof(flow));
     of_mask_set_dc_all(&mask);
@@ -5334,18 +5379,32 @@ c_switch_flow_table_enable(c_switch_t *sw, uint8_t table_id)
     flow.table_id = table_id;
     mask.table_id = 0xff;
 
-    assert(sw->ofp_ctors->act_output);
-
-    of_mact_alloc(&mdata);
-    if (sw->ofp_ctors->act_output) {
-        sw->ofp_ctors->act_output(&mdata, 0); /* 0 -> Send to controller */
+    if (table_id == 0) {
+        next_valid_tbl = of_switch_get_next_valid_table(sw, table_id);
     }
 
-    __of_send_flow_add_direct(sw, &flow, &mask, OFP_NO_BUFFER,
+    if (next_valid_tbl >= 0 &&
+        sw->ofp_ctors->inst_goto) { 
+
+        of_mact_alloc(&mdata);
+        sw->ofp_ctors->inst_goto(&mdata, table_id+1);
+        __of_send_flow_add_direct(sw, &flow, &mask, OFP_NO_BUFFER,
                               mdata.act_base, of_mact_len(&mdata),
                               0, 0, C_FL_PRIO_DFL); 
+        of_mact_free(&mdata);
 
-    of_mact_free(&mdata);
+    } else {    
+        assert(sw->ofp_ctors->act_output);
+        of_mact_alloc(&mdata);
+        if (sw->ofp_ctors->act_output) {
+            sw->ofp_ctors->act_output(&mdata, 0); /* 0 -> Send to controller */
+        }
+
+        __of_send_flow_add_direct(sw, &flow, &mask, OFP_NO_BUFFER,
+                              mdata.act_base, of_mact_len(&mdata),
+                              0, 0, C_FL_PRIO_DFL); 
+        of_mact_free(&mdata);
+    }
 }
 
 static void
