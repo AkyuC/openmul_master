@@ -1,2 +1,5 @@
 tornado==3.2.0
 colander==1.0b1
+psutil==2.1.1
+pexpect==3.3
+python-daemon==1.5.5

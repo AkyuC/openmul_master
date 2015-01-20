@@ -28,7 +28,10 @@ static void of_send_flow_del(c_switch_t *sw, c_fl_entry_t *ent,
                              uint16_t oport, bool strict, uint32_t group);
 static void of_send_flow_del_strict(c_switch_t *sw, c_fl_entry_t *ent,
                                     uint16_t oport, uint32_t group);
-static void c_switch_flow_table_enable(c_switch_t *sw, uint8_t table_id);
+static void c_switch_flow_table_enable(c_switch_t *sw, uint8_t table_id, bool miss);
+static void c_switch_flow_table_enable_miss(c_switch_t *sw, uint8_t table_id,
+                                            bool lock, bool chain);
+static void c_send_flow_add_sync(c_switch_t *sw, c_fl_entry_t *ent);
 static c_fl_entry_t *__c_flow_get_exm(c_switch_t *sw, struct flow *fl);
 static void c_flow_rule_free(void *arg, void *u_arg);
 static void port_config_to_ofxlate(uint32_t *of_port_config, uint32_t config);
@@ -38,6 +41,7 @@ static void c_switch_meter_ent_free(void *arg);
 static uint32_t c_fl_cookie_hash(const void *key);
 static int c_fl_cookie_match(const void *v1, const void *v2);
 static int c_switch_bulk_flow_scan(c_switch_t *sw, bool force);
+static void __c_switch_bulk_flow_scan(c_switch_t *sw);
 
 struct c_ofp_rx_handler of_boot_handlers[];
 struct c_ofp_rx_handler of_init_handlers[];
@@ -105,7 +109,7 @@ static struct c_ofp_ctors of131_ctors = {
     .group_validate = of131_group_validate_parms,
     .validate_acts = of131_validate_actions,
     .normalize_flow = of131_flow_normalize,
-    .group_validate_feat = of131_group_validate_feat,
+    .group_validate_feat = NULL, /* FIXME : of131_group_validate_feat */
     .meter_validate_feat = of131_meter_validate_feat,
     .group_add = of131_prep_group_add_msg,
     .group_del = of131_prep_group_del_msg,
@@ -148,23 +152,24 @@ static struct c_ofp_ctors of131_ctors = {
     .meter_drop = of131_make_meter_band_drop,
     .meter_mark_dscp = of131_make_meter_band_mark_dscp, 
     .dump_flow = of_dump_flow_generic,
-    .dump_acts = of131_dump_actions,    
+    .dump_acts = of131_dump_actions,
     .dump_of_msg = of131_dump_msg, 
     .multi_table_support = of131_supports_multi_tables,
     .flow_stats_support = of131_switch_supports_flow_stats,
     .group_stats_support = of131_switch_supports_group_stats,
-    .table_stats_support = of131_switch_supports_table_stats
+    .table_stats_support = of131_switch_supports_table_stats,
+    .act_modify_uflow = of131_modify_uflow
 };
 
 static struct c_ofp_ctors of140_ctors = {
     .hello = of140_prep_hello_msg, 
     .echo_req = of140_prep_echo_msg,
     .echo_rsp = of140_prep_echo_reply_msg,
-    .set_config = of131_prep_set_config_msg,
-    .role_request = of131_prep_role_request_msg,
+    .set_config = of140_prep_set_config_msg,
+    .role_request = of140_prep_role_request_msg,
     .features = of140_prep_features_request_msg,
-    .pkt_out = of131_prep_pkt_out_msg,
-    .pkt_out_fast = of131_send_pkt_out_inline,
+    .pkt_out = of140_prep_pkt_out_msg,
+    .pkt_out_fast = of140_send_pkt_out_inline,
     .flow_add = of140_prep_flow_add_msg,
     .flow_del = of140_prep_flow_del_msg,
     .flow_stat_req = of140_prep_flow_stat_msg,
@@ -172,7 +177,7 @@ static struct c_ofp_ctors of140_ctors = {
     .meter_stat_req = of140_prep_meter_stat_req,
     .meter_stat_cfg_req = of140_prep_meter_config_req,
     .port_stat_req = of140_prep_port_stat_req,
-    .port_q_get_conf = of131_prep_q_get_config,
+    .port_q_get_conf = of140_prep_q_get_config,
     .port_q_stat_req = of140_prep_queue_stat_msg,
     .group_validate = of131_group_validate_parms,
     .validate_acts = of131_validate_actions,
@@ -185,7 +190,7 @@ static struct c_ofp_ctors of140_ctors = {
     .meter_del = of140_prep_meter_del_msg,
     .port_mod = of140_prep_port_mod_msg,
     .prep_mpart_msg = of140_prep_mpart_msg,
-    .prep_barrier_req = of131_prep_barrier_req,
+    .prep_barrier_req = of140_prep_barrier_req,
     .async_config = of131_prep_async_config,
     .inst_goto = of131_make_inst_goto,
     .inst_meter = of131_make_inst_meter,
@@ -225,35 +230,21 @@ static struct c_ofp_ctors of140_ctors = {
     .multi_table_support = of131_supports_multi_tables,
     .flow_stats_support = of131_switch_supports_flow_stats,
     .group_stats_support = of131_switch_supports_group_stats,
-    .table_stats_support = of131_switch_supports_table_stats
+    .table_stats_support = of131_switch_supports_table_stats,
+    .act_modify_uflow = of131_modify_uflow
 };
 
 static struct c_ofp_ctors of_unk_ctors = {
-     .hello = of140_prep_hello_msg, 
+    .hello = of140_prep_hello_msg, 
     .echo_req = of140_prep_echo_msg,
     .echo_rsp = of140_prep_echo_reply_msg,
 };
 
-static void
-c_ha_get_of_state(uint32_t *role, uint64_t *gen_id)
-{
-    switch(ctrl_hdl.ha_state) {
-    case C_HA_STATE_NONE:
-    case C_HA_STATE_CONNECTED:
-    case C_HA_STATE_NOHA:
-    case C_HA_STATE_CONFLICT:
-        *role = OFPCR_ROLE_EQUAL;
-        break;
-    case C_HA_STATE_MASTER:
-        *role = OFPCR_ROLE_MASTER;
-        break;
-    case C_HA_STATE_SLAVE:
-        *role = OFPCR_ROLE_SLAVE;
-        break;
-    }
-
-    *gen_id = ctrl_hdl.gen_id;
-}
+static struct c_ofp_ctors of131_unk_ctors = {
+    .hello = of131_prep_hello_msg, 
+    .echo_req = of131_prep_echo_msg,
+    .echo_rsp = of131_prep_echo_reply_msg,
+};
 
 void
 c_per_sw_topo_change_notify(void *k, void *v UNUSED, void *arg)
@@ -339,8 +330,13 @@ of_exm_flow_mod_validate_parms(c_switch_t *sw,
 static inline void
 c_switch_tx(c_switch_t *sw, struct cbuf *b, bool only_q)
 {
+    if (c_switch_is_virtual(sw)) {
+        free_cbuf(b);
+        return;
+    } 
+
     if (sw->tx_dump_en && sw->ofp_ctors->dump_of_msg) {
-        sw->ofp_ctors->dump_of_msg(b, true, sw->DPID);
+        sw->ofp_ctors->dump_of_msg(b, true, sw->dump_mask, sw->DPID);
     }
 
     c_thread_tx(&sw->conn, b, only_q);
@@ -349,6 +345,14 @@ c_switch_tx(c_switch_t *sw, struct cbuf *b, bool only_q)
 static inline void
 c_switch_chain_tx(c_switch_t *sw, struct cbuf **b, size_t nbufs)
 {
+    int n = 0;
+    if (c_switch_is_virtual(sw)) {
+        for (n = 0; n < nbufs; n++) {
+            free_cbuf(b[n]);
+        }
+        return;
+    } 
+
     c_thread_chain_tx(&sw->conn, b, nbufs);
 }
 
@@ -366,6 +370,21 @@ c_sw_exp_ent_free(void *ent_arg)
     }
     free(ent_arg);
     return;
+}
+
+static void
+c_sw_trigger_expiry(c_switch_t *sw)
+{
+    struct c_sw_expired_ent *ent;
+    GSList *iterator;
+
+    for (iterator = sw->exp_list; iterator; iterator = iterator->next) {
+        ent = iterator->data;
+        __mul_app_command_handler(ent->app, ent->b);
+    }
+
+    g_slist_free_full(sw->exp_list, c_sw_exp_ent_free);
+    sw->exp_list = NULL;
 }
 
 static void
@@ -457,7 +476,7 @@ of_switch_table_valid(c_switch_t *sw, uint8_t table)
  *
  */
 static int
-of_switch_get_next_valid_table(c_switch_t *sw, uint8_t table)
+of_switch_get_next_valid_table(c_switch_t *sw, uint8_t table, bool lock)
 {
     c_flow_tbl_t *tbl;
     int i = 0;
@@ -466,19 +485,71 @@ of_switch_get_next_valid_table(c_switch_t *sw, uint8_t table)
         !sw->ofp_ctors->multi_table_support)
         return -1;
 
-    c_rd_lock(&sw->lock);
+    if (lock) c_rd_lock(&sw->lock);
     for (i = table+1; i < C_MAX_RULE_FLOW_TBLS; i++) {
         tbl = &sw->rule_flow_tbls[i];
         if (tbl->hw_tbl_active) {
-            c_rd_unlock(&sw->lock);
+            if (lock) c_rd_unlock(&sw->lock);
             return i;
         }
     }
-    c_rd_unlock(&sw->lock);
+    if (lock) c_rd_unlock(&sw->lock);
 
     return -1;
 }
 
+/* 
+ * of_switch_get_v2p_tbl - 
+ */
+uint8_t 
+of_switch_get_v2p_tbl(void *sw_arg, uint8_t vtable)
+{
+    uint8_t tbl = 0;
+    c_switch_t *sw = sw_arg;
+
+    if (!sw ||
+        !sw->ofp_ctors ||
+        !sw->ofp_ctors->multi_table_support)
+        return tbl;
+
+    c_rd_lock(&sw->lock);
+    tbl = sw->xphys_map_tbl[vtable];
+    c_rd_unlock(&sw->lock);
+
+    return tbl;
+}
+
+/* 
+ * of_switch_mk_xphys_mapping - 
+ */
+static void 
+of_switch_mk_xphys_mapping(c_switch_t *sw)
+{
+    c_flow_tbl_t *tbl;
+    int i = 0, j = 0;
+
+    if (!sw->ofp_ctors ||
+        !sw->ofp_ctors->multi_table_support)
+        return;
+
+    c_wr_lock(&sw->lock);
+    for (i = 0; i < C_MAX_RULE_FLOW_TBLS; i++) {
+        tbl = &sw->rule_flow_tbls[i];
+        if (tbl->hw_tbl_active) {
+            tbl->v_tbl = j;
+            sw->xphys_map_tbl[j] = i;
+            /* Enable miss entries */
+            c_switch_flow_table_enable_miss(sw, i, false,
+                                            (j == 0 || j == 1) ?
+                                            true: false);
+            j++;
+        }
+    }
+
+    c_wr_unlock(&sw->lock);
+
+    return;
+}
 
 void
 c_sw_port_hton(struct c_sw_port *dst, struct c_sw_port *src)
@@ -636,7 +707,13 @@ c_switch_alloc(void *ctx)
     cbuf_list_head_init(&new_switch->conn.tx_q);
     new_switch->ofp_rx_handler_sz = OFPT_BARRIER_REPLY;
     new_switch->ofp_rx_handlers = of_boot_handlers;
-    new_switch->ofp_ctors = &of_unk_ctors;
+    if (ctrl_hdl.h_of_ver == OFP_VERSION_140) {
+        new_switch->ofp_ctors = &of_unk_ctors;
+    } else if (ctrl_hdl.h_of_ver == OFP_VERSION_131) {
+        new_switch->ofp_ctors = &of131_unk_ctors;
+    } else {
+        new_switch->ofp_ctors = &of_unk_ctors; /* Default */
+    }
     new_switch->rx_lim_on = false;
     c_rlim_dat_init(&new_switch->rx_rlim, 1000, C_PER_SW_DFL_PPS);
     c_rlim_dat_init(&new_switch->tx_rlim, 1000, C_PER_SW_DFL_PPS);
@@ -661,6 +738,10 @@ c_switch_alloc(void *ctx)
         new_switch->rx_dump_en = true;
         new_switch->tx_dump_en = true;
     }
+    memset(new_switch->dump_mask, 0xff, sizeof(new_switch->dump_mask));
+
+    if (ctrl_hdl.no_strict_of)
+        new_switch->debug_flag = true;
 
     return new_switch;
 }
@@ -761,46 +842,113 @@ __c_switch_update_probe_state(c_switch_t *sw, uint64_t next_state)
      sw->switch_state |= next_state; 
 }
 
-void
-c_switch_try_publish(c_switch_t *sw, bool need_ha_sync_req UNUSED)
+static void
+c_switch_update_probe_state(c_switch_t *sw, time_t ctime, uint64_t state)
 {
-    struct flow  flow;
-    struct flow  mask;
-    time_t ctime = time(NULL);
-
-    memset(&flow, 0, sizeof(flow));
-    of_mask_set_dc_all(&mask);
-
-    if (sw->switch_state & SW_PUBLISHED)
+    uint64_t next_state = 0; 
+    switch(state) {
+    case SW_METER_PROBED:
+        next_state = SW_METER_PROBE_DONE;
+        break;
+    case SW_GROUP_PROBED:
+        next_state = SW_GROUP_PROBE_DONE;
+        break;
+    case SW_FLOW_PROBED:
+        next_state = SW_FLOW_PROBE_DONE;
+        break;
+    default:
+        c_log_err("|SWITCH| %s: Unknown probe state", FN);
         return;
+    }
+
+    sw->switch_state |= state;
+    if (sw->start_probe) {
+        if (ctime - sw->start_probe >
+            C_SWITCH_PROBE_PASS_TIMEO) {
+            __c_switch_update_probe_state(sw, next_state);
+            c_log_debug("|SWITCH| State => 0x%llx", U642ULL(next_state));
+        } 
+    } else
+       sw->start_probe = ctime;
+}
+
+void
+c_switch_try_publish(c_switch_t *sw, bool need_ha_sync_req)
+{
+    time_t ctime = time(NULL);
 
     /* SW_OFP_TBL/GRP/MET_FEAT -
          is not checked to allow OVS to work for Of1.3+ */
     if (sw->switch_state & SW_REGISTERED) {
         if ((sw->switch_state &
              SW_OFP_PORT_FEAT) == SW_OFP_PORT_FEAT) {
-             __c_switch_update_probe_state(sw,
+            if (!(sw->switch_state & SW_OFP_TBL_FEAT)) {
+                /* OVS1.3+ does not support Table features so we enable our
+                 * minimal required tables 
+                 */
+                if (sw->n_tables >= C_OPT_NO_TABLES) {
+                    c_switch_flow_table_enable(sw, 2, false);
+                    c_switch_flow_table_enable(sw, 1, false);
+                    c_switch_flow_table_enable(sw, 0, false);
+                }
+                sw->switch_state |= SW_OFP_TBL_FEAT;
+            }
+            if (!(sw->switch_state & SW_VTBL_MAP_DONE)) {
+                of_switch_mk_xphys_mapping(sw);
+                sw->switch_state |= SW_VTBL_MAP_DONE;
+            }
+            if (!c_switch_of_master_check(&ctrl_hdl)) {
+                __c_switch_update_probe_state(sw,
                                     SW_FLOW_PROBED | SW_FLOW_PROBE_DONE |
                                     SW_METER_PROBED | SW_METER_PROBE_DONE |
                                     SW_GROUP_PROBED | SW_GROUP_PROBE_DONE);
-            if (!(sw->switch_state & SW_PUBLISHED)) {
-                if (!(sw->switch_state & SW_OFP_TBL_FEAT)) {
-                    /* OVS1.3+ does not support Table features so we enable our
-                     * minimal required tables 
-                     */
-                    if (sw->n_tables >= C_OPT_NO_TABLES) {
-                        c_switch_flow_table_enable(sw, 2);
-                        c_switch_flow_table_enable(sw, 1);
-                        c_switch_flow_table_enable(sw, 0);
-                    }
-                    sw->switch_state |= SW_OFP_TBL_FEAT;
+            }
+            if (!(sw->switch_state & SW_METER_PROBE_DONE)) {
+                c_switch_update_probe_state(sw, ctime, SW_METER_PROBED);
+                if (__c_switch_needs_probe(sw, SW_METER_PROBED)) {
+                    c_log_debug("|SWITCH| |0x%llx| meter probe start",
+                                U642ULL(sw->DPID));
+                    __of_send_meter_config_stat_req(sw, OFPM_ALL);
+                    sw->last_probed = ctime;
                 }
- 
-                c_log_debug("|SWITCH| Publishing 0x%llx", U642ULL(sw->DPID));
-                c_signal_app_event(sw, sw->sav_b, C_DP_REG, NULL, NULL, false);
-                if (sw->sav_b) free (sw->sav_b);
-                sw->sav_b = NULL;
-                sw->switch_state |= SW_PUBLISHED;
+            } else if (!(sw->switch_state & SW_GROUP_PROBE_DONE)) {
+                c_switch_update_probe_state(sw, ctime, SW_GROUP_PROBED);
+                if (__c_switch_needs_probe(sw, SW_GROUP_PROBED)) {
+                    c_log_debug("|SWITCH| |0x%llx| group probe start",
+                                U642ULL(sw->DPID));
+                    __of_send_mpart_msg(sw, OFPMP_GROUP_DESC, 0, 0);
+                    sw->last_probed = ctime;
+                }
+            } else if (!(sw->switch_state & SW_FLOW_PROBE_DONE)) {
+                c_switch_update_probe_state(sw, ctime, SW_FLOW_PROBED);
+                if (__c_switch_needs_probe(sw, SW_FLOW_PROBED)) {
+                    c_log_debug("|SWITCH| |0x%llx| flow probe start",
+                                U642ULL(sw->DPID));
+                    if ((sw->switch_state & SW_OFP_TBL_FEAT) == SW_OFP_TBL_FEAT)
+                       sw->n_tbl_probed = c_switch_bulk_flow_scan(sw, true);
+                    else { /* This is only till OVS does not support table feat */
+                       sw->n_tbl_probed = sw->n_tables;
+                       __c_switch_bulk_flow_scan(sw);
+                    }
+                    c_log_debug("|SWITCH| |0x%llx| Scanning %d tables",
+                                U642ULL(sw->DPID), sw->n_tbl_probed);
+                    sw->last_probed = ctime;
+                }
+            } else if (!(sw->switch_state & SW_PUBLISHED)) {
+                    c_log_debug("|SWITCH| Publishing 0x%llx", U642ULL(sw->DPID));
+                    c_signal_app_event(sw, sw->sav_b, C_DP_REG, NULL, NULL, false);
+                    if (sw->sav_b) free (sw->sav_b);
+                    sw->sav_b = NULL;
+                    sw->switch_state |= SW_PUBLISHED;
+            }
+
+            if (need_ha_sync_req &&
+                !(sw->switch_state & SW_HA_SYNCD_REQ) &&
+                c_switch_needs_state_sync(&ctrl_hdl)) {
+                c_log_info("|HA| Need sync for |0x%llx|", U642ULL(sw->DPID));
+                c_ha_req_switch_state(sw->DPID);
+                sw->switch_state |= SW_HA_SYNCD_REQ;
+                sw->last_sync_req = time(NULL);
             }
         } else {
             if (sw->last_feat_probed &&
@@ -1476,38 +1624,6 @@ c_flow_rule_iter(void *k, void *args)
     fn(u_parms->u_arg, ent); 
 }
 
-
-static bool
-c_match_flow_ip_addr_generic(struct flow *fl1, struct flow *fl2,
-                             struct flow *mask)
-{
-    /* Assumes fl1 and fl2's mask are equal */
-    if (!mask->dl_type)  return true;
-
-    if (fl1->dl_type != fl2->dl_type) return false;
-
-    if (fl1->dl_type == htons(ETH_TYPE_IPV6)) {
-        if (ipv6_addr_mask_equal(&fl1->ipv6.nw_src,
-                                 &mask->ipv6.nw_src,
-                                &fl1->ipv6.nw_src) &&
-           ipv6_addr_mask_equal(&fl1->ipv6.nw_dst,
-                                &mask->ipv6.nw_dst,
-                                &fl1->ipv6.nw_dst)) {
-            return true;
-        }
-        return false;                        
-    } else if (fl1->dl_type == htons(ETH_TYPE_IP) ||
-               fl1->dl_type == htons(ETH_TYPE_ARP)) {
-        if ((fl1->ip.nw_dst & mask->ip.nw_dst) == fl2->ip.nw_dst &&
-            (fl1->ip.nw_src & mask->ip.nw_src) == fl2->ip.nw_src) {
-            return true;
-        }
-        return false;
-    }
-
-    return true;
-}
-
 static c_fl_entry_t * 
 __c_flow_lookup_rule_strict_prio_hint_detail(c_switch_t *sw UNUSED, 
                                              GSList **list,
@@ -1517,8 +1633,6 @@ __c_flow_lookup_rule_strict_prio_hint_detail(c_switch_t *sw UNUSED,
 {
     GSList *iterator = NULL, *hint = NULL;
     c_fl_entry_t *ent;
-    struct flow *ent_fl;
-    uint8_t zero_mac[] = { 0, 0, 0, 0, 0, 0};
 
     for (iterator = *list; iterator; iterator = iterator->next) {
         ent = iterator->data;
@@ -1527,31 +1641,9 @@ __c_flow_lookup_rule_strict_prio_hint_detail(c_switch_t *sw UNUSED,
             hint = iterator;
         }
 
-        if (memcmp(&ent->fl_mask, mask, sizeof(*mask)-sizeof(mask->pad))) {
-            continue;
-        }
-
-        ent_fl = &ent->fl;
-
-        if (c_match_flow_ip_addr_generic(fl, ent_fl, mask) &&
-            (!mask->nw_proto || fl->nw_proto == ent_fl->nw_proto) &&
-            (!mask->nw_tos || fl->nw_tos == ent_fl->nw_tos) &&
-            (!mask->tp_dst || fl->tp_dst == ent_fl->tp_dst) &&
-            (!mask->tp_src || fl->tp_src == ent_fl->tp_src) &&
-            (!memcmp(mask->dl_src, zero_mac, 6) || 
-             !memcmp(fl->dl_src, ent_fl->dl_src, 6)) &&
-            (!memcmp(mask->dl_dst, zero_mac, 6) || 
-             !memcmp(fl->dl_dst, ent_fl->dl_dst, 6)) &&
-            (!mask->dl_type || fl->dl_type == ent_fl->dl_type) &&
-            (!mask->dl_vlan || fl->dl_vlan == ent_fl->dl_vlan) &&
-            (!mask->dl_vlan_pcp || fl->dl_vlan_pcp == ent_fl->dl_vlan_pcp) &&
-            (!mask->mpls_label || fl->mpls_label == ent_fl->mpls_label) &&
-            (!mask->mpls_tc || fl->mpls_tc == ent_fl->mpls_tc) &&
-            (!mask->mpls_bos || fl->mpls_bos == ent_fl->mpls_bos) &&
-            (!mask->in_port || fl->in_port == ent_fl->in_port) && 
-            (!mask->metadata || fl->metadata == ent_fl->metadata) && 
-            (!mask->tunnel_id || fl->tunnel_id == ent_fl->tunnel_id) && 
-            ent->FL_PRIO == prio)  {
+        if (of_match_flows_prio(fl, mask,
+                                &ent->fl, &ent->fl_mask,
+                                prio, ent->FL_PRIO)) {
             *list = hint;
             return ent;
         }
@@ -1561,32 +1653,6 @@ __c_flow_lookup_rule_strict_prio_hint_detail(c_switch_t *sw UNUSED,
     return NULL;
 }
 
-#if 0
-static c_fl_entry_t *
-__c_flow_lookup_rule_strict_prio_hint(GSList **list, struct flow *fl, uint32_t wildcards,
-                                       uint16_t prio)
-{
-    GSList *iterator = NULL, *hint = NULL;
-    c_fl_entry_t *ent;
-
-    for (iterator = *list; iterator; iterator = iterator->next) {
-        ent = iterator->data;
-        if ((hint && ((c_fl_entry_t *)(hint->data))->FL_PRIO > ent->FL_PRIO) || 
-            (prio >= ent->FL_PRIO)) {
-            hint = iterator;
-        } 
-        if (!memcmp(&ent->fl, fl, sizeof(*fl)) 
-            && ent->FL_WILDCARDS == wildcards &&
-            ent->FL_PRIO == prio) {
-            *list = hint;
-            return ent;
-        }
-    }
-
-    *list = hint;
-    return NULL;
-}
-#else
 static c_fl_entry_t *
 __c_flow_lookup_rule_strict_prio_hint(GSList **list, struct flow *fl,
                                       struct flow *fl_mask, uint16_t prio)
@@ -1596,8 +1662,7 @@ __c_flow_lookup_rule_strict_prio_hint(GSList **list, struct flow *fl,
 
     for (iterator = *list; iterator; iterator = iterator->next) {
         ent = iterator->data;
-        if ((hint && ((c_fl_entry_t *)(hint->data))->FL_PRIO > ent->FL_PRIO) || 
-            (prio >= ent->FL_PRIO)) {
+        if (!hint && prio >= ent->FL_PRIO) {
             hint = iterator;
         } 
         if (!memcmp(&ent->fl, fl, sizeof(*fl))  &&
@@ -1612,7 +1677,7 @@ __c_flow_lookup_rule_strict_prio_hint(GSList **list, struct flow *fl,
     *list = hint;
     return NULL;
 }
-#endif
+
 
 struct cbuf *
 c_of_prep_table_feature_msg(c_switch_t *sw, uint8_t table_id)
@@ -1652,12 +1717,12 @@ c_of_prep_table_feature_msg(c_switch_t *sw, uint8_t table_id)
 }
 
 static c_fl_entry_t *
-__c_flow_lookup_rule(c_switch_t *sw UNUSED, struct flow *fl, c_flow_tbl_t *tbl)
+__c_flow_lookup_rule(c_switch_t *sw UNUSED, struct flow *fl, c_flow_tbl_t *tbl,
+                     bool match_residual)
 {
     GSList *list, *iterator = NULL;
     c_fl_entry_t  *ent;
     struct flow   *ent_fl, *mask;
-    uint8_t       zero_mac[] = { 0, 0, 0, 0, 0, 0};  
 
     list = tbl->rule_fl_tbl;
 
@@ -1667,24 +1732,10 @@ __c_flow_lookup_rule(c_switch_t *sw UNUSED, struct flow *fl, c_flow_tbl_t *tbl)
         ent_fl = &ent->fl;
         mask = &ent->fl_mask;
 
-        if (ent->FL_FLAGS & C_FL_ENT_RESIDUAL) continue;
+        if ((!match_residual && ent->FL_FLAGS & C_FL_ENT_RESIDUAL) ||
+            (match_residual && ent->FL_FLAGS & C_FL_ENT_LOCAL)) continue;
 
-        if (c_match_flow_ip_addr_generic(fl, ent_fl, mask)  &&
-            (!mask->nw_proto || fl->nw_proto == ent_fl->nw_proto) &&
-            (!mask->nw_tos || fl->nw_tos == ent_fl->nw_tos) &&
-            (!mask->tp_dst || fl->tp_dst == ent_fl->tp_dst) &&
-            (!mask->tp_src || fl->tp_src == ent_fl->tp_src) &&
-            (!memcmp(mask->dl_src, zero_mac, 6) || 
-             !memcmp(fl->dl_src, ent_fl->dl_src, 6)) &&
-            (!memcmp(mask->dl_dst, zero_mac, 6) 
-             || !memcmp(fl->dl_dst, ent_fl->dl_dst, 6)) &&
-            (!mask->dl_type || fl->dl_type == ent_fl->dl_type) && 
-            (!mask->dl_vlan || fl->dl_vlan == ent_fl->dl_vlan) &&
-            (!mask->dl_vlan_pcp || fl->dl_vlan_pcp == ent_fl->dl_vlan_pcp) &&
-            (!mask->in_port || fl->in_port == ent_fl->in_port) &&
-            (!mask->mpls_label || fl->mpls_label == ent_fl->mpls_label) &&
-            (!mask->mpls_tc || fl->mpls_tc == ent_fl->mpls_tc) && 
-            (!mask->mpls_bos || fl->mpls_bos == ent_fl->mpls_bos))  {
+        if (__of_match_flows(fl, mask, ent_fl)) {
             return ent;
         }
     }
@@ -1853,6 +1904,8 @@ c_flow_rule_mod(c_switch_t *sw, c_fl_entry_t *ent,
         ent->FL_FLAGS = fl_parms->flags;
     } 
 
+    ent->FL_FLAGS &= ~C_FL_NO_ACK;
+
     c_wr_unlock(&ent->FL_LOCK);
     return 0;
 
@@ -1912,6 +1965,12 @@ c_flow_rule_add(c_switch_t *sw, struct of_flow_mod_params *fl_parms)
     if ((ent = __c_flow_lookup_rule_strict_prio_hint(&list, fl_parms->flow, 
                                                      fl_parms->mask, 
                                                      fl_parms->prio))) {
+        if (fl_parms->flags & C_FL_ENT_LOCAL &&
+            ent->FL_FLAGS & C_FL_ENT_RESIDUAL) {
+            ret = -EPERM;
+            err_str = "Local Collision";
+            goto out_err_free;
+        }
         if ((fl_parms->flags & C_FL_ENT_LOCAL) && 
             (ent->FL_FLAGS & C_FL_ENT_LOCAL)) {
            ret = c_flow_add_app_owner(ent, fl_parms->app_owner);
@@ -1966,13 +2025,25 @@ c_flow_rule_add(c_switch_t *sw, struct of_flow_mod_params *fl_parms)
 
     c_flow_add_app_owner(new_ent, fl_parms->app_owner);
 
-    tbl->rule_fl_tbl = g_slist_insert_before(tbl->rule_fl_tbl, list, new_ent);
+    if (list)
+        tbl->rule_fl_tbl = g_slist_insert_before(tbl->rule_fl_tbl, list, new_ent);
+    else
+        tbl->rule_fl_tbl = g_slist_append(tbl->rule_fl_tbl, new_ent);
+        
     tbl->sw_active_entries++;
-    sw->fl_idx_cookie++;
-    new_ent->FL_COOKIE = fl_parms->cookie ? : sw->fl_idx_cookie;
-    new_ent->FL_INSTALLED = true;
-    if (new_ent->FL_FLAGS & C_FL_ENT_RESIDUAL)
+    if (!fl_parms->seq_cookie) {
+        sw->fl_idx_cookie++;
+        new_ent->FL_COOKIE = (uint64_t)sw->fl_idx_cookie | (uint64_t)fl_parms->cookie << 32;
+    } else {
+        new_ent->FL_COOKIE = (uint64_t)fl_parms->seq_cookie | (uint64_t)fl_parms->cookie << 32;
+    }
+
+    if (new_ent->FL_FLAGS & C_FL_ENT_RESIDUAL ||
+        new_ent->FL_FLAGS & C_FL_NO_ACK)
         new_ent->FL_INSTALLED = true;
+
+    new_ent->FL_FLAGS &= ~C_FL_NO_ACK;
+
     g_hash_table_insert(sw->fl_cookies, new_ent, new_ent);
     c_wr_unlock(&sw->lock);
 
@@ -2173,6 +2244,12 @@ c_switch_flow_del(c_switch_t *sw, struct of_flow_mod_params *fl_parms)
 #endif
 }
 
+void
+c_switch_flow_ha_sync(void *arg UNUSED, c_fl_entry_t *ent)
+{
+    c_send_flow_add_sync(ent->sw, ent);
+}
+
 static void
 c_per_flow_resync_hw(void *arg UNUSED, c_fl_entry_t *ent)
 {
@@ -2361,7 +2438,7 @@ c_of_fl_group_check_add(void *sw_arg, uint32_t group_id, void *arg)
 
     c_rd_lock(&sw->lock);
     if (!(grp = g_hash_table_lookup(sw->groups, &group_id))) {
-        c_log_err("[GROUP] No |%u| on switch |0x%llx| exists",
+        c_log_err("[GROUP] No|%u| on switch |0x%llx| exists",
                   group_id, sw->DPID);
         c_rd_unlock(&sw->lock);
         return false;
@@ -2516,6 +2593,37 @@ c_of_prep_group_mod_msg(c_switch_group_t *grp, bool add)
     return b;
 }
 
+/*
+ * c_send_group_add_sync - 
+ *
+ * Sends a group entry add to HA peer
+ */
+static void
+c_send_group_add_sync(c_switch_t *sw UNUSED, c_switch_group_t *grp)
+{
+    struct cbuf *b;
+
+    /* 
+     * Have a similar check in of_ha_proc but do not 
+     * unnecessary malloc in non-ha scenario
+     */
+    if (0/*!c_ha_master(sw->c_hdl)*/ ||
+        !(grp->flags & C_GRP_STATIC)) {
+        return;
+    }  
+
+    b = c_of_prep_group_mod_msg(grp, true);
+    __c_ha_proc(b, true, true);
+
+    /* FIXME : Fetch response */
+} 
+
+void
+c_switch_group_ha_sync(void *arg, c_switch_group_t *grp)
+{
+    c_send_group_add_sync((c_switch_t *)(arg), grp);
+}
+
 static void
 c_per_group_iter(void *k UNUSED, void *v, void *args)
 {
@@ -2649,7 +2757,6 @@ c_switch_group_init(c_switch_t *sw, struct of_group_mod_params *gp_parms)
     c_app_ref(new->app_owner);
     new->sw = sw;
     new->last_seen = time(NULL);
-    new->installed = true;
 
     return new;
 }
@@ -2707,10 +2814,12 @@ c_switch_group_add(c_switch_t *sw, struct of_group_mod_params *gp_parms)
     c_wr_lock(&sw->lock);
     if ((group = g_hash_table_lookup(sw->groups, &gp_parms->group))) {
         if (__c_switch_group_modify(sw, group, gp_parms, &install)) {
-            c_log_err("[GROUP] |%u| on switch |0x%llx| exists",
-                      gp_parms->group, sw->DPID); 
+            group->flags &= ~C_GRP_STALE;
+            if (!c_rlim(&crl))
+                c_log_err("[GROUP] |%u| on switch |0x%llx| exists",
+                          gp_parms->group, sw->DPID); 
             c_wr_unlock(&sw->lock);
-            return -1;
+            return -EEXIST;
         } 
         c_wr_unlock(&sw->lock);
         modify = true;
@@ -2725,13 +2834,14 @@ c_switch_group_add(c_switch_t *sw, struct of_group_mod_params *gp_parms)
     c_wr_unlock(&sw->lock);
 
 hw_install:
-    b = sw->ofp_ctors->group_add(gp_parms->group,
-                                 gp_parms->type,
-                                 gp_parms->act_vectors,
-                                 gp_parms->act_vec_len, modify);
-    c_switch_tx(sw, b, false);
-    if (gp_parms->flags & C_GRP_BARRIER_EN)
-        __of_send_barrier_request(sw);
+    if (c_switch_of_master_check(&ctrl_hdl) && install) {
+        b = sw->ofp_ctors->group_add(gp_parms->group, gp_parms->type,
+                                     gp_parms->act_vectors,
+                                     gp_parms->act_vec_len, modify);
+        c_switch_tx(sw, b, false);
+        if (gp_parms->flags & C_GRP_BARRIER_EN)
+            __of_send_barrier_request(sw);
+    }
 
     return 0;
 }
@@ -2772,9 +2882,11 @@ c_switch_group_del(c_switch_t *sw, struct of_group_mod_params *gp_parms)
     if (group->app_owner == gp_parms->app_owner) {
         g_hash_table_remove(sw->groups, &gp_parms->group);
 
-        if (sw->ofp_ctors && sw->ofp_ctors->group_del) {
-            b = sw->ofp_ctors->group_del(gp_parms->group);
-            c_switch_tx(sw, b, false);
+        if (c_switch_of_master_check(&ctrl_hdl)) {
+            if (sw->ofp_ctors && sw->ofp_ctors->group_del) {
+                b = sw->ofp_ctors->group_del(gp_parms->group);
+                c_switch_tx(sw, b, false);
+            }
         }
     }
 
@@ -2951,6 +3063,37 @@ c_of_prep_meter_mod_msg_with_parms(c_switch_t *sw,
     return b;
 }
 
+/*
+ * c_send_meter_add_sync - 
+ *
+ * Sends a meter entry add to HA peer
+ */
+static void
+c_send_meter_add_sync(c_switch_t *sw UNUSED, c_switch_meter_t *meter)
+{
+    struct cbuf *b;
+
+    /* 
+     * Have a similar check in of_ha_proc but do not 
+     * unnecessary malloc in non-ha scenario
+     */
+    if (0 /*!c_ha_master(sw->c_hdl)*/ ||
+        !(meter->cflags & C_METER_STATIC)) {
+        return;
+    }  
+
+    b = c_of_prep_meter_mod_msg(meter, true);
+    c_ha_proc(b);
+
+    /* FIXME : Fetch response */
+} 
+
+void
+c_switch_meter_ha_sync(void *arg, c_switch_meter_t *meter)
+{
+    c_send_meter_add_sync((c_switch_t *)(arg), meter);
+}
+
 static void
 c_per_meter_iter(void *k UNUSED, void *v, void *args)
 {
@@ -3076,8 +3219,8 @@ c_switch_meter_init(c_switch_t *sw, struct of_meter_mod_params *m_parms)
     new->meter_nbands = m_parms->meter_nbands;
     c_app_ref(new->app_owner);
     new->sw = sw;
+
     new->last_seen = time(NULL);
-    new->installed = true;
 
     return new;
 }
@@ -3129,10 +3272,12 @@ c_switch_meter_add(c_switch_t *sw, struct of_meter_mod_params *m_parms)
     c_wr_lock(&sw->lock);
     if ((meter = g_hash_table_lookup(sw->meters, &m_parms->meter))) {
         if (__c_switch_meter_modify(sw, meter, m_parms, &install)) {
-            c_log_err("[METER] add fail:switch 0x%llx:|%u| exists",
-                      sw->DPID, m_parms->meter);
+            meter->flags &= ~C_METER_STALE;
+            if (!c_rlim(&crl))
+                c_log_err("[METER] add fail:switch 0x%llx:|%u| exists",
+                          sw->DPID, m_parms->meter);
             c_wr_unlock(&sw->lock);
-            return -1;
+            return -EEXIST;
         }
         c_wr_unlock(&sw->lock);
         modify = true;
@@ -3147,13 +3292,15 @@ c_switch_meter_add(c_switch_t *sw, struct of_meter_mod_params *m_parms)
     c_wr_unlock(&sw->lock);
 
 hw_install:
-    b = sw->ofp_ctors->meter_add(m_parms->meter, m_parms->flags,
-                                 m_parms->meter_bands,
-                                 m_parms->meter_nbands, modify);
+    if (c_switch_of_master_check(&ctrl_hdl) && install) {
+        b = sw->ofp_ctors->meter_add(m_parms->meter, m_parms->flags,
+                                     m_parms->meter_bands,
+                                     m_parms->meter_nbands, modify);
 
-    c_switch_tx(sw, b, false);
-    if (m_parms->cflags & C_METER_BARRIER_EN)
-        __of_send_barrier_request(sw);
+        c_switch_tx(sw, b, false);
+        if (m_parms->cflags & C_METER_BARRIER_EN)
+            __of_send_barrier_request(sw);
+    }
 
     return 0;
 }
@@ -3186,9 +3333,11 @@ c_switch_meter_del(c_switch_t *sw, struct of_meter_mod_params *m_parms)
     if (meter->app_owner == m_parms->app_owner) {
         g_hash_table_remove(sw->meters, &m_parms->meter);
 
-        if (sw->ofp_ctors && sw->ofp_ctors->meter_del) {
-            b = sw->ofp_ctors->meter_del(m_parms->meter);
-            c_switch_tx(sw, b, false);
+        if (c_switch_of_master_check(&ctrl_hdl)) {
+            if (sw->ofp_ctors && sw->ofp_ctors->meter_del) {
+                b = sw->ofp_ctors->meter_del(m_parms->meter);
+                c_switch_tx(sw, b, false);
+            }
         }
     }
 
@@ -3214,9 +3363,11 @@ c_switch_port_mod(c_switch_t *sw, struct of_port_mod_params *pm_parms)
     
     pm_parms->type = ntohs(port->sw_port.type);
 
-    b = sw->ofp_ctors->port_mod(pm_parms->port_no, pm_parms,
-                                port->sw_port.hw_addr);
-    c_switch_tx(sw, b, false);
+    if (c_switch_of_master_check(&ctrl_hdl)) {
+        b = sw->ofp_ctors->port_mod(pm_parms->port_no, pm_parms,
+                                    port->sw_port.hw_addr);
+        c_switch_tx(sw, b, false);
+    }
 
     return 0;
 }
@@ -3267,9 +3418,23 @@ c_of_prep_switch_rlims(c_switch_t *sw, bool rx, bool get)
  * Sync up switch's rate-limit info 
  */
 void
-c_switch_rlim_sync(c_switch_t *sw UNUSED)
+c_switch_rlim_sync(c_switch_t *sw)
 {
-    /* TODO */
+    struct cbuf *b;
+
+    /*
+    if (!c_ha_master(sw->c_hdl)) {
+        return;
+    }  
+    */
+
+    b = c_of_prep_switch_rlims(sw, true, false);
+    __c_ha_proc(b, true, true);
+
+    b = c_of_prep_switch_rlims(sw, false, false);
+    __c_ha_proc(b, true, true);
+
+    /* FIXME : Fetch response */
 } 
 
 struct cbuf *
@@ -3306,10 +3471,71 @@ c_of_prep_switch_stats_strategy(c_switch_t *sw)
  * Sync up switch's stats strategy 
  */
 void
-c_switch_stats_strategy_sync(c_switch_t *sw UNUSED)
+c_switch_stats_strategy_sync(c_switch_t *sw)
 {
-    /* TODO */
+    struct cbuf *b;
+
+    /*
+    if (!c_ha_master(sw->c_hdl)) {
+        return;
+    }  
+    */
+
+    b = c_of_prep_switch_stats_strategy(sw);
+    __c_ha_proc(b, true, true);
+
+    /* FIXME : Fetch response */
 }
+
+static struct cbuf *
+c_of_prep_switch_stats_mode(c_switch_t *sw)
+{
+    struct cbuf *b;
+    struct c_ofp_auxapp_cmd *cofp_auc;
+    struct c_ofp_switch_stats_mode_config *cofp_smc;
+    uint32_t stats_mode = 0;
+
+    b = of_prep_msg(sizeof(*cofp_auc) + sizeof(*cofp_smc),
+                    C_OFPT_AUX_CMD, 0);
+
+    cofp_auc = CBUF_DATA(b);
+    cofp_auc->cmd_code = htonl(C_AUX_CMD_MUL_SWITCH_STATS_MODE_CONFIG); 
+    cofp_smc = ASSIGN_PTR(cofp_auc->data);
+    cofp_smc->datapath_id = htonll(sw->DPID);
+
+    c_rd_lock(&sw->lock);
+    
+    if( sw->switch_state & SW_PORT_STATS_ENABLE) {
+        stats_mode |= PORT_STATS_ENABLE;
+    }
+    
+    c_rd_unlock(&sw->lock);
+
+    cofp_smc->stats_mode =  htonl(stats_mode);
+
+    return b;
+}
+
+/*
+ * c_switch_stats_mode_sync- 
+ *
+ * Sync up switch's stats strategy 
+ */
+void
+c_switch_stats_mode_sync(c_switch_t *sw)
+{
+    struct cbuf *b;
+
+    /*
+    if (!c_ha_master(sw->c_hdl)) {
+        return;
+    }*/  
+
+    b = c_of_prep_switch_stats_mode(sw);
+    __c_ha_proc(b, true, true);
+
+    /* FIXME : Fetch response */
+} 
 
 struct cbuf *
 c_of_prep_switch_table_stats(c_switch_t *sw, uint8_t table_id)
@@ -3416,8 +3642,10 @@ of_send_set_config(c_switch_t *sw, uint16_t flags, uint16_t miss_len)
 {
     struct cbuf *b;
     
-    b = sw->ofp_ctors->set_config(flags, miss_len);
-    c_switch_tx(sw, b, false);
+    if (c_switch_of_master_check(&ctrl_hdl) && sw->ofp_ctors->set_config) {
+        b = sw->ofp_ctors->set_config(flags, miss_len);
+        c_switch_tx(sw, b, false);
+    }
 }
 
 void
@@ -3464,6 +3692,10 @@ of_send_pkt_out(c_switch_t *sw, struct of_pkt_out_params *parms)
 {
     struct cbuf *b;
 
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return;
+    }
+
     b = sw->ofp_ctors->pkt_out(parms);
     c_switch_tx(sw, b, true);
 } 
@@ -3479,6 +3711,10 @@ of_send_pkt_out_inline(void *arg, struct of_pkt_out_params *parms)
 
     if (sw->tx_lim_on && c_rlim(&sw->tx_rlim)) {
         sw->tx_pkt_out_dropped++;
+        return;
+    }
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
         return;
     }
 
@@ -3555,6 +3791,7 @@ c_ofp_prep_flow_mod_with_parms(c_switch_t *sw,
                                uint16_t prio,
                                uint32_t buffer_id,
                                uint32_t cookie_id,
+                               uint32_t seq_cookie, 
                                void *actions,
                                size_t action_len,
                                bool add)
@@ -3581,6 +3818,7 @@ c_ofp_prep_flow_mod_with_parms(c_switch_t *sw,
     cofp_fm->buffer_id = htonl(buffer_id);
     cofp_fm->oport = OF_NO_PORT;
     cofp_fm->cookie = htonl(cookie_id);
+    cofp_fm->seq_cookie = htonl(seq_cookie);
 
     if (add && actions && action_len) {
         act = ASSIGN_PTR(cofp_fm->actions);
@@ -3597,26 +3835,67 @@ c_ofp_prep_flow_mod(c_switch_t *sw, c_fl_entry_t *ent,
     return c_ofp_prep_flow_mod_with_parms(sw, &ent->fl, &ent->fl_mask,
                                           ent->FL_ITIMEO, ent->FL_HTIMEO,   
                                           ent->FL_FLAGS, ent->FL_PRIO,
-                                          (uint32_t)(-1), ent->FL_COOKIE,
+                                          (uint32_t)(-1),
+                                          (uint32_t)(ent->FL_COOKIE >> 32),
+                                          (uint32_t)(ent->FL_COOKIE & 0xffffffff),
                                           add ? ent->actions : NULL, 
                                           add ? ent->action_len : 0, add);
 }
 
+
+/*
+ * c_send_flow_add_sync - 
+ *
+ * Sends a flow entry add to HA peer
+ */
 static void
-of_send_flow_add(c_switch_t *sw, c_fl_entry_t *ent, uint32_t buffer_id,
-                 bool ha_sync UNUSED, bool modify)
+c_send_flow_add_sync(c_switch_t *sw, c_fl_entry_t *ent)
 {
     struct cbuf *b;
+
+    /* 
+     * Have a similar check in of_ha_proc but do not 
+     * unnecessary malloc in non-ha scenario
+     */
+    if (0 /*!c_ha_master(sw->c_hdl)*/ ||
+        (!(ent->FL_FLAGS & C_FL_ENT_STATIC) && 
+        !(ent->FL_FLAGS & C_FL_ENT_RESIDUAL))) {
+        return;
+    }  
+
+    b = c_ofp_prep_flow_mod(sw, ent, true);
+
+    __c_ha_proc(b, true, true);
+
+    /* FIXME : Fetch response */
+} 
+
+static void 
+of_send_flow_add(c_switch_t *sw, c_fl_entry_t *ent, uint32_t buffer_id,
+                 bool ha_sync, bool modify)
+{
+    struct cbuf *b;
+
+    if (ha_sync) c_send_flow_add_sync(sw, ent);
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return;
+    }
 
     b = sw->ofp_ctors->flow_add(&ent->fl, &ent->fl_mask, 
                                 buffer_id, ent->actions, 
                                 ent->action_len, ent->FL_ITIMEO,
                                 ent->FL_HTIMEO, ent->FL_PRIO,
                                 ent->FL_COOKIE, modify); 
+    c_wr_lock(&ent->FL_LOCK);
+    ent->FL_XID = c_buf_ofp_xid(b);
+    c_wr_unlock(&ent->FL_LOCK);
+
     c_switch_tx(sw, b, true);
 
     if (ent->FL_FLAGS & C_FL_ENT_BARRIER)
         __of_send_barrier_request(sw);
+
 } 
 
 static void UNUSED
@@ -3633,6 +3912,10 @@ of_send_flow_add_direct(c_switch_t *sw, struct flow *fl, struct flow *mask,
                         uint16_t itimeo, uint16_t htimeo, uint16_t prio)
 {
     struct cbuf *b;
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return 0;
+    }
 
     b = sw->ofp_ctors->flow_add(fl, mask,
                                 buffer_id, actions, 
@@ -3661,10 +3944,35 @@ of_send_flow_del(c_switch_t *sw, c_fl_entry_t *ent, uint16_t oport,
 {
     struct cbuf *b;
 
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return;
+    }
+
     b = sw->ofp_ctors->flow_del(&ent->fl, &ent->fl_mask,
-                                oport, strict,
-                                ent->FL_PRIO, group);
+                                             oport, strict,
+                                             ent->FL_PRIO, group);
     c_switch_tx(sw, b, true);
+}
+
+static void
+of_send_flow_del_strict_sync(c_switch_t *sw, c_fl_entry_t *ent, uint16_t oport,
+                             uint32_t group)
+{
+    struct cbuf *b;
+
+    /* 
+     * Have a similar check in of_ha_proc but do not 
+     * unnecessary malloc in non-ha scenario
+     */
+    if (!c_ha_master(sw->c_hdl) ||
+        sw->ha_state == SW_HA_NONE ||
+        !(ent->FL_FLAGS & C_FL_ENT_STATIC)) {
+        return;
+    }
+
+    b = sw->ofp_ctors->flow_del(&ent->fl, &ent->fl_mask, 
+                                oport, true, ent->FL_PRIO, group);
+    __of_ha_proc(sw, b, true);
 }
 
 static void
@@ -3673,9 +3981,15 @@ of_send_flow_del_strict(c_switch_t *sw, c_fl_entry_t *ent, uint16_t oport,
 {
     struct cbuf *b;
 
+    of_send_flow_del_strict_sync(sw, ent, oport, group);
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return;
+    }
+
     b = sw->ofp_ctors->flow_del(&ent->fl, &ent->fl_mask,
-                                oport, true, ent->FL_PRIO,
-                                group);
+                                 oport, true, ent->FL_PRIO,
+                                 group);
     c_switch_tx(sw, b, true);
 }
 
@@ -3693,6 +4007,11 @@ of_send_flow_del_direct(c_switch_t *sw, struct flow *fl, struct flow *mask,
                          uint32_t group)
 {
     struct cbuf *b;
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return 0;
+    }
+
     b = sw->ofp_ctors->flow_del(fl, mask, 
                                 oport, strict,
                                 prio, group);
@@ -3716,6 +4035,10 @@ of_send_flow_stat_req(c_switch_t *sw, const struct flow *flow,
                       uint32_t group)
 {
     struct cbuf *b;
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return -1;
+    }
 
     if (sw->ofp_ctors->flow_stat_req) {
         b = sw->ofp_ctors->flow_stat_req(flow, mask, oport, group);
@@ -3742,6 +4065,10 @@ of_send_group_stat_req(c_switch_t *sw, uint32_t group_id)
 {
     struct cbuf *b;
 
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return -1;
+    }
+
     if (sw->ofp_ctors && sw->ofp_ctors->group_stat_req) {
         b = sw->ofp_ctors->group_stat_req(group_id);
         c_switch_tx(sw, b, true);
@@ -3764,6 +4091,10 @@ int
 of_send_meter_stat_req(c_switch_t *sw, uint32_t meter_id) 
 {
     struct cbuf *b;
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return -1;
+    }
 
     if (sw->ofp_ctors && sw->ofp_ctors->meter_stat_req) {
         b = sw->ofp_ctors->meter_stat_req(meter_id);
@@ -3788,6 +4119,10 @@ of_send_meter_config_stat_req(c_switch_t *sw, uint32_t meter_id)
 {
     struct cbuf *b;
 
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return -1;
+    }
+
     if (sw->ofp_ctors && sw->ofp_ctors->meter_stat_cfg_req) {
         b = sw->ofp_ctors->meter_stat_cfg_req(meter_id);
         c_switch_tx(sw, b, true);
@@ -3810,6 +4145,10 @@ int
 of_send_port_stat_req(c_switch_t *sw, uint32_t port_no) 
 {
     struct cbuf *b;
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return -1;
+    }
 
     if (sw->ofp_ctors && sw->ofp_ctors->port_stat_req) {
         b = sw->ofp_ctors->port_stat_req(port_no);
@@ -3834,6 +4173,10 @@ of_send_port_q_get_conf(c_switch_t *sw, uint32_t port_no)
 {
     struct cbuf *b;
 
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return -1;
+    }
+
     if (sw->ofp_ctors && sw->ofp_ctors->port_q_get_conf) {
         b = sw->ofp_ctors->port_q_get_conf(port_no);
         c_switch_tx(sw, b, true);
@@ -3857,6 +4200,10 @@ __of_send_clear_all_groups(c_switch_t *sw)
 {
     struct cbuf *b;
 
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return;
+    }
+
     if (sw->ofp_ctors && sw->ofp_ctors->group_del) {
         b = sw->ofp_ctors->group_del(OFPG_ALL);
         c_switch_tx(sw, b, false);
@@ -3868,6 +4215,10 @@ __of_send_clear_all_meters(c_switch_t *sw)
 {
     struct cbuf *b;
 
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return;
+    }
+
     if (sw->ofp_ctors && sw->ofp_ctors->meter_del) {
         b = sw->ofp_ctors->meter_del(OFPM_ALL);
         c_switch_tx(sw, b, false);
@@ -3875,10 +4226,45 @@ __of_send_clear_all_meters(c_switch_t *sw)
 }
 
 void
+__of_send_cp_meter(c_switch_t *sw, uint32_t meter_id)
+{
+    struct cbuf *b;
+    mul_act_mdata_t mdata;
+    struct of_meter_band_parms meter_band_params;
+    struct of_meter_mod_params m_parms;
+    struct of_meter_band_elem band_elem;
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return;
+    }
+
+    memset(&m_parms, 0, sizeof(m_parms));
+    memset(&band_elem, 0, sizeof(band_elem));
+
+    if (sw->ofp_ctors && sw->ofp_ctors->meter_add && sw->ofp_ctors->meter_drop) {
+        of_mact_alloc(&mdata);
+        mdata.only_acts = true;
+        meter_band_params.rate = C_MAX_CP_PKTIN_RATE;
+        meter_band_params.burst_size = C_MAX_CP_PKTIN_BURST_SIZE;
+        sw->ofp_ctors->meter_drop(&mdata, &meter_band_params);
+        band_elem.band = mdata.act_base;
+        band_elem.band_len = of_mact_len(&mdata);
+        m_parms.meter_bands[0] = &band_elem;
+        m_parms.meter_nbands = 1;
+        b = sw->ofp_ctors->meter_add(meter_id, OFPMF_PKTPS|OFPMF_BURST,
+                                     m_parms.meter_bands, 1, true);
+        c_switch_tx(sw, b, false);
+        of_mact_free(&mdata);
+        sw->cp_meter_id = meter_id;
+        c_log_err("%s: Meter-id %d", FN, meter_id);
+    }
+}
+
+void
 __of_send_role_request(c_switch_t *sw)
 {
     struct cbuf *b;
-    uint32_t role = 0;
+    uint32_t role;
     uint64_t gen_id;
 
     c_ha_get_of_state(&role, &gen_id);
@@ -4115,7 +4501,9 @@ c_switch_features_check(c_switch_t *sw, uint64_t dpid)
             c_conn_events_del(&sw->conn);
             c_switch_mark_sticky_del(sw);
             old_sw->reinit_fd = sw->conn.fd;
-            old_sw->switch_state |= SW_REINIT;
+            old_sw->switch_state |= c_switch_is_virtual(sw) ?
+                                   SW_REINIT_VIRT:
+                                   SW_REINIT;
             old_sw->switch_state &= ~SW_DEAD;
             c_switch_put(old_sw);
             return false;
@@ -4174,12 +4562,8 @@ c_register_switch(c_switch_t *sw, struct cbuf *reg_pkt, bool trig_event)
         __of_send_role_request(sw);
         __of_send_set_config(sw, 0, OF_MAX_MISS_SEND_LEN);
         if (trig_event) {
-            int i = 0;
-            for (; i < sw->n_tables; i++) {
-                flow.table_id = i;
-                __of_send_flow_del_direct(sw, &flow, &mask, 0, 
-                                          false, C_FL_PRIO_DFL, OFPG_ANY);
-            }
+            __of_send_flow_del_direct(sw, &flow, &mask, 0, 
+                                      false, C_FL_PRIO_DFL, OFPG_ANY);
             __of_send_clear_all_groups(sw);
             __of_send_clear_all_meters(sw);
 
@@ -4213,8 +4597,12 @@ of10_recv_features_reply(c_switch_t *sw, struct cbuf *b)
                 - offsetof(struct ofp_switch_features, ports))
             / sizeof *osf->ports);
 
-    c_init_switch_features(sw, ntohll(osf->datapath_id), osf->header.version,
-                           osf->n_tables, ntohl(osf->n_buffers), ntohl(osf->actions),
+    c_init_switch_features(sw,
+                           ntohll(osf->datapath_id),
+                           osf->header.version,
+                           osf->n_tables,
+                           ntohl(osf->n_buffers),
+                           ntohl(osf->actions),
                            ntohl(osf->capabilities));                           
 
     for (i = 0; i < n_ports; i++) {
@@ -4231,7 +4619,12 @@ of10_recv_features_reply(c_switch_t *sw, struct cbuf *b)
     tbl = &sw->rule_flow_tbls[0];
     tbl->hw_tbl_active = true;
 
-    c_register_switch(sw, b, true);
+    c_register_switch(sw, b, ctrl_hdl.bench_en ? true: false);
+    sw->switch_state |= (SW_OFP_PORT_FEAT |
+                         SW_OFP_TBL_FEAT| SW_OFP_GRP_FEAT |
+                         SW_METER_PROBED | SW_METER_PROBE_DONE |
+                         SW_GROUP_PROBED | SW_GROUP_PROBE_DONE); 
+
     c_switch_try_publish(sw, false); 
     mb();
 }
@@ -4456,7 +4849,7 @@ c_fl_cookie_hash(const void *key)
 {
     c_fl_entry_t *fl_ent = ASSIGN_PTR(key);
 
-    return fl_ent->FL_COOKIE; 
+    return (uint32_t)(fl_ent->FL_COOKIE);
 }
 
 static int
@@ -4465,46 +4858,31 @@ c_fl_cookie_match(const void *v1,
 {
     c_fl_entry_t *ent1 = ASSIGN_PTR(v1);
     c_fl_entry_t *ent2 = ASSIGN_PTR(v2);
-    struct flow *ent_fl = &ent1->fl;
-    struct flow *fl = &ent2->fl;
-    struct flow *mask = &ent1->fl_mask;
-    uint8_t zero_mac[] = { 0, 0, 0, 0, 0, 0};
+
+    if (ent2->FL_XID) {
+        return (ent1->FL_COOKIE == ent2->FL_COOKIE &&
+                ent1->FL_XID == ent2->FL_XID);
+    }
 
     /* c_log_err("%s:%d %d", FN, !memcmp(&ent1->fl_mask, &ent2->fl_mask,
                    sizeof(*mask)-sizeof(mask->pad)),
              c_match_flow_ip_addr_generic(fl, ent_fl, mask)); */
 
     return (ent1->FL_COOKIE == ent2->FL_COOKIE &&
-            !memcmp(&ent1->fl_mask, &ent2->fl_mask, 
-                   sizeof(*mask)-sizeof(mask->pad)) &&
-            c_match_flow_ip_addr_generic(fl, ent_fl, mask) &&
-            (!mask->nw_proto || fl->nw_proto == ent_fl->nw_proto) &&
-            (!mask->nw_tos || fl->nw_tos == ent_fl->nw_tos) &&
-            (!mask->tp_dst || fl->tp_dst == ent_fl->tp_dst) &&
-            (!mask->tp_src || fl->tp_src == ent_fl->tp_src) &&
-            (!memcmp(mask->dl_src, zero_mac, 6) ||
-             !memcmp(fl->dl_src, ent_fl->dl_src, 6)) &&
-            (!memcmp(mask->dl_dst, zero_mac, 6) ||
-             !memcmp(fl->dl_dst, ent_fl->dl_dst, 6)) &&
-            (!mask->dl_type || fl->dl_type == ent_fl->dl_type) &&
-            (!mask->dl_vlan || fl->dl_vlan == ent_fl->dl_vlan) &&
-            (!mask->dl_vlan_pcp || fl->dl_vlan_pcp == ent_fl->dl_vlan_pcp) &&
-            (!mask->mpls_label || fl->mpls_label == ent_fl->mpls_label) &&
-            (!mask->mpls_tc || fl->mpls_tc == ent_fl->mpls_tc) &&
-            (!mask->mpls_bos || fl->mpls_bos == ent_fl->mpls_bos) &&
-            (!mask->in_port || fl->in_port == ent_fl->in_port) &&
-            ent1->FL_PRIO == ent2->FL_PRIO);
+            of_match_flows_prio(&ent1->fl, &ent1->fl_mask,
+                                &ent2->fl, &ent2->fl_mask,
+                                ent1->FL_PRIO, ent2->FL_PRIO)); 
 }
 
 static inline c_fl_entry_t *
-c_do_flow_lookup_slow(c_switch_t *sw, struct flow *fl)
+c_do_flow_lookup_slow(c_switch_t *sw, struct flow *fl, bool match_residual)
 {
     c_flow_tbl_t     *tbl;
     c_fl_entry_t     *ent = NULL;
     
     c_rd_lock(&sw->lock);
     tbl = &sw->rule_flow_tbls[fl->table_id];
-    if (tbl && (ent = __c_flow_lookup_rule(sw, fl, tbl))) {
+    if (tbl && (ent = __c_flow_lookup_rule(sw, fl, tbl, match_residual))) {
         atomic_inc(&ent->FL_REF, 1);
         c_rd_unlock(&sw->lock);
         return ent;
@@ -4534,7 +4912,7 @@ __c_do_rule_lookup_with_detail(c_switch_t *sw, struct flow *fl,
     return NULL;
 }
 
-static c_fl_entry_t *
+c_fl_entry_t *
 c_do_rule_lookup_with_detail(c_switch_t *sw, struct flow *fl,
                              struct flow *mask, uint16_t prio)
 {
@@ -4547,11 +4925,10 @@ c_do_rule_lookup_with_detail(c_switch_t *sw, struct flow *fl,
     return ent;
 }
 
-
 static c_fl_entry_t *
 __c_do_flow_lookup_with_cookie(c_switch_t *sw, struct flow *fl,
                              struct flow *mask, uint16_t prio, 
-                             uint32_t cookie)
+                             uint64_t cookie, uint32_t xid)
 {
     c_fl_entry_t ent;
     c_fl_entry_t *sw_fl_ent = NULL;
@@ -4561,8 +4938,9 @@ __c_do_flow_lookup_with_cookie(c_switch_t *sw, struct flow *fl,
     memcpy(&ent.fl_mask, mask, sizeof(*mask)); 
     ent.FL_PRIO = prio;
     ent.FL_COOKIE = cookie;
+    ent.FL_XID = xid;
     ent.sw = sw;
-    
+
     if (sw->fl_cookies &&
         (sw_fl_ent = g_hash_table_lookup(sw->fl_cookies, &ent))) {
         atomic_inc(&sw_fl_ent->FL_REF, 1);
@@ -4575,18 +4953,18 @@ __c_do_flow_lookup_with_cookie(c_switch_t *sw, struct flow *fl,
 static c_fl_entry_t *
 c_do_flow_lookup_with_cookie(c_switch_t *sw, struct flow *fl,
                              struct flow *mask, uint16_t prio, 
-                             uint32_t cookie)
+                             uint64_t cookie, uint32_t xid)
 {
     c_fl_entry_t *ent = NULL;
     c_rd_lock(&sw->lock);
-    ent = __c_do_flow_lookup_with_cookie(sw, fl, mask, prio, cookie);
+    ent = __c_do_flow_lookup_with_cookie(sw, fl, mask, prio, cookie, xid);
     c_rd_unlock(&sw->lock);
 
     return ent;
 }
 
-static inline c_fl_entry_t *
-c_do_flow_lookup(c_switch_t *sw, struct flow *fl)
+inline c_fl_entry_t *
+c_do_flow_lookup(c_switch_t *sw, struct flow *fl, bool match_residual)
 {
 
 #ifdef CONFIG_FLOW_EXM
@@ -4596,7 +4974,7 @@ c_do_flow_lookup(c_switch_t *sw, struct flow *fl)
         return ent;
     }
 #endif
-    return c_do_flow_lookup_slow(sw, fl);
+    return c_do_flow_lookup_slow(sw, fl, match_residual);
 }
 
 static inline c_fl_entry_t *
@@ -4652,28 +5030,47 @@ c_flow_entry_put(c_fl_entry_t *ent)
     }
 }
 
-
-static inline void
+static inline int
 c_mcast_app_packet_in(c_switch_t *sw, struct cbuf *b,
                       c_fl_entry_t *fl_ent,
-                      struct c_pkt_in_mdata *mdata)
+                      struct c_pkt_in_mdata *mdata,
+                      bool use_local_grp)
 {
     void    *app;
     GSList  *iterator;
+    c_switch_group_t *group;
+    int ret = -1;
 
     c_sw_hier_rdlock(sw);
 
     c_rd_lock(&fl_ent->FL_LOCK);
-    for (iterator = fl_ent->app_owner_list;
-         iterator;
-         iterator = iterator->next) {
-        app = iterator->data;
-        c_signal_app_event(sw, b, C_PACKET_IN, app, mdata, true);
+    if (fl_ent->groups) {
+        /* If flow has group association we send the flow to group's owner */
+        for (iterator = fl_ent->groups; iterator;
+             iterator = iterator->next) {
+            group = iterator->data;
+            app = group->app_owner;
+            if (app)  {
+                if (use_local_grp && !(group->flags & C_GRP_LOCAL))
+                    continue;
+                ret = 0;
+                c_signal_app_event(sw, b, C_PACKET_IN, app, mdata, true);
+            }
+        }
+    } else if (!use_local_grp) {
+        for (iterator = fl_ent->app_owner_list;
+             iterator;
+             iterator = iterator->next) {
+            app = iterator->data;
+            c_signal_app_event(sw, b, C_PACKET_IN, app, mdata, true);
+        }
     }
 
     c_rd_unlock(&fl_ent->FL_LOCK);
 
     c_sw_hier_unlock(sw);
+
+    return ret;
 }
 
 int 
@@ -4685,7 +5082,7 @@ of_dfl_fwd(struct c_switch *sw, struct cbuf *b, void *data, size_t pkt_len,
     struct ofp_packet_in *opi = (void *)(b->data);
     struct flow *fl = mdata->fl; 
 
-    if(!(fl_ent = c_do_flow_lookup(sw, fl))) {
+    if(!(fl_ent = c_do_flow_lookup(sw, fl, false))) {
         //c_log_debug("Flow lookup fail");
         return 0;
     }
@@ -4700,13 +5097,21 @@ of_dfl_fwd(struct c_switch *sw, struct cbuf *b, void *data, size_t pkt_len,
         fl_ent = c_flow_clone_exm(sw, fl, fl_ent);
     }
 
-    if (fl_ent->FL_FLAGS & C_FL_ENT_LOCAL) {
-        c_mcast_app_packet_in(sw, b, fl_ent, mdata);
-
+    if (fl_ent->FL_FLAGS & C_FL_ENT_LOCAL ||
+        fl_ent->FL_FLAGS & C_FL_ENT_CTRL_LOCAL) {
+        c_mcast_app_packet_in(sw, b, fl_ent, mdata, false);
         c_flow_entry_put(fl_ent);
         return 0;
     }
 
+    if (!c_mcast_app_packet_in(sw, b, fl_ent, mdata, true))
+        goto out;
+
+    /* 
+     * At this point it is likely there was a mismatch in flow/group tables
+     * between controller and switch and the  controller retries sending 
+     * the matching flow mod with packet out 
+     */
     of_send_flow_add(sw, fl_ent, ntohl(opi->buffer_id), false, false);
 
     if (ntohl(opi->buffer_id) != (uint32_t)(-1)) {
@@ -4898,8 +5303,11 @@ of10_recv_flow_mod_failed(c_switch_t *sw, struct cbuf *b)
     struct ofp_error_msg        *ofp_err = (void *)(b->data);
     struct ofp_flow_mod         *ofm = (void *)(ofp_err->data);
     struct of_flow_mod_params   fl_parms;
-    void                        *app;
     char                        *print_str;
+    uint64_t                    cookie;
+    struct c_sw_expired_ent     *exp_ent = NULL;
+    GSList                      *iterator = NULL;
+    c_fl_entry_t                *ent = NULL;
 
     memset(&flow, 0, sizeof(flow));
     memset(&mask, 0, sizeof(flow));
@@ -4917,23 +5325,64 @@ of10_recv_flow_mod_failed(c_switch_t *sw, struct cbuf *b)
     flow.tp_src = ofm->match.tp_src;
     flow.tp_dst = ofm->match.tp_dst;
 
+    cookie = ntohll(ofm->cookie);
+
     fl_parms.mask = &mask;
     fl_parms.flow = &flow;
     fl_parms.prio = ntohs(ofm->priority);
     fl_parms.flow->table_id = C_TBL_HW_IDX_DFL;
     fl_parms.command = ntohs(ofm->command);
+    fl_parms.cookie = (uint32_t)(cookie >> 32);
+    fl_parms.seq_cookie = (uint32_t)(cookie & 0xffffffff);
+    flow.table_id = 0;
+    mask.table_id = 0xff;  /* Inconsequential */
 
-    /* Controller owns only vty intalled static flows */
-    if (!(app = c_app_get(sw->c_hdl, C_VTY_NAME))) {
-        goto app_signal_out;
+    switch (ntohs(ofm->command)) {
+    case OFPFC_ADD:
+    case OFPFC_MODIFY:
+    case OFPFC_MODIFY_STRICT:
+        fl_parms.command = C_OFPC_ADD;
+        break;
+    case OFPFC_DELETE:
+    case OFPFC_DELETE_STRICT:
+        fl_parms.command = C_OFPC_DEL;
+        break;
     }
 
-    fl_parms.app_owner = app;
-    c_switch_flow_del(sw, &fl_parms);
-    c_app_put(app);
-    fl_parms.app_owner = NULL;
+    if (!c_rlim(&crl)) {
+        char *str = of_dump_flow_generic(&flow, &mask);
+        c_log_info("Flow mod failed switch 0x%llx c%llu t%d p%hu %s",
+                   U642ULL(sw->DPID), U642ULL(cookie), flow.table_id,
+                   (unsigned short)(fl_parms.prio), str);
+        if (str) free(str);
+    }
 
-app_signal_out:
+    ent = cookie ? c_do_flow_lookup_with_cookie(sw, &flow, &mask,
+                                                fl_parms.prio,
+                                                cookie,
+                                                ofp_err->header.xid) :
+                   c_do_flow_lookup_with_detail(sw, &flow, &mask,
+                                                fl_parms.prio);
+    if (!ent) {
+        if (!c_rlim(&crl))
+            c_log_err("[FLOW] %s: No such flow", FN);
+        return;
+    }
+
+    c_rd_lock(&ent->FL_LOCK);
+    for (iterator = ent->app_owner_list; iterator;
+         iterator = iterator->next) {
+        void * app_owner = iterator->data;
+        exp_ent = calloc(1, sizeof(*exp_ent));
+        exp_ent->app = app_owner;
+        exp_ent->b = c_ofp_prep_flow_mod(ent->sw, ent, false);
+        ent->sw->exp_list = g_slist_append(ent->sw->exp_list,
+                                           exp_ent);
+    }
+    c_rd_unlock(&ent->FL_LOCK);
+
+    c_sw_trigger_expiry(sw);
+
     /* We take a very conservative approach here and multicast
      * flow mod failed to all apps irrespective of whether they are owners
      * of this flow or not, to maintain sanity because some apps
@@ -4942,7 +5391,7 @@ app_signal_out:
     c_signal_app_event(sw, b, C_FLOW_MOD_FAILED, NULL, &fl_parms, false);
 
     if (sw->ofp_ctors->dump_flow) {
-        print_str=  sw->ofp_ctors->dump_flow(&flow, &mask); 
+        print_str =  sw->ofp_ctors->dump_flow(&flow, &mask); 
         c_log_info("[OFP10] flow-mod fail notification");
         c_log_info("%s", print_str);
         free(print_str);
@@ -4967,19 +5416,48 @@ of10_recv_err_msg(c_switch_t *sw, struct cbuf *b)
     }
 }
 
-static void
-c_sw_trigger_expiry(c_switch_t *sw)
+void
+__of_ha_proc(c_switch_t *sw, struct cbuf *b,
+             bool use_cbuf)
 {
-    struct c_sw_expired_ent *ent;
-    GSList *iterator;
+    struct cbuf *new_b = NULL;
 
-    for (iterator = sw->exp_list; iterator; iterator = iterator->next) {
-        ent = iterator->data;
-        __mul_app_command_handler(ent->app, ent->b);
+    if (!c_ha_master(sw->c_hdl) ||
+        sw->ha_state == SW_HA_NONE) {
+        if (use_cbuf) free_cbuf(b);
+        return;
     }
 
-    g_slist_free_full(sw->exp_list, c_sw_exp_ent_free);
-    sw->exp_list = NULL;
+    if (!use_cbuf) {
+        new_b = cbuf_realloc_headroom(b, 0, 0);
+        if (!new_b) {
+            c_log_err("%s: Failed to alloc buf", FN);
+            return;
+        }
+    } else {
+        new_b = b;
+    }
+
+    c_thread_tx(&sw->ha_conn, new_b, false);
+}
+
+void
+of_ha_proc(c_switch_t *sw, struct cbuf *b)
+{
+    return __of_ha_proc(sw, b, false);
+}
+
+static void
+of_ha_packet_in(c_switch_t *sw, struct cbuf *b)
+{
+    struct ofp_packet_in *opi = (void *)(b->data);
+    struct eth_header *eth = (void *)(opi->data);
+
+    if (likely(ntohs(eth->eth_type) != ETH_TYPE_LLDP)) {
+        return;
+    }
+
+    __of_ha_proc(sw, b, false);
 }
 
 static void 
@@ -4987,13 +5465,14 @@ c_flow_stats_update(c_switch_t *sw, struct flow *flow, struct flow *mask,
                     void *flow_acts, size_t act_len, uint16_t prio,
                     uint64_t pkt_count, uint64_t byte_count,
                     uint32_t dur_sec, uint32_t dur_nsec,
-                    uint32_t cookie, uint16_t itimeo, uint16_t htimeo)
+                    uint64_t cookie, uint16_t itimeo, uint16_t htimeo)
 {
     c_fl_entry_t    *ent;
     time_t          curr_time, time_diff;
 
-    ent = cookie ? c_do_flow_lookup_with_cookie(sw, flow, mask, prio, cookie) :
-                   c_do_flow_lookup_with_detail(sw, flow, mask, prio);
+    ent = cookie ?
+          c_do_flow_lookup_with_cookie(sw, flow, mask, prio, cookie, 0) :
+          c_do_flow_lookup_with_detail(sw, flow, mask, prio);
     if (!ent ||
         act_len != ent->action_len ||
         (act_len && memcmp(flow_acts, ent->actions, ent->action_len))) {
@@ -5002,22 +5481,25 @@ c_flow_stats_update(c_switch_t *sw, struct flow *flow, struct flow *mask,
             char *fl_str;
             fl_str = sw->ofp_ctors->dump_flow(flow, mask);
             if (!c_rlim(&crl)) {
-                c_log_warn("[FLOW] switch |0x%llx| C-%lu stats:No such flow|%s",
-                           sw->DPID, U322UL(cookie), fl_str);
+                c_log_warn("[FLOW] sw|0x%llx| C-0x%llx t%d stats:No flow|%s",
+                           sw->DPID, U642ULL(cookie), flow->table_id, fl_str);
             }
             free(fl_str);
         }
 #endif
         if (ent) c_flow_entry_put(ent);
 
-        if (sw->switch_state & SW_FLOW_PROBED &&
+        if (c_switch_of_master_check(&ctrl_hdl) &&
+            sw->switch_state & SW_FLOW_PROBED &&
             !(sw->switch_state & SW_FLOW_PROBE_DONE) &&
             !htimeo) {
             struct cbuf *b = c_ofp_prep_flow_mod_with_parms(sw, flow, mask,
                                                         itimeo, htimeo,
-                                                        C_FL_ENT_RESIDUAL,
+                                                        C_FL_ENT_RESIDUAL |
+                                                        C_FL_ENT_TBL_PHYS,
                                                         prio, (uint32_t)(-1),
-                                                        cookie,
+                                                        (uint32_t)(cookie >> 32),
+                                                        (uint32_t)(cookie & 0xffffffff),
                                                         flow_acts, act_len,
                                                         true);
 
@@ -5099,7 +5581,7 @@ of10_proc_one_flow_stats(c_switch_t *sw, void *ofps)
                         ntohll(ofp_stats->byte_count),
                         ntohl(ofp_stats->duration_sec),
                         ntohl(ofp_stats->duration_nsec),
-                        (uint32_t)(cookie),
+                        cookie,
                         ntohs(ofp_stats->idle_timeout),
                         ntohs(ofp_stats->hard_timeout));
     return act_len;
@@ -5144,12 +5626,25 @@ static void
 c_per_flow_stats_scan(void *time_arg UNUSED, c_fl_entry_t *ent)
 {
     time_t ctime;
+    struct c_sw_expired_ent *exp_ent = NULL;
+    GSList *iterator = NULL;
+    void *app_owner;
+    char *str;
 
     ctime = time(NULL);
     c_wr_lock(&ent->FL_LOCK);
     if ((ent->FL_ENT_TYPE != C_TBL_EXM &&
         ent->FL_FLAGS & C_FL_ENT_CLONE) || 
         ent->FL_FLAGS & C_FL_ENT_LOCAL) {
+        c_wr_unlock(&ent->FL_LOCK);
+        return;
+    }
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        ent->FL_INSTALLED = true;
+        ent->FL_FLAGS &= ~C_FL_ENT_STALE;
+        ent->fl_stats.last_scan = ctime;
+        ent->fl_stats.last_refresh = ctime;
         c_wr_unlock(&ent->FL_LOCK);
         return;
     }
@@ -5161,10 +5656,43 @@ c_per_flow_stats_scan(void *time_arg UNUSED, c_fl_entry_t *ent)
         ent->fl_stats.last_scan = ctime;
     }
 
-    if (ent->FL_FLAGS & C_FL_ENT_GSTATS) { 
-        if (!ent->fl_stats.last_scan || 
-            ((ent->FL_FLAGS & C_FL_ENT_GSTATS) &&
-            (ctime - ent->fl_stats.last_scan) > C_FL_STAT_TIMEO)) {
+    if (!ent->FL_INSTALLED  ||
+        ent->FL_FLAGS & C_FL_ENT_STALE ||
+        ent->FL_FLAGS & C_FL_ENT_GSTATS) { 
+        if ((!(ent->FL_FLAGS & C_FL_ENT_STALE) && (ent->fl_stats.last_scan &&
+            ctime - ent->fl_stats.last_refresh > 5 * C_FL_STAT_TIMEO)) ||
+            (ent->FL_FLAGS & C_FL_ENT_STALE &&
+            ctime - ent->stale_time > C_FL_STALE_TIMEO)) {
+
+            if (!c_rlim(&crl)) { 
+                str = of_dump_flow_generic(&ent->fl, &ent->fl_mask);
+                c_log_err("[FLOW] switch |0x%llx|:timed-out %lus %lus %s |%s|",
+                          U642ULL(ent->sw->DPID), 
+                          ctime, ent->stale_time,
+                          ent->FL_FLAGS & C_FL_ENT_STALE ? "stale":"",
+                          str);
+                free(str); 
+            }
+
+            for (iterator = ent->app_owner_list; iterator;
+                 iterator = iterator->next) {
+                app_owner = iterator->data;
+                exp_ent = calloc(1, sizeof(*exp_ent));
+                if (!exp_ent) continue;
+                c_app_ref(app_owner);
+                exp_ent = calloc(1, sizeof(*exp_ent));
+                exp_ent->app = app_owner;
+                exp_ent->b = c_ofp_prep_flow_mod(ent->sw, ent, false);
+                ent->sw->exp_list = g_slist_append(ent->sw->exp_list,
+                                                   exp_ent);
+            }
+            c_wr_unlock(&ent->FL_LOCK);
+            return;
+        }
+        if (!(ent->FL_FLAGS & C_FL_ENT_STALE) && (!ent->fl_stats.last_scan || 
+            ((ent->FL_FLAGS & C_FL_ENT_GSTATS ||
+             !ent->FL_INSTALLED) &&
+            (ctime - ent->fl_stats.last_scan) > C_FL_STAT_TIMEO))) {
             __of_send_flow_stat_req(ent->sw, &ent->fl, &ent->fl_mask, 
                                     0, OFPG_ANY);
             if (!ent->fl_stats.last_scan) {
@@ -5177,19 +5705,160 @@ c_per_flow_stats_scan(void *time_arg UNUSED, c_fl_entry_t *ent)
 }
 
 static void
-c_per_group_stats_scan(void *time_arg UNUSED,
-                       c_switch_group_t *grp UNUSED)
+c_per_group_stats_scan(void *time_arg, c_switch_group_t *grp)
 {
-    /* TODO */
-    return;
+    time_t time = *(time_t *)time_arg;
+    struct c_sw_expired_ent *exp_ent = NULL;
+    void *app_owner;
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        grp->installed = true;
+        grp->flags &= ~C_GRP_STALE;
+        grp->last_scan = time;
+        grp->last_seen = time;
+        return;
+    }
+
+    if (grp->sw->switch_state & SW_BULK_GRP_STATS) {
+        grp->last_scan = time;
+    }
+
+    if (!grp->installed ||
+        grp->flags & C_GRP_STALE ||
+        grp->flags & C_GRP_GSTATS) {
+        if ((!(grp->flags & C_GRP_STALE) && grp->last_scan &&
+            time - grp->last_seen > 5 * C_GRP_STAT_TIMEO) ||
+            (grp->flags & C_GRP_STALE &&
+            time - grp->stale_time > C_GRP_STALE_TIMEO)) { 
+
+            if (grp->flags & C_GRP_EXPIRED &&
+                (time - grp->last_expired < C_GRP_EXP_TIMEO ||
+                 0 /*grp->try_expire_cnt > C_GRP_DEAD_EXPIRE_CNT*/)) {
+                return;
+            }
+
+            grp->flags |= C_GRP_EXPIRED;
+            grp->last_expired = time;
+            grp->try_expire_cnt++;
+
+            c_log_err("[GROUP] switch |0x%llx|:|%lu| %s %lu %lu timed-out",
+                      U642ULL(grp->sw->DPID), U322UL(grp->group),
+                      grp->flags & C_GRP_STALE ? "stale":"",
+                      time, grp->stale_time);
+
+            app_owner = grp->app_owner;
+            c_app_ref(app_owner);
+            exp_ent = calloc(1, sizeof(*exp_ent));
+            exp_ent->app = app_owner;
+            exp_ent->b = c_of_prep_group_mod_msg(grp, false);
+            grp->sw->exp_list = g_slist_append(grp->sw->exp_list,
+                                               exp_ent);
+            return;
+        }
+        if (!(grp->flags & C_GRP_STALE) && (!grp->last_scan || 
+            ((grp->flags & C_GRP_GSTATS ||
+             !grp->installed) &&
+             (time - grp->last_scan) > C_GRP_STAT_TIMEO))) {
+            __of_send_group_stat_req(grp->sw, grp->group); 
+            if (!grp->last_scan) {
+                grp->last_seen = time;
+            }
+            grp->last_scan = time;
+
+        }
+    } 
 }
 
 static void
-c_per_meter_verify_stats_scan(void *time_arg UNUSED,
-                              c_switch_meter_t *meter UNUSED)
+c_per_meter_verify_stats_scan(void *time_arg, c_switch_meter_t *meter)
 {
-    /* TODO */
-    return;
+    time_t time = *(time_t *)time_arg;
+    struct c_sw_expired_ent *exp_ent = NULL;
+    void *app_owner;
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        meter->installed = true;
+        meter->flags &= ~C_METER_STALE;
+        meter->last_scan = time;
+        meter->last_seen = time;
+        return;
+    }
+
+    if ((meter->installed && meter->cflags & C_METER_GSTATS) || 
+        (meter->cflags & C_METER_STALE)) {
+        if ((!(meter->cflags & C_METER_STALE) && 
+            (time - meter->last_seen > 5 * C_METER_STAT_TIMEO)) ||
+            (meter->cflags & C_METER_STALE &&
+            (time - meter->stale_time > C_METER_STALE_TIMEO))) {
+
+            if (meter->cflags & C_METER_EXPIRED &&
+                (time - meter->last_expired < C_METER_EXP_TIMEO ||
+                 0 /* meter->try_expire_cnt > C_METER_DEAD_EXPIRE_CNT*/)) {
+                return;
+            }
+
+            meter->cflags |= C_METER_EXPIRED;
+            meter->last_expired = time;
+            meter->try_expire_cnt++;
+
+            if (!c_rlim(&crl)) {
+                c_log_err("[METER] switch |0x%llx|:|%lu| stats %s timed-out",
+                          U642ULL(meter->sw->DPID), U322UL(meter->meter),
+                          meter->cflags & C_METER_STALE ? "stale":"");
+            }
+
+            app_owner = meter->app_owner;
+            c_app_ref(app_owner);
+            exp_ent = calloc(1, sizeof(*exp_ent));
+            exp_ent->app = app_owner;
+            exp_ent->b = c_of_prep_meter_mod_msg(meter, false);
+            meter->sw->exp_list = g_slist_append(meter->sw->exp_list,
+                                                 exp_ent);
+            return;
+        }
+        if  (!(meter->cflags & C_METER_STALE) && 
+            ((time - meter->last_scan) > C_METER_STAT_TIMEO)) {
+            __of_send_meter_stat_req(meter->sw, meter->meter);
+            meter->last_scan = time;
+
+        }
+
+        return;
+    }
+
+    if (meter->sw->switch_state & SW_BULK_METER_CONF_STATS) {
+        meter->last_scan = time;
+    }
+
+    if (!meter->installed) { 
+        if (meter->last_scan &&
+            time - meter->last_seen > 5 * C_METER_STAT_TIMEO) {
+            meter->flags |= C_METER_EXPIRED;
+
+            if (!c_rlim(&crl)) {
+                c_log_err("[METER] switch |0x%llx|:|%lu| time-out",
+                          U642ULL(meter->sw->DPID), U322UL(meter->meter));
+            }
+
+            app_owner = meter->app_owner;
+            c_app_ref(app_owner);
+            exp_ent = calloc(1, sizeof(*exp_ent));
+            exp_ent->app = app_owner;
+            exp_ent->b = c_of_prep_meter_mod_msg(meter, false);
+            meter->sw->exp_list = g_slist_append(meter->sw->exp_list,
+                                                 exp_ent);
+            return;
+        }
+        if (!meter->last_scan || 
+            ((time - meter->last_scan) > C_METER_STAT_TIMEO)) {
+            __of_send_meter_config_stat_req(meter->sw, meter->meter); 
+            if (!meter->last_scan) {
+                meter->last_seen = time;
+            }
+            meter->last_scan = time;
+
+        }
+    }
 }
 
 static inline bool
@@ -5219,6 +5888,22 @@ c_switch_supports_table_stats(c_switch_t *sw)
     return  false;
 }
 
+static void
+__c_switch_bulk_flow_scan(c_switch_t *sw)
+{
+    int              i = 0;
+    struct flow      fl, mask;
+
+    memset(&fl, 0, sizeof(fl));
+    memset(&mask, 0, sizeof(mask));
+
+    mask.table_id = 0xff;
+    for (i = 0; i < C_MAX_RULE_FLOW_TBLS; i++) {
+        fl.table_id = i;
+        __of_send_flow_stat_req(sw, &fl, &mask, 0, OFPG_ANY);
+    }
+}
+
 static int 
 c_switch_bulk_flow_scan(c_switch_t *sw, bool force)
 {
@@ -5246,6 +5931,83 @@ c_switch_bulk_flow_scan(c_switch_t *sw, bool force)
 }
 
 static void
+c_switch_bulk_group_scan(c_switch_t *sw)
+{
+    size_t num_grps = 0;
+    c_rd_lock(&sw->lock);
+    num_grps = g_hash_table_size(sw->groups);
+    c_rd_unlock(&sw->lock);
+
+    if (num_grps)
+        __of_send_group_stat_req(sw, OFPG_ALL);
+}
+
+static void
+c_switch_bulk_meter_config_scan(c_switch_t *sw)
+{
+    size_t num_meters = 0;
+    c_rd_lock(&sw->lock);
+    num_meters = g_hash_table_size(sw->meters);
+    c_rd_unlock(&sw->lock);
+
+    if (num_meters)
+        __of_send_meter_config_stat_req(sw, OFPM_ALL);
+}
+
+static void
+__c_port_q_stats_scan(void *k UNUSED, void *q_arg, void *uarg)
+{
+    c_pkt_q_t *q = q_arg;
+    struct c_pkt_q_iter_arg *iter_arg = uarg;
+    time_t curr = time(NULL);
+
+    if (curr - q->last_seen > (3*C_Q_STAT_TIMEO)) {
+        uint32_t *qid = malloc(sizeof(uint32_t));
+        if (!qid) return;
+
+        *qid = q->qid;
+        iter_arg->qlist = g_slist_append(iter_arg->qlist, qid);
+        c_log_err("|Queue| (%lu) expired", U322UL(q->qid));
+    } else {
+        if (!q->last_stats_query || 
+            curr - q->last_stats_query > C_Q_STAT_TIMEO) {
+            __of_send_q_stat_req(iter_arg->sw, q->port_no, q->qid);
+            q->last_stats_query = curr;
+        }
+    }
+}
+
+static void 
+__c_switch_port_q_config_scan(void *port_arg, void *v UNUSED,
+                              void *sw_uarg)
+{
+    c_port_t *port = port_arg;
+    GSList *iter = NULL;
+    uint32_t *qid = NULL;
+    c_switch_t *sw = sw_uarg;
+    struct c_pkt_q_iter_arg iter_arg = { NULL, sw };
+    time_t curr = time(NULL);
+    
+    if (!port->last_q_conf ||
+        curr - port->last_q_conf > C_Q_STAT_CONFIG_TIMEO) {
+        __of_send_port_q_get_conf(sw, port->sw_port.port_no);
+        port->last_q_conf = curr;
+    }
+    
+    __c_port_q_traverse_all(port, __c_port_q_stats_scan,
+                            (void *)(&iter_arg));
+
+    for (iter = iter_arg.qlist; iter; iter = iter->next) {
+        qid = iter->data;
+        if (qid)
+            __c_port_q_del(port, *qid);
+    }
+
+    if (iter_arg.qlist);
+        g_slist_free_full(iter_arg.qlist, g_slist_cmn_ent_free);
+}
+
+static void
 c_switch_port_stats_scan(c_switch_t *sw)
 {
     size_t num_ports = 0;
@@ -5255,6 +6017,9 @@ c_switch_port_stats_scan(c_switch_t *sw)
 
     if (num_ports) {
         __of_send_port_stat_req(sw, OF_ANY_PORT);
+        /* __of_send_port_q_get_conf(sw, OF_ANY_PORT); */
+        __c_switch_port_traverse_all(sw, __c_switch_port_q_config_scan,
+                                     sw);
     }
     c_rd_unlock(&sw->lock);
 }
@@ -5270,20 +6035,28 @@ c_per_switch_stats_scan(c_switch_t *sw, time_t curr_time)
     }
 
     if (c_switch_supports_group_stats(sw)) {
+        if (sw->switch_state & SW_BULK_GRP_STATS)
+            c_switch_bulk_group_scan(sw);
          c_switch_group_traverse_all(sw, (void *)&curr_time,
                                      c_per_group_stats_scan);
     }
 
+    if (sw->switch_state & SW_BULK_METER_CONF_STATS)
+        c_switch_bulk_meter_config_scan(sw);
     c_switch_meter_traverse_all(sw, (void *)&curr_time,
                                 c_per_meter_verify_stats_scan);
 
     if (sw->switch_state & SW_PORT_STATS_ENABLE)
         c_switch_port_stats_scan(sw);
 
-    if (c_switch_supports_table_stats(sw)) {
+    if (c_switch_supports_table_stats(sw) &&
+        c_switch_of_master_check(&ctrl_hdl)) {
         /* Get all the table features */
         __of_send_mpart_msg(sw, OFPMP_TABLE, 0, 0);
     }
+ 
+    /* This is lockless */
+    c_sw_trigger_expiry(sw);
 }
 
 static void 
@@ -5349,18 +6122,60 @@ c_switch_tbl_prop_update(c_switch_t *sw, uint8_t tbl_id,
     
     c_rd_unlock(&sw->lock);
 }
- 
+
 static void
-c_switch_flow_table_enable(c_switch_t *sw, uint8_t table_id)
+c_switch_flow_table_enable_miss(c_switch_t *sw, uint8_t table_id, bool lock,
+                                bool chain)
 {
     struct flow flow, mask;
-    c_flow_tbl_t  *tbl;
-    bool en = false;
     mul_act_mdata_t mdata;
     int next_valid_tbl = -1;
 
+    if (!c_switch_of_master_check(&ctrl_hdl) ||
+        ctrl_hdl.no_dfl_flows) {
+        return;
+    }
+
     memset(&flow, 0, sizeof(flow));
     of_mask_set_dc_all(&mask);
+
+    flow.table_id = table_id;
+    mask.table_id = 0xff;
+
+    if (chain) {
+        next_valid_tbl = of_switch_get_next_valid_table(sw, table_id, lock);
+    }
+
+    if (next_valid_tbl >= 0 &&
+        sw->ofp_ctors->inst_goto) { 
+
+        of_mact_alloc(&mdata);
+        sw->ofp_ctors->inst_goto(&mdata, next_valid_tbl);
+        __of_send_flow_add_direct(sw, &flow, &mask, OFP_NO_BUFFER,
+                              mdata.act_base, of_mact_len(&mdata),
+                              0, 0, C_FL_PRIO_DFL);
+        of_mact_free(&mdata);
+
+    } else {
+        assert(sw->ofp_ctors->act_output);
+        of_mact_alloc(&mdata);
+        if (sw->ofp_ctors->act_output) {
+            sw->ofp_ctors->act_output(&mdata, 0); /* 0 -> Send to controller */
+        }
+
+        __of_send_flow_add_direct(sw, &flow, &mask, OFP_NO_BUFFER,
+                              mdata.act_base, of_mact_len(&mdata),
+                              0, 0, C_FL_PRIO_DFL);
+        of_mact_free(&mdata);
+    }
+
+}
+ 
+static void
+c_switch_flow_table_enable(c_switch_t *sw, uint8_t table_id, bool enable_miss)
+{
+    c_flow_tbl_t  *tbl;
+    bool en = false;
 
     c_rd_lock(&sw->lock);
     tbl = &sw->rule_flow_tbls[table_id];
@@ -5371,40 +6186,14 @@ c_switch_flow_table_enable(c_switch_t *sw, uint8_t table_id)
     }
     c_rd_unlock(&sw->lock);
 
-    if (!en ||
+    if (!en || !c_switch_of_master_check(&ctrl_hdl) ||
         ctrl_hdl.no_dfl_flows) {
         return;
     }
 
-    flow.table_id = table_id;
-    mask.table_id = 0xff;
+    if (enable_miss)
+        c_switch_flow_table_enable_miss(sw, table_id, true, true);
 
-    if (table_id == 0) {
-        next_valid_tbl = of_switch_get_next_valid_table(sw, table_id);
-    }
-
-    if (next_valid_tbl >= 0 &&
-        sw->ofp_ctors->inst_goto) { 
-
-        of_mact_alloc(&mdata);
-        sw->ofp_ctors->inst_goto(&mdata, table_id+1);
-        __of_send_flow_add_direct(sw, &flow, &mask, OFP_NO_BUFFER,
-                              mdata.act_base, of_mact_len(&mdata),
-                              0, 0, C_FL_PRIO_DFL); 
-        of_mact_free(&mdata);
-
-    } else {    
-        assert(sw->ofp_ctors->act_output);
-        of_mact_alloc(&mdata);
-        if (sw->ofp_ctors->act_output) {
-            sw->ofp_ctors->act_output(&mdata, 0); /* 0 -> Send to controller */
-        }
-
-        __of_send_flow_add_direct(sw, &flow, &mask, OFP_NO_BUFFER,
-                              mdata.act_base, of_mact_len(&mdata),
-                              0, 0, C_FL_PRIO_DFL); 
-        of_mact_free(&mdata);
-    }
 }
 
 static void
@@ -5417,7 +6206,10 @@ of10_recv_flow_mod(c_switch_t *sw, struct cbuf *b)
     uint16_t                    command = ntohs(ofm->command);
     bool                        flow_add;
 
-    c_log_err("[OFP10] unexpected flow-mod");
+    if (!c_switch_is_virtual(sw)) {
+        c_log_err("[OFP10] unexpected flow-mod");
+        return;
+    }
 
     switch (command) {
     case OFPFC_MODIFY_STRICT:
@@ -5552,6 +6344,10 @@ of131_send_pkt_out_inline(void *arg, struct of_pkt_out_params *parms)
         return;
     }
 
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return;
+    }
+
     tot_len = sizeof(struct ofp131_packet_out) +
                 parms->action_len + parms->data_len;
     if (unlikely(tot_len > C_INLINE_BUF_SZ)) return of_send_pkt_out(sw, parms);
@@ -5598,11 +6394,12 @@ of131_process_port(c_switch_t *sw UNUSED, void *opp_)
     return port_desc;
 }
 
-static void UNUSED
-of131_recv_err_flow_mod(c_switch_t *sw, struct cbuf *buf UNUSED,
+static void
+of131_recv_err_flow_mod(c_switch_t *sw, struct cbuf *b,
                         struct ofp131_flow_mod *ofp_mod,
-                        size_t msg_len, uint32_t cookie)
+                        size_t msg_len)
 {
+    struct of_flow_mod_params fl_parms;
     struct flow flow, mask;
     struct ofpx_match *match;
     void *app_owner;
@@ -5611,38 +6408,38 @@ of131_recv_err_flow_mod(c_switch_t *sw, struct cbuf *buf UNUSED,
     c_fl_entry_t *ent = NULL;
     struct c_sw_expired_ent *exp_ent = NULL;
     GSList *iterator = NULL;
+    uint64_t cookie = 0;
+    char *str = NULL;
 
-    if (!cookie) {
+    if (msg_len < sizeof(*ofp_mod)) return;
 
-        if (msg_len < sizeof(*ofp_mod)) return;
+    prio = ntohs(ofp_mod->priority);
+    cookie = (uint64_t)ntohll(ofp_mod->cookie);
+    flow.table_id = ofp_mod->table_id;
+    mask.table_id = 0xff;  /* Inconsequential */
 
-        match = &ofp_mod->match;
-        match_len = C_ALIGN_8B_LEN(htons(match->length)); /* Aligned match-length */
-        if (msg_len < sizeof(*ofp_mod) + match_len - OFPX_MATCH_HDR_SZ) {
-            if (!c_rlim(&crl)) {
-                c_log_err("[OF13] err msg too short to parse");
-            }
-            return;
-        } 
-
-        prio = ntohs(ofp_mod->priority);
-        match = &ofp_mod->match;
-        cookie = (uint32_t)ntohll(ofp_mod->cookie);
-        if (of131_ofpx_match_to_flow(match, &flow, &mask)) {
-            if (!c_rlim(&crl))
-                c_log_err("[OF13] err msg:OXM TLV parse-err");
-            return;
+    match = &ofp_mod->match;
+    match_len = C_ALIGN_8B_LEN(htons(match->length)); /* Aligned match-length */
+    if (msg_len < sizeof(*ofp_mod) + match_len - OFPX_MATCH_HDR_SZ) {
+        if (cookie && c_buf_ofp_xid(b))  
+            goto do_lookup;
+        if (!c_rlim(&crl)) {
+            c_log_err("[OF13] err msg too short to parse");
         }
-        flow.table_id = ofp_mod->table_id;
-        mask.table_id = 0xff;  /* Inconsequential */
-    } else {
-        memset(&flow, 0, sizeof(flow)); 
-        memset(&mask, 0, sizeof(flow)); 
-        prio = 0;
-    }
+        return;
+    } 
 
+    if (of131_ofpx_match_to_flow(match, &flow, &mask)) {
+        if (!c_rlim(&crl))
+            c_log_err("[OF13] err msg:OXM TLV parse-err");
+        return;
+    }
+    flow.table_id = ofp_mod->table_id;
+    mask.table_id = 0xff;  /* Inconsequential */
+
+do_lookup:
     ent = cookie ? c_do_flow_lookup_with_cookie(sw, &flow, &mask, prio,
-                                                (uint32_t)cookie) :
+                                                cookie, c_buf_ofp_xid(b)) :
                    c_do_flow_lookup_with_detail(sw, &flow, &mask, prio);
     if (!ent) {
         if (!c_rlim(&crl))
@@ -5656,6 +6453,7 @@ of131_recv_err_flow_mod(c_switch_t *sw, struct cbuf *buf UNUSED,
         app_owner = iterator->data;
         c_app_ref(app_owner);
         exp_ent = calloc(1, sizeof(*exp_ent));
+        if (!exp_ent) break;
         exp_ent->app = app_owner;
         exp_ent->b = c_ofp_prep_flow_mod(ent->sw, ent, false);
         ent->sw->exp_list = g_slist_append(ent->sw->exp_list,
@@ -5663,7 +6461,152 @@ of131_recv_err_flow_mod(c_switch_t *sw, struct cbuf *buf UNUSED,
     }
     c_rd_unlock(&ent->FL_LOCK);
 
+    if (ent) c_flow_entry_put(ent);
+
     c_sw_trigger_expiry(sw);
+
+    memcpy(&flow, &ent->fl, sizeof(struct flow));
+    memcpy(&mask, &ent->fl_mask, sizeof(struct flow));
+
+    memset(&fl_parms, 0, sizeof(fl_parms));
+    fl_parms.mask = &mask;
+    fl_parms.flow = &flow;
+    fl_parms.prio = prio;
+    fl_parms.cookie = (uint32_t)(cookie >> 32);
+    fl_parms.seq_cookie = (uint32_t)(cookie & 0xffffffff);
+
+    switch (ntohs(ofp_mod->command)) {
+    case OFPFC_ADD:
+    case OFPFC_MODIFY:
+    case OFPFC_MODIFY_STRICT:
+        fl_parms.command = C_OFPC_ADD;
+        break;
+    case OFPFC_DELETE:
+    case OFPFC_DELETE_STRICT:
+        fl_parms.command = C_OFPC_DEL;
+        break;
+    }
+
+    if (!c_rlim(&crl)) {
+        str = of_dump_flow_generic(fl_parms.flow, fl_parms.mask);
+        c_log_info("Flow mod failed switch 0x%llx c%llu t%d p%hu %s",
+                   U642ULL(sw->DPID), U642ULL(cookie), flow.table_id,
+                   (unsigned short)(prio), str);
+        free(str);
+    }
+
+    c_signal_app_event(sw, b, C_FLOW_MOD_FAILED, NULL, &fl_parms, false);
+}
+
+static void
+of131_recv_err_meter_mod(c_switch_t *sw, struct cbuf *b,
+                         struct ofp_meter_mod *ofp_mm,
+                         size_t msg_len)
+{
+    struct of_meter_mod_params m_parms;
+    void *app_owner;
+    uint16_t cmd;
+    struct c_sw_expired_ent *exp_ent = NULL;
+    c_switch_meter_t *meter;
+
+    if (msg_len < sizeof(*ofp_mm)) return;
+
+    memset(&m_parms, 0, sizeof(m_parms));
+    m_parms.meter = ntohl(ofp_mm->meter_id);
+    m_parms.flags = ntohs(ofp_mm->flags);
+
+    cmd = ntohs(ofp_mm->command);
+    switch(cmd) {
+    case OFPMC_ADD:
+    case OFPMC_MODIFY:
+        m_parms.command = C_OFPMC_ADD;
+        break;
+    case OFPMC_DELETE:
+        m_parms.command = C_OFPMC_DEL;
+        break;
+    }
+
+    c_wr_lock(&sw->lock);
+    if (!(meter = g_hash_table_lookup(sw->meters, &m_parms.meter))) {
+        if (cmd == OFPMC_DELETE) goto signal_event;
+        c_wr_unlock(&sw->lock);
+        if (!c_rlim(&crl))
+            c_log_err("[OF] %s No such meter %d", FN, m_parms.meter);
+        return;
+    }
+
+    app_owner = meter->app_owner;
+    c_app_ref(app_owner);
+    exp_ent = calloc(1, sizeof(*exp_ent));
+    if (!exp_ent) goto signal_event;
+    exp_ent->app = app_owner;
+    exp_ent->b = c_of_prep_meter_mod_msg(meter, false);
+    meter->sw->exp_list = g_slist_append(meter->sw->exp_list,
+                                         exp_ent);
+    c_wr_unlock(&sw->lock);
+
+signal_event:
+    c_sw_trigger_expiry(sw);
+
+    if (!c_rlim(&crl))
+        c_log_err("[OF] meter-mod failed %d", m_parms.meter);
+
+    c_signal_app_event(sw, b, C_METER_MOD_FAILED, NULL, &m_parms, false);
+}
+
+static void
+of131_recv_err_group_mod(c_switch_t *sw, struct cbuf *b,
+                         struct ofp_group_mod *ofp_gm,
+                         size_t msg_len)
+{
+    struct of_group_mod_params g_parms;
+    void *app_owner;
+    uint16_t cmd;
+    struct c_sw_expired_ent *exp_ent = NULL;
+    c_switch_group_t *group;
+
+    if (msg_len < sizeof(*ofp_gm)) return;
+
+    memset(&g_parms, 0, sizeof(g_parms));
+    g_parms.group = ntohl(ofp_gm->group_id);
+
+    cmd = ntohs(ofp_gm->command);
+    switch(cmd) {
+    case OFPGC_ADD:
+    case OFPGC_MODIFY:
+        g_parms.command = C_OFPG_ADD;
+        break;
+    case OFPGC_DELETE:
+        g_parms.command = C_OFPG_DEL;
+        break;
+    }
+
+    c_wr_lock(&sw->lock);
+    if (!(group = g_hash_table_lookup(sw->groups, &g_parms.group))) {
+        if (cmd == OFPGC_DELETE) goto signal_event;
+        c_wr_unlock(&sw->lock);
+        if (!c_rlim(&crl))
+            c_log_err("[OF] %s No such group %d", FN, g_parms.group);
+        return;
+    }
+
+    app_owner = group->app_owner;
+    c_app_ref(app_owner);
+    exp_ent = calloc(1, sizeof(*exp_ent));
+    if (!exp_ent) goto signal_event;
+    exp_ent->app = app_owner;
+    exp_ent->b = c_of_prep_group_mod_msg(group, false);
+    group->sw->exp_list = g_slist_append(group->sw->exp_list,
+                                         exp_ent);
+    c_wr_unlock(&sw->lock);
+
+signal_event:
+    c_sw_trigger_expiry(sw);
+
+    if (!c_rlim(&crl))
+        c_log_err("[OF] group-mod failed %d", g_parms.group);
+
+    c_signal_app_event(sw, b, C_GROUP_MOD_FAILED, NULL, &g_parms, false);
 }
 
 static void
@@ -5675,9 +6618,9 @@ of131_recv_err_msg(c_switch_t *sw, struct cbuf *b)
     ssize_t orig_len = ntohs(ofp_err->header.length) - sizeof(*ofp_err);
 
     if (!c_rlim(&crl))
-        c_log_err("[OF13] error from switch |0x%llx| type|%hu|code|%hu|", 
+        c_log_err("[OF13] Err from |0x%llx| type|%hu|code|%hu| len(%d)", 
                    U642ULL(sw->DPID), ntohs(ofp_err->type),
-                   ntohs(ofp_err->code));
+                   ntohs(ofp_err->code), (int)orig_len);
 
     switch(ntohs(ofp_err->type)) {
     case OFPET131_FLOW_MOD_FAILED:
@@ -5685,17 +6628,23 @@ of131_recv_err_msg(c_switch_t *sw, struct cbuf *b)
     case OFPET131_BAD_ACTION: 
     case OFPET131_BAD_INSTRUCTION: 
     case OFPET131_BAD_MATCH: 
+    case OFPET131_GROUP_MOD_FAILED:
+    case OFPET131_METER_MOD_FAILED:
         parse_body = true;
         break;
     default:
         break;
     }
 
-    if (!parse_body && orig_len >= sizeof(*ofp)) return;
+    if (!parse_body || orig_len < sizeof(*ofp)) return;
 
     switch (ofp->type) {
     case OFPT131_FLOW_MOD:
-        //return of131_recv_err_flow_mod(sw, b, (void *)ofp, orig_len, 0);
+        return of131_recv_err_flow_mod(sw, b, (void *)ofp, orig_len);
+    case OFPT131_METER_MOD:
+        return of131_recv_err_meter_mod(sw, b, (void *)ofp, orig_len);
+    case OFPT131_GROUP_MOD:
+        return of131_recv_err_group_mod(sw, b, (void *)ofp, orig_len);
     default:
         break;
     }
@@ -5705,12 +6654,6 @@ static void
 of131_recv_features_reply(c_switch_t *sw, struct cbuf *b)
 {
     struct ofp131_switch_features  *osf = CBUF_DATA(b);
-    int tbl = 0;
-    struct flow  flow;
-    struct flow  mask;
-
-    memset(&flow, 0, sizeof(flow));
-    of_mask_set_dc_all(&mask);
 
     if (!c_switch_features_check(sw, ntohll(osf->datapath_id))) {
         return;
@@ -5721,14 +6664,6 @@ of131_recv_features_reply(c_switch_t *sw, struct cbuf *b)
                            ntohl(osf->capabilities));                           
 
     c_register_switch(sw, b, false);
-
-    for (tbl = 0; tbl < sw->n_tables; tbl++) {
-         flow.table_id = tbl;
-         __of_send_flow_del_direct(sw, &flow, &mask, 0,
-                                    false, C_FL_PRIO_DFL, OFPG_ANY);
-     }
-     __of_send_clear_all_groups(sw);
-     __of_send_clear_all_meters(sw);
 
     /* Get all the table features */
     c_switch_tx(sw, of131_prep_mpart_msg(OFPMP_TABLE_FEATURES, 0, 0), false);
@@ -5941,7 +6876,7 @@ of13_14_mpart_process(c_switch_t *sw, struct cbuf *b)
                 if (sw->ofp_priv_procs->proc_one_tbl_feature) {
                     sw->ofp_priv_procs->proc_one_tbl_feature(sw, (void *)ofp_tf);
                 }
-                c_switch_flow_table_enable(sw, ofp_tf->table_id);
+                c_switch_flow_table_enable(sw, ofp_tf->table_id, false);
                 table_feat_len -= ntohs(ofp_tf->length);
                 ofp_tf = INC_PTR8(ofp_tf, ntohs(ofp_tf->length));
             }
@@ -6064,7 +6999,8 @@ of13_14_mpart_process(c_switch_t *sw, struct cbuf *b)
                         c_log_err("[OF13] mpart-rx:|0x%llx| no meter %u",
                                   sw->DPID, ntohl(ofp_mc->meter_id));
                     }
-                    if (sw->switch_state & SW_METER_PROBED &&
+                    if (c_switch_of_master_check(&ctrl_hdl) &&
+                        sw->switch_state & SW_METER_PROBED &&
                         !(sw->switch_state & SW_METER_PROBE_DONE)) {
 
                         memset(&m_parms, 0, sizeof(m_parms));
@@ -6174,10 +7110,12 @@ next_meter:
                         c_log_err("[OF13] mpart-rx:|0x%llx| no grp desc %u",
                                   sw->DPID, ntohl(ofp_gs->group_id));
                     } 
-                    if (sw->switch_state & SW_GROUP_PROBED &&
+                    if (c_switch_of_master_check(&ctrl_hdl) &&
+                        sw->switch_state & SW_GROUP_PROBED &&
                         !(sw->switch_state & SW_GROUP_PROBE_DONE)) {
 
                         memset(&g_parms, 0, sizeof(g_parms));
+                        nbkts = 0;
                         free_gparms = true;
 
                         g_parms.group = id;
@@ -6288,7 +7226,8 @@ next_group_desc:
                         c_log_err("[OF13] mpart-rx:|0x%llx| no grp %u",
                                   sw->DPID, ntohl(ofp_gs->group_id));
                     } 
-                    if (sw->switch_state & SW_GROUP_PROBED &&
+                    if (c_switch_of_master_check(&ctrl_hdl) &&
+                        sw->switch_state & SW_GROUP_PROBED &&
                         !(sw->switch_state & SW_GROUP_PROBE_DONE)) {
 
                         memset(&g_parms, 0, sizeof(g_parms));
@@ -6470,14 +7409,27 @@ unlock_out:
 }
 
 static void
-of131_recv_role_reply(c_switch_t *sw, struct cbuf *b UNUSED)
+of131_recv_role_reply(c_switch_t *sw, struct cbuf *b)
 {
-    uint32_t curr_role = 0;
+    struct ofp_role_request *ofp_rr = CBUF_DATA(b);
+    uint32_t curr_role;
     uint64_t gen_id;
+    uint64_t sw_gen_id = ntohll(ofp_rr->generation_id);
 
     c_ha_get_of_state(&curr_role, &gen_id);
-    c_log_info("[HA] |Switch-0x%llx| New role confirmed |%s|",
-               U642ULL(sw->DPID), of_role_to_str(curr_role)); 
+
+    if (curr_role != ntohl(ofp_rr->role)) {
+        c_log_err("[HA] |WARN| |Switch-0x%llx| Role conflict (0x%x|0x%x)",
+                  U642ULL(sw->DPID), curr_role, ntohl(ofp_rr->role)); 
+    } else {
+        c_log_info("[HA] |Switch-0x%llx| New role confirmed |%s|",
+                   U642ULL(sw->DPID), of_role_to_str(curr_role)); 
+    }
+
+    if ((sw_gen_id != (uint64_t)(-1)) &&
+        gen_id < ntohll(ofp_rr->generation_id)) {
+        c_ha_generation_id_update(ntohll(ofp_rr->generation_id), 0);
+    }
 }
 
 static void __fastpath
@@ -6717,7 +7669,6 @@ of131_proc_tbl_feat_set_field(c_switch_t *sw, void *prop,
 
         xlen = oxm.length; 
         if (xlen > len || xlen < sizeof(oxm)) {
-            c_log_err("[OF13] table feat set-field error");
             break;
         }
 
@@ -6845,7 +7796,7 @@ of131_proc_one_flow_stats(c_switch_t *sw, void *ofps)
                         ntohll(ofp_stats->byte_count),
                         ntohl(ofp_stats->duration_sec),
                         ntohl(ofp_stats->duration_nsec),
-                        (uint32_t)(cookie),
+                        cookie,
                         ntohs(ofp_stats->idle_timeout),
                         ntohs(ofp_stats->hard_timeout));
     return inst_len;
@@ -6903,12 +7854,6 @@ static void
 of140_recv_features_reply(c_switch_t *sw, struct cbuf *b)
 {
     struct ofp140_switch_features  *osf = CBUF_DATA(b);
-    struct flow  flow;
-    struct flow  mask;
-    int tbl = 0;
-
-    memset(&flow, 0, sizeof(flow));
-    of_mask_set_dc_all(&mask);
 
     if (!c_switch_features_check(sw, ntohll(osf->datapath_id))) {
         return;
@@ -6919,12 +7864,6 @@ of140_recv_features_reply(c_switch_t *sw, struct cbuf *b)
                            ntohl(osf->capabilities));                           
 
     c_register_switch(sw, b, false);
-
-    for (tbl = 0; tbl < sw->n_tables; tbl++) {
-         flow.table_id = tbl;
-         __of_send_flow_del_direct(sw, &flow, &mask, 0,
-                                    false, C_FL_PRIO_DFL, OFPG_ANY);
-     }
 
     /* Get all the table features */
     c_switch_tx(sw, of140_prep_mpart_msg(OFPMP_TABLE_FEATURES, 0, 0), false);
@@ -6944,23 +7883,60 @@ of140_recv_features_reply(c_switch_t *sw, struct cbuf *b)
     sw->last_feat_probed = time(NULL);
 }
 
+void __fastpath
+of140_send_pkt_out_inline(void *arg, struct of_pkt_out_params *parms)
+{
+    struct cbuf     b;
+    size_t          tot_len;
+    uint8_t         data[C_INLINE_BUF_SZ];
+    struct ofp140_packet_out *out;
+    c_switch_t *sw = arg;
+
+    if (sw->tx_lim_on && c_rlim(&sw->tx_rlim)) {
+        sw->tx_pkt_out_dropped++;
+        return;
+    }
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        return;
+    }
+
+    tot_len = sizeof(struct ofp140_packet_out) +
+                parms->action_len + parms->data_len;
+    if (unlikely(tot_len > C_INLINE_BUF_SZ)) return of_send_pkt_out(sw, parms);
+
+    cbuf_init_on_stack(&b, data, tot_len);
+    of_prep_msg_on_stack(&b, tot_len, OFPT140_PACKET_OUT, 
+                         (unsigned long)parms->data, sw->version);
+
+    out = (void *)b.data;
+    out->buffer_id = htonl(parms->buffer_id);
+    out->in_port   = htonl(parms->in_port);
+    out->actions_len = htons(parms->action_len);
+    memcpy(out->actions, parms->action_list, parms->action_len);
+    memcpy((uint8_t *)out->actions + parms->action_len, 
+            parms->data, parms->data_len);
+
+    c_switch_tx(sw, &b, false);
+} 
+
 struct c_ofp_rx_handler of_handlers[] __aligned = {
     NULL_OF_HANDLER, /* OFPT_HELLO */
-    { of10_recv_err_msg, sizeof(struct ofp_error_msg), NULL }, /* OFPT_ERROR */
+    { of10_recv_err_msg, sizeof(struct ofp_error_msg), of_ha_proc }, /* OFPT_ERROR */
     { of10_recv_echo_request, OFP_HDR_SZ, NULL }, /* OFPT_ECHO_REQUEST */
     { of10_recv_echo_reply, OFP_HDR_SZ, NULL}, /* OFPT_ECHO_REPLY */
     { of10_recv_vendor_msg, sizeof(struct ofp_vendor_header), NULL}, /* OFPT_VENDOR */
     NULL_OF_HANDLER, /* OFPT_FEATURES_REQUEST */
-    { of10_recv_features_reply, OFP_HDR_SZ, NULL },
+    { of10_recv_features_reply, OFP_HDR_SZ, of_ha_proc },
                      /* OFPT_FEATURES_REPLY */
     NULL_OF_HANDLER, /* OFPT_GET_CONFIG_REQUEST */
     NULL_OF_HANDLER, /* OFPT_GET_CONFIG_REPLY */
     NULL_OF_HANDLER, /* OFPT_SET_CONFIG */
-    { of10_recv_packet_in, sizeof(struct ofp_packet_in), NULL},
+    { of10_recv_packet_in, sizeof(struct ofp_packet_in), of_ha_packet_in},
                      /* OFPT_PACKET_IN */
-    { of10_flow_removed, sizeof(struct ofp_flow_removed), NULL}, 
+    { of10_flow_removed, sizeof(struct ofp_flow_removed), of_ha_proc}, 
                      /* OFPT_FLOW_REMOVED */
-    { of10_recv_port_status, sizeof(struct ofp_port_status), NULL },
+    { of10_recv_port_status, sizeof(struct ofp_port_status), of_ha_proc },
                      /* OFPT_PORT_STATUS */
     NULL_OF_HANDLER, /* OFPT_PACKET_OUT */
     { of10_recv_flow_mod, sizeof(struct ofp_flow_mod), NULL }, /* OFPT_FLOW_MOD */
@@ -6999,10 +7975,10 @@ struct c_ofp_rx_handler of_init_handlers[] __aligned = {
     NULL_OF_HANDLER, /* OFPT_HELLO */
     NULL_OF_HANDLER, /* OFPT_ERROR */
     { of_recv_init_echo_request, OFP_HDR_SZ, NULL }, /* OFPT_ECHO_REQUEST */
-    { of_recv_init_echo_reply, OFP_HDR_SZ, NULL}, /* OFPT_ECHO_REPLY */
+    { of_recv_init_echo_reply, OFP_HDR_SZ, of_ha_proc}, /* OFPT_ECHO_REPLY */
     NULL_OF_HANDLER, /* OFPT_VENDOR */
     NULL_OF_HANDLER, /* OFPT_FEATURES_REQUEST */
-    { of10_recv_features_reply, OFP_HDR_SZ, NULL },
+    { of10_recv_features_reply, OFP_HDR_SZ, of_ha_proc },
                      /* OFPT_FEATURES_REPLY */
     NULL_OF_HANDLER, /* OFPT_GET_CONFIG_REQUEST */
     NULL_OF_HANDLER, /* OFPT_GET_CONFIG_REPLY */
@@ -7023,10 +7999,10 @@ struct c_ofp_rx_handler of131_init_handlers[] __aligned = {
     NULL_OF_HANDLER, /* OFPT131_HELLO */
     NULL_OF_HANDLER, /* OFPT131_ERROR */
     { of_recv_init_echo_request, OFP_HDR_SZ, NULL }, /* OFPT_ECHO_REQUEST */
-    { of_recv_init_echo_reply, OFP_HDR_SZ, NULL}, /* OFPT_ECHO_REPLY */
+    { of_recv_init_echo_reply, OFP_HDR_SZ, of_ha_proc}, /* OFPT_ECHO_REPLY */
     NULL_OF_HANDLER, /* OFPT131_EXPERIMENTER */
     NULL_OF_HANDLER, /* OFPT131_FEATURES_REQUEST */
-    { of131_recv_features_reply, OFP_HDR_SZ, NULL },
+    { of131_recv_features_reply, OFP_HDR_SZ, of_ha_proc },
                      /* OFPT131_FEATURES_REPLY */
     NULL_OF_HANDLER, /* OFPT131_GET_CONFIG_REQUEST */
     NULL_OF_HANDLER, /* OFPT131_GET_CONFIG_REPLY */
@@ -7056,22 +8032,22 @@ struct c_ofp_rx_handler of131_init_handlers[] __aligned = {
 
 struct c_ofp_rx_handler of131_handlers[] __aligned = {
     NULL_OF_HANDLER, /* OFPT131_HELLO */
-    { of131_recv_err_msg, sizeof(struct ofp_error_msg), NULL },
+    { of131_recv_err_msg, sizeof(struct ofp_error_msg), of_ha_proc },
                       /* OFPT131_ERROR */
     { of10_recv_echo_request, OFP_HDR_SZ, NULL },  /* OFPT131_ECHO_REQUEST */
-    { of10_recv_echo_reply, OFP_HDR_SZ, NULL}, /* OFPT131_ECHO_REPLY */
+    { of10_recv_echo_reply, OFP_HDR_SZ, of_ha_proc}, /* OFPT131_ECHO_REPLY */
     NULL_OF_HANDLER,  /* OFPT131_EXPERIMENTER */
     NULL_OF_HANDLER,  /* OFPT131_FEATURES_REQUEST */
-    { of131_recv_features_reply, OFP_HDR_SZ, NULL },
+    { of131_recv_features_reply, OFP_HDR_SZ, of_ha_proc },
                       /* OFPT131_FEATURES_REPLY */
     NULL_OF_HANDLER,  /* OFPT131_GET_CONFIG_REQUEST */
     NULL_OF_HANDLER,  /* OFPT131_GET_CONFIG_REPLY */
     NULL_OF_HANDLER,  /* OFPT131_SET_CONFIG */
-    { of131_recv_packet_in, sizeof(struct ofp131_packet_in), NULL},
+    { of131_recv_packet_in, sizeof(struct ofp131_packet_in), of_ha_packet_in},
                       /* OFPT131_PACKET_IN */
-    { of131_flow_removed, sizeof(struct ofp131_flow_removed), NULL},
+    { of131_flow_removed, sizeof(struct ofp131_flow_removed), of_ha_proc},
                       /* OFPT131_FLOW_REMOVED */
-    { of131_recv_port_status, sizeof(struct ofp131_port_status), NULL },
+    { of131_recv_port_status, sizeof(struct ofp131_port_status), of_ha_proc },
                       /* OFPT131_PORT_STATUS */
     NULL_OF_HANDLER,  /* OFPT131_PACKET_OUT */
     { of131_recv_flow_mod, sizeof(struct ofp131_flow_mod), NULL },
@@ -7098,10 +8074,10 @@ struct c_ofp_rx_handler of140_init_handlers[] __aligned = {
     NULL_OF_HANDLER, /* OFPT140_HELLO */
     { of131_recv_err_msg, OFP_HDR_SZ, NULL}, /* OFPT140_ERROR */
     { of_recv_init_echo_request, OFP_HDR_SZ, NULL }, /* OFPT_ECHO_REQUEST */
-    { of_recv_init_echo_reply, OFP_HDR_SZ, NULL}, /* OFPT_ECHO_REPLY */
+    { of_recv_init_echo_reply, OFP_HDR_SZ, of_ha_proc}, /* OFPT_ECHO_REPLY */
     NULL_OF_HANDLER, /* OFPT140_EXPERIMENTER */
     NULL_OF_HANDLER, /* OFPT140_FEATURES_REQUEST */
-    { of140_recv_features_reply, OFP_HDR_SZ, NULL },
+    { of140_recv_features_reply, OFP_HDR_SZ, of_ha_proc },
                      /* OFPT140_FEATURES_REPLY */
     NULL_OF_HANDLER, /* OFPT140_GET_CONFIG_REQUEST */
     NULL_OF_HANDLER, /* OFPT140_GET_CONFIG_REPLY */
@@ -7131,22 +8107,22 @@ struct c_ofp_rx_handler of140_init_handlers[] __aligned = {
 
 struct c_ofp_rx_handler of140_handlers[] __aligned = {
     NULL_OF_HANDLER, /* OFPT131_HELLO */
-    { of131_recv_err_msg, sizeof(struct ofp_error_msg), NULL },
+    { of131_recv_err_msg, sizeof(struct ofp_error_msg), of_ha_proc },
                       /* OFPT131_ERROR */
     { of10_recv_echo_request, OFP_HDR_SZ, NULL },  /* OFPT140_ECHO_REQUEST */
-    { of10_recv_echo_reply, OFP_HDR_SZ, NULL}, /* OFPT140_ECHO_REPLY */
+    { of10_recv_echo_reply, OFP_HDR_SZ, of_ha_proc}, /* OFPT140_ECHO_REPLY */
     NULL_OF_HANDLER,  /* OFPT131_EXPERIMENTER */
     NULL_OF_HANDLER,  /* OFPT131_FEATURES_REQUEST */
-    { of140_recv_features_reply, OFP_HDR_SZ, NULL },
+    { of140_recv_features_reply, OFP_HDR_SZ, of_ha_proc },
                       /* OFPT131_FEATURES_REPLY */
     NULL_OF_HANDLER,  /* OFPT131_GET_CONFIG_REQUEST */
     NULL_OF_HANDLER,  /* OFPT131_GET_CONFIG_REPLY */
     NULL_OF_HANDLER,  /* OFPT131_SET_CONFIG */
-    { of131_recv_packet_in, sizeof(struct ofp131_packet_in), NULL},
+    { of131_recv_packet_in, sizeof(struct ofp131_packet_in), of_ha_packet_in},
                       /* OFPT131_PACKET_IN */
-    { of131_flow_removed, sizeof(struct ofp131_flow_removed), NULL},
+    { of131_flow_removed, sizeof(struct ofp131_flow_removed), of_ha_proc},
                       /* OFPT131_FLOW_REMOVED */
-    { of131_recv_port_status, sizeof(struct ofp131_port_status), NULL },
+    { of131_recv_port_status, sizeof(struct ofp131_port_status), of_ha_proc },
                       /* OFPT131_PORT_STATUS */
     NULL_OF_HANDLER,  /* OFPT131_PACKET_OUT */
     { of131_recv_flow_mod, sizeof(struct ofp131_flow_mod), NULL },
@@ -7207,7 +8183,7 @@ c_switch_recv_msg(void *sw_arg, struct cbuf *b)
     of_type = oh->type;
 
     if (sw->rx_dump_en && sw->ofp_ctors->dump_of_msg) {
-        sw->ofp_ctors->dump_of_msg(b, false, sw->DPID);
+        sw->ofp_ctors->dump_of_msg(b, false, sw->dump_mask, sw->DPID);
     }
 
     sw->last_refresh_time = time(NULL);
@@ -7220,8 +8196,8 @@ c_switch_recv_msg(void *sw_arg, struct cbuf *b)
                  ((sw->switch_state & SW_REGISTERED) &&
                  (oh->version != sw->version))) {
         if (!c_rlim(&crl)) {
-            c_log_err("[I/O] Bad OF message |%d| Len|%d:%d|",
-                      of_type, (int)(b->len),
+            c_log_err("[I/O] |0x%llx| Bad OF message |%d| Ver |%d| Len|%d:%d|",
+                      U642ULL(sw->DPID), of_type, oh->version, (int)(b->len),
                       (int)(rx_handlers[of_type].min_size));
         }
         return;

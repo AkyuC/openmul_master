@@ -1,20 +1,3 @@
-#!/usr/bin/env python
-
-# Copyright (C) 2013-2014, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
-#
-# Licensed under the Apache License, Version 2.0 (the "License"); you may
-# not use this file except in compliance with the License. You may obtain
-# a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT
-# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See
-# the
-# License for the specific language governing permissions and limitations
-# under the License.
 import json
 import logging
 
@@ -27,19 +10,20 @@ logger.setLevel(logging.DEBUG)
 
 class TopologyHandler(BaseHandler):
 
-    def get(self, dpid=None, dump=None):
+    def get(self, dpid=None, dst_dpid=None):
         if dpid is None:
-            logger.debug("Get all switches")
             self.finish(json.dumps(self.get_all_topology()))
-        else:
+        elif dpid and dst_dpid==None:
             dpid = int(dpid, 16)
-            self.write(json.dumps(self.get_switch_neighbor(dpid)))
+            self.finish(json.dumps(self.get_switch_neighbor(dpid)))
+        elif dpid and dst_dpid:
+            self.finish(json.dumps(self.get_switch_route(dpid, dst_dpid)))
 
     def get_all_topology(self):
         try :
             switch_list = mul.get_switch_all()
         except :
-	        return []
+            return []
         result = []
         for sw in switch_list:
             dpid = sw.switch_id.datapath_id
@@ -48,29 +32,48 @@ class TopologyHandler(BaseHandler):
         return result
 
     def get_switch_neighbor(self, dpid):
-        logger.debug("Get all switches 0x%lx"%dpid)
-        resp = mul.get_switch_neighbor_all(dpid)
-        logger.debug("GOT  all switches 0x%lx"%dpid)
-        return self.__nbapi_port_neigh_list_t_serialization(resp)
+        ret = None
+        try:
+            resp = mul.get_switch_neighbor_all(dpid)
+            ret = ret = self.__nbapi_port_neigh_list_t_serialization(resp) 
+        except:
+            ret = {"error_message" : "failed to get neighbor"}
+            
+        return ret
 
     def __nbapi_port_neigh_list_t_serialization(self, resp):
         result = []
         for neigh in resp:
-            if neigh.neigh_present != 1:
-                continue
-            result.append({
-                "port": neigh.port_no,
-                "to":   self.__c_ofp_port_neigh_serialization(neigh)
-            })
+            ret = {
+                'port' : neigh.port_no,
+            }
+
+            if neigh.neigh_present & mul.COFP_NEIGH_SWITCH:
+                ret.update({
+                    'status' : 'switch',
+                    'neigh_dpid' : '0x%lx' % neigh.neigh_dpid ,
+                    'niegh_port' : neigh.neigh_port
+                  })
+            else:
+                ret.update({
+                    'status' : 'external'
+                })
+            result.append(ret)            
         return result
 
-    def __c_ofp_port_neigh_serialization(self, resp):
-        if resp.neigh_present == 1:
-            neigh_type = "switch"
-        else:
-            neigh_type = "external"
+    def get_switch_route(self, src_dpid, dst_dpid):
+        src_sw = mul.get_switch_general(int(src_dpid, 16))
+        dst_sw = mul.get_switch_general(int(dst_dpid, 16))
+        src_alias = mul.parse_alias_id(src_sw.sw_alias)
+        dst_alias = mul.parse_alias_id(dst_sw.sw_alias)
+        route_path = mul.get_simple_path(src_alias, dst_alias)
+        ret = []
+        for i in range(len(route_path)):
+            node = route_path[i]
+            ret.append({
+                'hop' : i,
+                'to_switch' : '0x%lx' % node.sw_dpid,
+                'to_sw_port' : None if node.sw_dpid==int(dst_dpid,16) else node.in_port
+            })
+        return {'path': ret}
 
-        return {
-            'dpid': '0x%lx' % resp.neigh_dpid,
-            'port_no' : resp.neigh_port
-        }

@@ -89,6 +89,53 @@ DEFUN (show_of_route,
     return CMD_SUCCESS;
 }
 
+DEFUN (show_of_route_all,
+       show_of_route_all_cmd,
+        "show path-route-all <0-1024> to <0-1024>",
+        SHOW_STR
+        "All Routes between OF nodes\n"
+        "source switch node-id\n"
+        "to\n"
+        "destination switch node-id\n")
+{
+    int src_aliasid;
+    int dst_aliasid;
+    rt_list_t *list, *elem;
+    char *pbuf = NULL;
+
+    src_aliasid = atoi(argv[0]);
+    dst_aliasid = atoi(argv[1]);
+
+    list = tr_get_route_all(tr_hdl, src_aliasid, dst_aliasid);
+    if (!list) {
+        vty_out(vty, "No route found%s", VTY_NEWLINE);
+        return CMD_SUCCESS;         
+    }
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    for (elem = list; elem; elem = elem->next) {
+        pbuf = tr_dump_route(elem->route);
+        if (pbuf) {
+            vty_out (vty, "%s", pbuf);
+            free(pbuf);
+        }
+    }
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    mul_route_list_free(list, true);
+
+    return CMD_SUCCESS;
+}
+
+
 /* install two available commands */
 void
 route_vty_init(void *arg UNUSED)
@@ -96,6 +143,7 @@ route_vty_init(void *arg UNUSED)
     /* commands work only after "enable" command in the beginning */
     c_log_debug("%s: installing route vty command", FN);
     install_element(ENABLE_NODE, &show_of_route_cmd);
+    install_element(ENABLE_NODE, &show_of_route_all_cmd);
     install_element(ENABLE_NODE, &show_route_matrix_cmd);
 }
 

@@ -1,8 +1,10 @@
-/*
- *  mul_fabric_route.c: Fabric routing for MUL Controller 
- *  Copyright (C) 2012, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
- * 
- * This program is free software; you can redistribute it and/or
+/**
+ *  @file mul_fabric_route.c
+ *  @brief Mul fabric route manager 
+ *  @author Dipjyoti Saikia  <dipjyoti.saikia@gmail.com> 
+ *  @copyright Copyright (C) 2012, Dipjyoti Saikia 
+ *
+ * @license This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
@@ -15,15 +17,18 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ *
+ *
+ * @see www.openmul.org
  */
+
 #include "mul_fabric_common.h"
 
 extern fab_struct_t *fab_ctx;
 
 /**
- * fab_route_elem_valid - 
- *
- * Check if a fabric route elem is valid
+ * @name fab_route_elem_valid
+ * @brief Check if a fabric route elem is valid
  */
 static int 
 fab_route_elem_valid(void *rt_path_arg, void *route_arg)
@@ -59,9 +64,9 @@ route_inv_switch:
 }
 
 /**
- * fab_mp_select -
+ * @name fab_mp_select
  *
- * Select a path from multi-paths
+ * @brief Select a path from multi-path set
  */
 static size_t
 fab_mp_select(void *u_arg, size_t max_routes)
@@ -83,9 +88,9 @@ fab_mp_select(void *u_arg, size_t max_routes)
 }
 
 /**
- * fab_route_get -
+ * @name fab_route_get
  *
- * Get a fabric route
+ * @brief Get a fabric route
  */
 GSList *
 fab_route_get(void *rt_service, int src_sw, int dst_sw,
@@ -113,9 +118,9 @@ fab_route_get(void *rt_service, int src_sw, int dst_sw,
 }
 
 /**
- * fab_route_from_host_cmp - 
+ * @name fab_route_from_host_cmp 
  *
- * Check whether route originates from a host 
+ * @brief Check whether route originates from a host 
  */
 static int
 fab_route_from_host_cmp(void *route_elem, void *h_arg)
@@ -131,9 +136,10 @@ fab_route_from_host_cmp(void *route_elem, void *h_arg)
 } 
 
 /**
- * fab_route_to_host_cmp - 
+ * @name fab_route_to_host_cmp
+ * @brief Check whether a route terminates at given host 
  *
- * Check whether route terminates at host 
+ * @retval int 0 if it terminates else 1
  */
 static int
 fab_route_to_host_cmp(void *route_elem, void *h_arg)
@@ -147,9 +153,9 @@ fab_route_to_host_cmp(void *route_elem, void *h_arg)
 } 
 
 /**
- * fab_dump_single_pending_route -
+ * @name fab_dump_single_pending_route -
  *
- * Dump a single pending route
+ * @brief Dump a single pending route
  */
 void
 fab_dump_single_pending_route(void *route, void *arg UNUSED)
@@ -164,12 +170,13 @@ fab_dump_single_pending_route(void *route, void *arg UNUSED)
 }
 
 /**
- * __fab_loop_all_pending_routes -
- * @fab_ctx : Fabric ctx pointer
- * @iter_fn : Iteration callback for each route of host
- * @u_data  : User arg to be passed to iter_fn
+ * @name __fab_loop_all_pending_routes
+ * @brief Loop over all pending routes
+ * @param fab_ctx : Fabric ctx pointer
+ * @param iter_fn : Iteration callback for each route of host
+ * @param u_data  : User arg to be passed to iter_fn
  *
- * Loop over all pending routes
+ * @retval void Nothing
  */
 void
 __fab_loop_all_pending_routes(fab_struct_t *fab_ctx, GFunc iter_fn, void *u_data)
@@ -181,9 +188,9 @@ __fab_loop_all_pending_routes(fab_struct_t *fab_ctx, GFunc iter_fn, void *u_data
 }
 
 /**
- * fab_route_elem_oport_cmp -
+ * @name fab_route_elem_oport_cmp
  *
- * Check whether fabric route element has port as out_port for this node
+ * @brief Check whether fabric route element has port as out_port for this node
  */
 static int
 fab_route_elem_oport_cmp(void *rt_path_arg, void *sw_arg)
@@ -203,11 +210,11 @@ fab_route_elem_oport_cmp(void *rt_path_arg, void *sw_arg)
 
 
 /**
- * fab_per_switch_route_install- 
- * @rt : a route element  
- * @u_arg : fabric route pointer  
+ * @name fab_per_switch_route_install
+ * @brief Install a fabric route element to a switch node
+ * @param rt : a route element  
+ * @param u_arg : fabric route pointer  
  *
- * Install a fabric route element to a switch node
  */
 static void
 fab_per_switch_route_install(void *rt, void *u_arg)
@@ -216,7 +223,7 @@ fab_per_switch_route_install(void *rt, void *u_arg)
     fab_route_t                 *froute = u_arg;
     struct mul_act_mdata        mdata;
     uint16_t                    out_port, in_port;
-    uint16_t                    tenant_id;
+    uint16_t                    tenant_id = 0;
     bool                        fhop, lhop; 
     bool                        add_pkt_tenant = false, strip_pkt_tenant = false;
     bool                        set_dmac_lhop = false;
@@ -225,17 +232,19 @@ fab_per_switch_route_install(void *rt, void *u_arg)
 
     sw = __fab_switch_get_with_alias(fab_ctx, rt_elem->sw_alias);
     if (!sw) {
-        c_log_err("%s: switch cant be found", FN);
+        app_rlog_err("%s: switch cant be found", FN);
         return;
     }
-    c_log_debug("%s: 0x%x to 0x%x:(Switch 0x%llx)", FN, froute->src->hkey.host_ip, 
+    app_log_debug("%s: 0x%x -> 0x%x:(Switch 0x%llx)", FN, froute->src->hkey.host_ip, 
                 froute->dst->hkey.host_ip, (unsigned long long)sw->dpid);
     fab_switch_put_locked(sw);
 
     lhop = rt_elem->flags & RT_PELEM_LAST_HOP ? true: false;
     fhop = rt_elem->flags & RT_PELEM_FIRST_HOP ? true: false;
-
-    tenant_id = fab_tnid_to_tid(froute->src->hkey.tn_id);
+    /*TODO: FIXME
+            Masking is not the permanent solution for keeping tenant id
+            within the range of VLAN ID*/
+    tenant_id = fab_tnid_to_tid(froute->src->hkey.tn_id) & 0x0fff;
     out_port = lhop ? froute->dst->sw.port : rt_elem->link.la;
     in_port = fhop ? froute->src->sw.port : rt_elem->in_port;
 
@@ -251,42 +260,41 @@ fab_per_switch_route_install(void *rt, void *u_arg)
 
     if (tenant_id) {
         if (lhop && fhop) { 
-#ifdef CONFIG_HAVE_PROXY_ARP
-            set_dmac_lhop = true;
-#endif
+            if(fab_ctx->fab_learning != FAB_HOST_TRACKER_ENABLED) {
+                set_dmac_lhop = true;
+            }
             goto apply_route;
         } else if (fhop) {
             add_pkt_tenant = true;
             goto apply_route;
-        } else if (!lhop) {
-            add_pkt_tenant = true;
-        } else {
+        } else if (lhop) {
             /* Last hop */
             strip_pkt_tenant = true;
         } 
-
         fab_add_tenant_id(&froute->rt_flow, &froute->rt_mask, tenant_id);
+
     } else {
-#ifdef CONFIG_HAVE_PROXY_ARP
-        if (lhop) {
-            set_dmac_lhop = true;
+        if(fab_ctx->fab_learning != FAB_HOST_TRACKER_ENABLED) {
+            if (lhop) {
+                set_dmac_lhop = true;
+            }
         }
-#endif
     }
 
 apply_route:
 
     if (add_pkt_tenant) {
+        mul_app_action_push_hdr(&mdata, ETH_TYPE_VLAN);
         mul_app_action_set_vid(&mdata, tenant_id);
     } else if (strip_pkt_tenant) {
         mul_app_action_strip_vlan(&mdata);
-#ifdef CONFIG_HAVE_PROXY_ARP
-        mul_app_action_set_dmac(&mdata, froute->dst->hkey.host_mac);
-#endif
+        if(fab_ctx->fab_learning != FAB_HOST_TRACKER_ENABLED) {
+            mul_app_action_set_dmac(&mdata, froute->dst->hkey.host_mac);
+        }
     } else if (set_dmac_lhop) {
-#ifdef CONFIG_HAVE_PROXY_ARP
-        mul_app_action_set_dmac(&mdata, froute->dst->hkey.host_mac);
-#endif
+        if(fab_ctx->fab_learning != FAB_HOST_TRACKER_ENABLED) {
+            mul_app_action_set_dmac(&mdata, froute->dst->hkey.host_mac);
+        }
     }
 
     mul_app_action_output(&mdata, in_port == out_port ? OFPP_IN_PORT : out_port);
@@ -295,24 +303,24 @@ apply_route:
     of_mask_set_in_port(&froute->rt_mask);
 
     fl_str = of_dump_flow_generic(&froute->rt_flow, &froute->rt_mask);
-    c_log_debug("%s", fl_str);
+    app_log_debug("%s", fl_str);
     free(fl_str);
 
-    c_log_err("%s: Action len %lu", FN, U322UL(mul_app_act_len(&mdata)));
     mul_app_send_flow_add(FAB_APP_NAME, NULL, (uint64_t)(rt_elem->sw_alias), 
                           &froute->rt_flow, 
                           &froute->rt_mask, 
                           FAB_UNK_BUFFER_ID,
                           mdata.act_base, mul_app_act_len(&mdata), 
                           0, 0, froute->prio,
-                          C_FL_ENT_SWALIAS | C_FL_ENT_GSTATS);
-#ifndef CONFIG_HAVE_PROXY_ARP
-    froute->rt_flow.dl_type = ntohs(ETH_TYPE_ARP);
-    mul_app_send_flow_add(FAB_APP_NAME, NULL, (uint64_t)(rt_elem->sw_alias), 
-                          &froute->rt_flow, &froute->rt_mask, FAB_UNK_BUFFER_ID,
-                          mdata.act_base, mul_app_act_len(&mdata), 0, 0,
-                          froute->prio, C_FL_ENT_SWALIAS | C_FL_ENT_GSTATS);
-#endif
+                          C_FL_ENT_SWALIAS  | C_FL_ENT_GSTATS);
+
+    if(fab_ctx->fab_learning == FAB_HOST_TRACKER_ENABLED) {
+        froute->rt_flow.dl_type = ntohs(ETH_TYPE_ARP);
+        mul_app_send_flow_add(FAB_APP_NAME, NULL, (uint64_t)(rt_elem->sw_alias), 
+                &froute->rt_flow, &froute->rt_mask, FAB_UNK_BUFFER_ID,
+                mdata.act_base, mul_app_act_len(&mdata), 0, 0,
+                froute->prio, C_FL_ENT_SWALIAS | C_FL_ENT_GSTATS);
+    }
 
     /* Reset flow modifications if any */
     froute->rt_flow.dl_type = htons(ETH_TYPE_IP);
@@ -325,12 +333,13 @@ apply_route:
     mul_app_act_free(&mdata);
 }
 
+#ifndef FAB_USE_CONX
 /**
- * fab_per_switch_route_uninstall- 
- * @rt : a route element  
- * @u_arg : fabric route pointer  
+ * @name fab_per_switch_route_uninstall- 
+ * @brief Uninstall a fabric route element from a switch node
+ * @param rt : a route element  
+ * @param u_arg : fabric route pointer  
  *
- * Uninstall a fabric route element from a switch node
  */
 static void
 fab_per_switch_route_uninstall(void *rt, void *u_arg)
@@ -344,10 +353,10 @@ fab_per_switch_route_uninstall(void *rt, void *u_arg)
 
     sw = __fab_switch_get_with_alias(fab_ctx, rt_elem->sw_alias);
     if (!sw) {
-        c_log_err("%s: switch cant be found", FN);
+        app_rlog_err("%s: switch cant be found", FN);
         return;
     }
-    c_log_debug("%s: 0x%x to 0x%x:(Switch 0x%llx)", FN, froute->src->hkey.host_ip,
+    app_log_debug("%s: 0x%x -> 0x%x:(Switch 0x%llx)", FN, froute->src->hkey.host_ip,
                 froute->dst->hkey.host_ip, (unsigned long long)sw->dpid);
     fab_switch_put_locked(sw);
 
@@ -360,19 +369,19 @@ fab_per_switch_route_uninstall(void *rt, void *u_arg)
     of_mask_set_in_port(&froute->rt_mask);
 
     fl_str = of_dump_flow_generic(&froute->rt_flow, &froute->rt_mask);
-    c_log_debug("%s", fl_str);
+    app_log_debug("%s", fl_str);
     free(fl_str);
 
     mul_app_send_flow_del(FAB_APP_NAME, NULL, (uint64_t)(rt_elem->sw_alias),
                           &froute->rt_flow, &froute->rt_mask, OFPP_NONE, 
                           froute->prio, C_FL_ENT_SWALIAS, OFPG_ANY);
 
-#ifndef CONFIG_HAVE_PROXY_ARP
-    froute->rt_flow.dl_type = ntohs(ETH_TYPE_ARP);
-    mul_app_send_flow_del(FAB_APP_NAME, NULL, (uint64_t)(rt_elem->sw_alias),
-                          &froute->rt_flow, &froute->rt_mask, OFP_NO_PORT, 
-                          froute->prio, C_FL_ENT_SWALIAS, OFPG_ANY);
-#endif
+    if(fab_ctx->fab_learning == FAB_HOST_TRACKER_ENABLED) {
+        froute->rt_flow.dl_type = ntohs(ETH_TYPE_ARP);
+        mul_app_send_flow_del(FAB_APP_NAME, NULL, (uint64_t)(rt_elem->sw_alias),
+                &froute->rt_flow, &froute->rt_mask, OF_NO_PORT, 
+                froute->prio, C_FL_ENT_SWALIAS, OFPG_ANY);
+    }
 
     froute->rt_flow.dl_type = ntohs(ETH_TYPE_IP);
     if (tenant_id && !fhop) {
@@ -382,12 +391,13 @@ fab_per_switch_route_uninstall(void *rt, void *u_arg)
     froute->rt_flow.in_port = 0;
     of_mask_clr_in_port(&froute->rt_mask);
 }
+#endif
 
 /**
- * fab_route_install - 
- * @froute : Fabric route to install  
+ * @name fab_route_install - 
+ * @brief Install a fabric route to hardware
+ * @param froute : Fabric route to install  
  *
- * Install a fabric route to hardware
  */
 static void
 fab_route_install(fab_route_t *froute)
@@ -398,24 +408,61 @@ fab_route_install(fab_route_t *froute)
 }
 
 /**
- * fab_route_uninstall - 
- * @froute : Fabric route to uninstall  
+ * @name fab_route_uninstall 
+ * @brief Uninstall a fabric route from hardware
+ * @param froute : Fabric route to uninstall  
  *
- * Uninstall a fabric route from hardware
  */
 static void
 fab_route_uninstall(fab_route_t *froute)
 {
+#ifndef FAB_USE_CONX
     mul_route_path_traverse(froute->iroute, fab_per_switch_route_uninstall, 
                             froute); 
+#else
+    int ret = 0;
+    froute->rt_flow.in_port = htonl(froute->src->sw.port);
+    of_mask_set_in_port(&froute->rt_mask);
+    ret = mul_conx_mod_uflow(fab_ctx->fab_conx_service,
+                             false, 1, &froute->src->sw.swid,
+                             (uint64_t)(froute->dst->sw.swid),
+                             &froute->rt_flow, /* Ingress Flow*/
+                             &froute->rt_mask,
+                             0, 0,
+                             NULL, 0,
+                             0, CONX_UFLOW_FORCE);
+    if(ret != 0 ) {
+        app_log_err("Failed to del flows through ConX");
+    }
+    if(fab_ctx->fab_learning == FAB_HOST_TRACKER_ENABLED) {
+        froute->rt_flow.dl_type = ntohs(ETH_TYPE_ARP);
+        ret = mul_conx_mod_uflow(fab_ctx->fab_conx_service,
+                                 false, 1, &froute->src->sw.swid,
+                                 (uint64_t)(froute->dst->sw.swid),
+                                 &froute->rt_flow, /* Ingress Flow*/
+                                 &froute->rt_mask,
+                                 0, 0,
+                                 NULL, 0,
+                                 0, CONX_UFLOW_FORCE);
+        if(ret != 0 ) {
+            app_log_err("Failed to del flows through ConX");
+        }
+    }
+
+    froute->rt_flow.dl_type = ntohs(ETH_TYPE_IP);
+    froute->rt_flow.in_port = 0;
+    of_mask_clr_in_port(&froute->rt_mask);
+
+#endif
     froute->flags |= FAB_ROUTE_DEAD;
 }
 
 /**
- * fab_zaproute - 
- * @route : Fabric route to destroy  
+ * @name fab_zaproute
+ * @brief Destructor for a fabric route
+ * @param route : Fabric route to destroy  
  *
- * Destructor for a fabric route
+ * Frees a route's memory and decrements ref count of route's end points
  */
 static void
 fab_zaproute(void *route)
@@ -434,11 +481,13 @@ fab_zaproute(void *route)
 
 
 /**
- * __fab_del_pending_route -
- * @fab_ctx : Fabric context pointer
- * @route : Fabric route
+ * @name __fab_del_pending_route
+ * @brief Delete route from pending list
+ * @param fab_ctx : Fabric context pointer
+ * @param route : Fabric route
  *
- * Delete route from pending list
+ * If route between two hosts can't be established it is added to the pending list
+ * This function deletes the route from this list
  */
 static void
 __fab_del_pending_route(fab_struct_t *fab_ctx, fab_route_t *froute)
@@ -448,11 +497,11 @@ __fab_del_pending_route(fab_struct_t *fab_ctx, fab_route_t *froute)
 
 
 /**
- * __fab_del_pending_routes_tofro_host -
- * @fab_ctx : Fabric context pointer
- * @host : Fabric host 
+ * @name __fab_del_pending_routes_tofro_host
+ * @brief Delete pending routes to and from a host
+ * @param fab_ctx : Fabric context pointer
+ * @param host : Fabric host 
  *
- * Delete pending routes to and from a host
  */
 void
 __fab_del_pending_routes_tofro_host(fab_struct_t *fab_ctx, fab_host_t *host)
@@ -478,11 +527,11 @@ __fab_del_pending_routes_tofro_host(fab_struct_t *fab_ctx, fab_host_t *host)
 
 
 /**
- * __fab_add_to_pending_routes - 
- * @fab_ctx : Fabric context pointer  
- * @route : Fabric route  
+ * @name __fab_add_to_pending_routes
+ * @brief Add a host-pair route as pending
+ * @param fab_ctx : Fabric context pointer  
+ * @param route : Fabric route  
  *
- * Add a host-pair route as pending
  */
 static void
 __fab_add_to_pending_routes(fab_struct_t *fab_ctx, fab_route_t *froute)
@@ -492,10 +541,10 @@ __fab_add_to_pending_routes(fab_struct_t *fab_ctx, fab_route_t *froute)
 }
 
 /**
- * fab_flush_pending_routes - 
- * @fab_ctx : Fabric context pointer  
+ * @name fab_flush_pending_routes - 
+ * @brief Flush all pending host-pair routes 
+ * @param fab_ctx : Fabric context pointer
  *
- * Flush all pending host-pair routes 
  */
 void
 fab_flush_pending_routes(fab_struct_t *fab_ctx)
@@ -507,11 +556,11 @@ fab_flush_pending_routes(fab_struct_t *fab_ctx)
 }
 
 /**
- * fab_retry_pending_routes - 
- * @fab_ctx : Fabric context pointer  
- * @curr_ts : Current timestamp
+ * @name fab_retry_pending_routes -
+ * @brief Retry establishing all pending host-pair routes 
+ * @param fab_ctx : Fabric context pointer  
+ * @param curr_ts : Current timestamp
  *
- * Retry establishing all pending host-pair routes 
  */
 static void
 fab_retry_pending_routes(fab_struct_t *fab_ctx, time_t curr_ts)
@@ -534,7 +583,7 @@ restart:
         froute = iterator->data;
         if(scan_all_pending ||
            curr_ts > froute->expiry_ts) {
-            c_log_debug("%s: Pending route between (0x%x) -> (0x%x)",
+            app_log_debug("%s: Pending route between (0x%x) -> (0x%x)",
                   FN, froute->src->hkey.host_ip, froute->dst->hkey.host_ip);
 
 
@@ -553,7 +602,7 @@ restart:
                     fab_route_install(froute);
                     c_wr_unlock(&froute->dst->lock);
                 } else {
-                    c_log_debug("%s: Zapped route(%d)->(%d)", FN,
+                    app_log_debug("%s: Zapped route(%d)->(%d)", FN,
                                 froute->src->sw.alias, froute->dst->sw.alias);
                     fab_zaproute(froute);
                 }
@@ -586,11 +635,12 @@ restart:
 }
 
 /**
- * fab_mkroute - 
- * @src : Source host 
- * @dst : Destination host
+ * @name fab_mkroute - 
+ * @brief Make a route from a source to a destination host 
+ * @param src : Source host 
+ * @param dst : Destination host
  *
- * Make a route from a source to a destination host 
+ * @retval fab_route_t * Pointer to new route or NULL
  */
 static fab_route_t * 
 fab_mkroute(fab_host_t *src, fab_host_t *dst)
@@ -634,30 +684,32 @@ fab_mkroute(fab_host_t *src, fab_host_t *dst)
     froute->rt_flow.dl_type = htons(ETH_TYPE_IP);
     of_mask_set_dl_type(&froute->rt_mask);
 
+#ifndef FAB_USE_CONX
     froute->iroute = fab_route_get(fab_ctx->route_service,
                                    src->sw.alias, dst->sw.alias,
                                    froute);
     if (!froute->iroute) {
-        c_log_err("%s: No host route src(0x%x)[0x%llx:%d]->dst(0x%x)[0x%llx:%d]",
-                  FN, src->hkey.host_ip, (unsigned long long)(src->sw.swid),
-                  src->sw.alias, dst->hkey.host_ip, 
+        app_rlog_err("%s: No host route src(0x%x)[0x%llx:%d]->dst(0x%x)[0x%llx:%d]",
+                     FN, src->hkey.host_ip, (unsigned long long)(src->sw.swid),
+                     src->sw.alias, dst->hkey.host_ip, 
                   (unsigned long long)(dst->sw.swid),
                   dst->sw.alias);
         __fab_add_to_pending_routes(fab_ctx, froute);
-        //fab_zaproute(froute);
         return NULL;
     }
+#endif
 
     return froute;
 }
 
 /**
- * __fab_loop_all_host_routes - 
- * @host    : Fabric host pointer 
- * @iter_fn : Iteration callback for each route of host 
- * @u_data  : User arg to be passed to iter_fn 
+ * @name __fab_loop_all_host_routes - 
+ * @brief Loop over all routes of a host and invoke callback for each
  *
- * Loop over all routes of a host and invoke callback for each
+ * @param host : Fabric host pointer 
+ * @param iter_fn : Iteration callback for each route of host 
+ * @param u_data : User arg to be passed to iter_fn 
+ *
  */
 static void
 __fab_loop_all_host_routes(fab_host_t *host, GFunc iter_fn, void *u_data)
@@ -669,13 +721,14 @@ __fab_loop_all_host_routes(fab_host_t *host, GFunc iter_fn, void *u_data)
 }
 
 /**
- * fab_loop_all_host_routes - 
- * @host    : Fabric host pointer 
- * @iter_fn : Iteration callback for each route of host 
- * @u_data  : User arg to be passed to iter_fn 
+ * @name fab_loop_all_host_routes - 
+ * @brief Loop over all routes of a host and invoke callback for each
+ *        with explicit locking
  *
- * Loop over all routes of a host and invoke callback for each
- * while holding host lock
+ * @param host : Fabric host pointer 
+ * @param iter_fn : Iteration callback for each route of host 
+ * @param u_data : User arg to be passed to iter_fn 
+ *
  */
 void
 fab_loop_all_host_routes(fab_host_t *host, GFunc iter_fn, void *u_data)
@@ -689,11 +742,11 @@ fab_loop_all_host_routes(fab_host_t *host, GFunc iter_fn, void *u_data)
 }
 
 /**
- * fab_host_route_delete_1 - 
- * @iroute: Fabric route to destroy 
- * @u_arg : User arg (unused) 
+ * @name fab_host_route_delete_1 - 
+ * @brief Uninstall and destroy a single fabric route
+ * @param iroute: Fabric route to destroy 
+ * @param u_arg : User arg (unused) 
  *
- * Uninstall and destroy a single fabric route
  */
 static void 
 fab_host_route_delete_1(void *iroute, void *u_arg UNUSED)
@@ -702,10 +755,84 @@ fab_host_route_delete_1(void *iroute, void *u_arg UNUSED)
     fab_zaproute(iroute);
 }
 
+#ifdef FAB_USE_CONX
 /**
- * fab_host_route_add -
+ * @name fab_conx_route_install
+ * @brief Install a fabric route using Conx route
  *
- * Add route from src to dst 
+ */
+static void
+fab_conx_route_install(fab_route_t *froute)
+{
+    struct mul_act_mdata        mdata;
+    uint16_t                    out_port, in_port;
+    uint16_t                    tenant_id = 0;
+    int                         ret = 0;
+
+    tenant_id = 0;
+    out_port = froute->dst->sw.port;
+    in_port = froute->src->sw.port;
+
+    mul_app_act_alloc(&mdata);
+    mul_app_act_set_ctors(&mdata, (uint64_t)(froute->src->sw.swid));
+
+
+    if(fab_ctx->fab_learning != FAB_HOST_TRACKER_ENABLED) {
+        mul_app_action_set_dmac(&mdata, froute->dst->hkey.host_mac);
+    }
+
+    mul_app_action_set_smac(&mdata, froute->src->hkey.host_mac);
+    mul_app_action_set_dmac(&mdata, froute->dst->hkey.host_mac);
+    mul_app_action_output(&mdata, out_port);
+
+    froute->rt_flow.in_port = htonl((uint32_t)in_port);
+    of_mask_set_in_port(&froute->rt_mask);
+
+    ret = mul_conx_mod_uflow(fab_ctx->fab_conx_service,
+                             true, 1, &froute->src->sw.swid,
+                             (uint64_t)(froute->dst->sw.swid),
+                             &froute->rt_flow, /* Ingress Flow*/
+                             &froute->rt_mask,
+                             0, 0,
+                             mdata.act_base,
+                             mul_app_act_len(&mdata),
+                             0, CONX_UFLOW_FORCE);
+    if(ret != 0 ) {
+        app_log_err("Failed to add flows through ConX");
+    }
+
+    if(fab_ctx->fab_learning == FAB_HOST_TRACKER_ENABLED) {
+        froute->rt_flow.dl_type = ntohs(ETH_TYPE_ARP);
+        ret = mul_conx_mod_uflow(fab_ctx->fab_conx_service,
+                                 true, 1, &froute->src->sw.swid,
+                                 (uint64_t)(froute->dst->sw.swid),
+                                 &froute->rt_flow, /* Ingress Flow*/
+                                 &froute->rt_mask,
+                                 0, 0,
+                                 mdata.act_base,
+                                 mul_app_act_len(&mdata),
+                                 0, CONX_UFLOW_FORCE);
+        if(ret != 0 ) {
+            app_log_err("Failed to add ARP flows through ConX");
+        }
+    }
+
+    /* Reset flow modifications if any */
+    froute->rt_flow.dl_type = htons(ETH_TYPE_IP);
+    if (tenant_id) {
+        fab_reset_tenant_id(&froute->rt_flow, &froute->rt_mask);
+    }
+
+    froute->rt_flow.in_port = 0;
+    of_mask_clr_in_port(&froute->rt_mask);
+    mul_app_act_free(&mdata);
+
+}
+#endif
+
+/**
+ * @name fab_host_route_add -
+ * @brief Find route from src to dst and install the route
  */
 static int
 fab_host_route_add(fab_host_t *src, fab_host_t *dst)
@@ -718,15 +845,19 @@ fab_host_route_add(fab_host_t *src, fab_host_t *dst)
         return -1;
     }
 
-    c_log_err("%s: Adding route betweem 0x%x -> 0x%x",
-              FN, src->hkey.host_ip, dst->hkey.host_ip);
+    app_log_debug("%s: Adding route betweem 0x%x -> 0x%x",
+                  FN, src->hkey.host_ip, dst->hkey.host_ip);
     
     froute = fab_mkroute(src, dst);
     if (froute) {
         /* FIXME - Check for duplicates */
         c_wr_lock(&dst->lock);
         dst->host_routes = g_slist_append(dst->host_routes, froute);
+#ifndef FAB_USE_CONX
         fab_route_install(froute);
+#else
+        fab_conx_route_install(froute);
+#endif
         c_wr_unlock(&dst->lock);
 
         return 0;
@@ -736,9 +867,10 @@ fab_host_route_add(fab_host_t *src, fab_host_t *dst)
 }
 
 /**
- * fab_host_per_tenant_nw_add_route_pair - 
- * @shost : Source host 
- * @dhost : Destination host
+ * @name fab_host_per_tenant_nw_add_route_pair - 
+ * @Add host routes for a given src<->dst host pairs 
+ * @param shost : Source host 
+ * @param dhost : Destination host
  *
  * Add host routes for a given src<->dst host pairs 
  */
@@ -750,11 +882,11 @@ fab_host_per_tenant_nw_add_route_pair(void *shost, void *dhost)
 }
 
 /**
- * fab_host_per_tenant_nw_add_route - 
- * @shost : Source host 
- * @dhost : Destination host
+ * @name fab_host_per_tenant_nw_add_route - 
+ * @brief Add host routes for a given src->dst host 
+ * @param shost : Source host 
+ * @param dhost : Destination host
  *
- * Add host routes for a given src->dst host 
  */
 static void 
 fab_host_per_tenant_nw_add_route(void *shost, void *dhost)
@@ -763,9 +895,8 @@ fab_host_per_tenant_nw_add_route(void *shost, void *dhost)
 }
 
 /**
- * fab_route_port_cmp -
- *
- * Check whether fabric route has port as out_port for any path
+ * @name fab_route_port_cmp -
+ * @brief Check whether fabric route has port as out_port for any path
  */
 static int
 fab_route_port_cmp(void *route_elem, void *sw_arg)
@@ -784,11 +915,11 @@ fab_route_port_cmp(void *route_elem, void *sw_arg)
 }
 
 /**
- * fab_host_per_tenant_nw_delete_route - 
- * @elem_host : host of a tenant network
- * @arg_host : host getting deleted 
+ * @name fab_host_per_tenant_nw_delete_route - 
+ * @brief Delete host routes for a given host for a network
+ * @param elem_host : host of a tenant network
+ * @param arg_host : host getting deleted 
  *
- * Delete host routes for a given host 
  */
 static void 
 fab_host_per_tenant_nw_delete_route(void *elem_host, void *arg_host)
@@ -806,7 +937,7 @@ fab_host_per_tenant_nw_delete_route(void *elem_host, void *arg_host)
                                    del_host,
                                    (GCompareFunc)fab_route_from_host_cmp);
     if (!iterator) {
-        c_log_err("%s: No host route between (0x%llx:%d) -> (0x%llx:%d)",
+        app_rlog_err("%s: No host route between (0x%llx:%d) -> (0x%llx:%d)",
                   FN, (unsigned long long)(del_host->sw.swid),
                   del_host->sw.alias,
                   (unsigned long long)(host->sw.swid), host->sw.alias);
@@ -823,12 +954,12 @@ fab_host_per_tenant_nw_delete_route(void *elem_host, void *arg_host)
 }
 
 /**
- * __fab_routes_tofro_host_add - 
- * @host_arg : Fabric host pointer
- * @key_arg : Unused arg
- * @u_arg : User arg whether to install pair routes or not 
+ * @name __fab_routes_tofro_host_add - 
+ * @brief Add host routes from all other hosts of same tenant network
+ * @param host_arg : Fabric host pointer
+ * @param key_arg : Unused arg
+ * @param u_arg : User arg whether to install pair routes or not 
  *
- * Add host routes from all other hosts of same tenant network
  * NOTE - It is assumed that fab_ctx main lock is held prior
  * to invocation 
  */
@@ -840,7 +971,7 @@ __fab_routes_tofro_host_add(void *host_arg, void *key_arg UNUSED, void *u_arg)
 
     /* Do not continue if there is pending recalc all */
     if (fab_ctx->rt_recalc_pending) {
-        c_log_err("%s: Cant add host route - Pending recal event", FN);
+        app_rlog_err("%s: Cant add host route - Pending recal event", FN);
         return;
     }
 
@@ -852,9 +983,9 @@ __fab_routes_tofro_host_add(void *host_arg, void *key_arg UNUSED, void *u_arg)
 }
 
 /**
- * __fab_host_route_del_with_port -
- *
- * Delete all routes for a host which matches oport for a switch node */
+ * @name __fab_host_route_del_with_port -
+ * @brief  Delete all routes for a host which matches oport for a switch node 
+ */
 static void
 __fab_host_route_del_with_port(void *host_arg, void *key_arg UNUSED,
                                void *sw_arg)
@@ -897,11 +1028,11 @@ find_route:
 
 
 /**
- * __fab_host_route_delete - 
- * @host_arg : Fabric host pointer 
- * @ctx_arg : Fabric context pointer 
+ * @name __fab_host_route_delete - 
+ * @brief Delete host routes from all other hosts of same tenant network
+ * @param host_arg : Fabric host pointer 
+ * @param ctx_arg : Fabric context pointer 
  *
- * Delete host routes from all other hosts of same tenant network
  * NOTE - It is assumed that fab_ctx main lock is held prior
  * to invocation 
  */
@@ -910,7 +1041,6 @@ __fab_host_route_delete(void *host_arg, void *v_arg UNUSED, void *ctx_arg UNUSED
 {
     fab_host_t *host = host_arg;
 
-    c_log_err("%s", FN);
     c_wr_lock(&host->lock);
 
     __fab_loop_all_host_routes(host, fab_host_route_delete_1, fab_ctx); 
@@ -927,10 +1057,10 @@ __fab_host_route_delete(void *host_arg, void *v_arg UNUSED, void *ctx_arg UNUSED
 }
 
 /**
- * fab_reset_all_routes - 
- * @fab_ctx : Fabric context pointer 
+ * @name fab_reset_all_routes - 
+ * @brief Reset all routes for all hosts
+ * @param fab_ctx : Fabric context pointer 
  *
- * Reset all routes for all hosts
  */
 void
 fab_reset_all_routes(fab_struct_t *fab_ctx)
@@ -943,10 +1073,10 @@ fab_reset_all_routes(fab_struct_t *fab_ctx)
 }
 
 /**
- * fab_add_all_routes - 
- * @fab_ctx : Fabric context pointer 
+ * @name fab_add_all_routes - 
+ * @brief Recalculate and add all routes for all hosts
+ * @param fab_ctx : Fabric context pointer 
  *
- * Recalculate and add all routes for all hosts
  */
 void
 fab_add_all_routes(fab_struct_t *fab_ctx)
@@ -956,12 +1086,12 @@ fab_add_all_routes(fab_struct_t *fab_ctx)
 }
 
 /**
- * fab_delete_routes_with_port -
- * @fab_ctx :  Fabric context pointer
- * @sw_alias : switch alias id
- * @port_no : port number
+ * @name fab_delete_routes_with_port -
+ * @brief Delete all routes matching switch id and port number
+ * @param fab_ctx :  Fabric context pointer
+ * @param sw_alias : switch alias id
+ * @param port_no : port number
  *
- * Delete all routes matching switch id and port number
  */
 void
 fab_delete_routes_with_port(fab_struct_t *fab_ctx, int sw_alias, uint16_t port_no)
@@ -970,17 +1100,15 @@ fab_delete_routes_with_port(fab_struct_t *fab_ctx, int sw_alias, uint16_t port_n
     sw.alias = sw_alias;
     sw.port  = port_no;
 
-    c_log_err("%s", FN);
-
     usleep(200000); /* 200ms breather to routing */
     fab_loop_all_hosts_wr(fab_ctx, (GHFunc)__fab_host_route_del_with_port, &sw);
 }
 
 /**
- * fab_route_per_sec_timer - 
- * @fab_ctx : Fabric context pointer 
+ * @name fab_route_per_sec_timer - 
+ * @brief Per second timer for fabric route management  
+ * @param fab_ctx : Fabric context pointer 
  *
- * Per second timer for fabric route management  
  */
 void
 fab_route_per_sec_timer(fab_struct_t *fab_ctx)
@@ -989,7 +1117,7 @@ fab_route_per_sec_timer(fab_struct_t *fab_ctx)
 
     if (fab_ctx->rt_recalc_pending && 
         curr_ts > fab_ctx->rt_recalc_ts) {
-        c_log_debug("%s: Recalc all host routes", FN);
+        app_log_debug("%s: Recalc all host routes", FN);
         fab_ctx->rt_recalc_pending = false;
         fab_add_all_routes(fab_ctx);
     } 

@@ -28,6 +28,7 @@ static struct option longopts[] =
     { "help",                   no_argument,       NULL, 'h'},
     { "switch-threads",         required_argument, NULL, 'S'},
     { "app-threads",            required_argument, NULL, 'A'},
+    { "ha-peer",                required_argument, NULL, 'H'},
     { "listen-port",            required_argument, NULL, 'P'},
     { "no-dfl-flows",           no_argument,       NULL, 'n'},
     { "dfl-pkt-dump-en",        no_argument,       NULL, 'p'},
@@ -35,6 +36,9 @@ static struct option longopts[] =
     { "syslog-level",           required_argument, NULL, 'l'},
     { "switch-verify-ca",       no_argument,       NULL, 'x'},
     { "loop-enable",            no_argument,       NULL, 'L'},
+    { "bench-enable",           no_argument,       NULL, 'b'},
+    { "highest-of-ver",         required_argument, NULL, 'O'},
+    { "no-strict-validation",   no_argument,       NULL, 'N'},
 };
 
 /* Process ID saved for use by init system */
@@ -55,12 +59,16 @@ usage(char *progname, int status)
     printf("-S <num>  : Number of switch handler threads\n");
     printf("-A <num>  : Number of app handler threads\n");
     printf("-P <port> : Port Number for incoming switch connection\n");
+    printf("-H <peer> : Peer IP address for HA\n");
     printf("-n        : Don't install default flows in switch\n");
     printf("-p        : Enable OF packet dump for all switches\n");
     printf("-s        : Enable ssl for all switch connections\n");
     printf("-l <level>: Set syslog levels 0:debug, 1:err(default) 2:warning\n");
     printf("-x        : Verify switch-ca cert. Only applicable with -s option\n"); 
     printf("-L        : Enable loop-detection\n"); 
+    printf("-b        : Enable Benchmark(Disables initial handshake queries)\n"); 
+    printf("-O <ver>  : Highest advertised OF version- 5:OF1.4 4:OF1.3\n");
+    printf("--no-strict-validation: Disable strict OF validations\n");
     printf("-h        : Help\n");
 
     exit(status);
@@ -70,7 +78,8 @@ static int
 of_ctrl_init(ctrl_hdl_t *c_hdl, size_t nthreads, size_t n_appthreads,
              uint16_t port, const char *c_peer, bool master,
              bool no_dfl_flows, bool dump_pkts, bool ssl_en,
-             bool switch_ca_verify, bool loop_detect)
+             bool switch_ca_verify, bool loop_detect, bool bench_en,
+             uint8_t ver, bool no_strict)
 {
     memset (c_hdl, 0, sizeof(ctrl_hdl_t));
     c_rw_lock_init(&c_hdl->lock);
@@ -93,6 +102,10 @@ of_ctrl_init(ctrl_hdl_t *c_hdl, size_t nthreads, size_t n_appthreads,
     c_hdl->ssl_en = ssl_en;
     c_hdl->switch_ca_verify = switch_ca_verify;
     c_hdl->loop_en = loop_detect;
+    c_hdl->bench_en = bench_en;
+    c_hdl->h_of_ver = ver;
+    c_hdl->no_strict_of = no_strict;
+    c_ha_generation_id_init();
 
     return 0;
 }
@@ -111,9 +124,13 @@ main(int argc, char **argv)
     int         sthreads = 4, athreads = 2;
     uint16_t    c_port = 0;
     const char  *c_peer = NULL;
+    struct in_addr in_addr;
     int         dfl_log = LOG_ERR;
     int         switch_ca_verify = 0;
     int         loop_detect = 0;
+    int         bench_en = 0;
+    int         no_strict = 0; 
+    uint8_t     ver = 0;
 
     /* Set umask before anything for security */
     umask (0027);
@@ -125,7 +142,7 @@ main(int argc, char **argv)
     while (1) {
         int opt;
 
-        opt = getopt_long (argc, argv, "udhspnxS:A:P:H:l:", longopts, 0);
+        opt = getopt_long (argc, argv, "udhspnxbS:A:P:H:l:O:N", longopts, 0);
         if (opt == EOF)
             break;
 
@@ -140,14 +157,14 @@ main(int argc, char **argv)
             break;
         case 'S': 
             sthreads = atoi(optarg);
-            if (sthreads < 0 || sthreads > 16) {
+            if (sthreads < 0 || sthreads > C_MAX_THREADS) {
                 printf ("Illegal:Too many switch threads\n");    
                 exit(0);
             }
             break;
         case 'A':
             athreads = atoi(optarg);
-            if (athreads < 0 || athreads > 8) {
+            if (athreads < 0 || athreads > C_MAX_APP_THREADS) {
                 printf ("Illegal:Too many app threads\n");    
                 exit(0);
             }
@@ -155,6 +172,13 @@ main(int argc, char **argv)
         case 'P':
             c_port = atoi(optarg);
             break;
+        case 'H':
+            c_peer = optarg;
+            if (!inet_aton(c_peer, &in_addr)) {
+                printf("Invalid peer address");
+                exit(0);
+            }
+            break; 
         case 'h':
             usage(progname, 0);
             break;
@@ -189,6 +213,26 @@ main(int argc, char **argv)
             break;
         case 'L':
             loop_detect = 1;
+            break;
+        case 'b':
+            bench_en = 1;
+            break;
+        case 'O':
+            switch (atoi(optarg)) {
+            case 4:
+                ver = 4;    
+                break;
+            case 5:
+                ver = 5;
+                break;
+            default:
+                printf("Invalid OF version specified. Taking default\n");
+                ver = 0;
+            }
+            break;
+        case 'N':
+            no_strict = 1;
+            break;
         default:
             usage(progname, 1);
             break;
@@ -199,6 +243,8 @@ main(int argc, char **argv)
         printf("Failed to determine curr dir\n");
     }
 
+    strcpy(c_path_name, "/etc/");
+    strcat(c_path_name, "/rsys");
 
     if (daemon_mode) {
         c_daemon(0, 0, unlock? NULL:C_PID_PATH);
@@ -212,6 +258,7 @@ main(int argc, char **argv)
                              LOG_CONS|LOG_NDELAY, LOG_DAEMON);
     clog_set_level(NULL, CLOG_DEST_SYSLOG, dfl_log);
     clog_set_level(NULL, CLOG_DEST_STDOUT, LOG_DEBUG);
+    clog_set_file(NULL, "/var/log/mul.log", LOG_DEBUG);
 
     if(geteuid() != 0) {
         c_log_err("!! Run as root !!");
@@ -223,7 +270,8 @@ main(int argc, char **argv)
     /* initialize controller handler */
     of_ctrl_init(&ctrl_hdl, sthreads, athreads, c_port,
                  c_peer, master, no_dfl_flows, dfl_dump_pkts,
-                 ssl_en, switch_ca_verify, loop_detect);
+                 ssl_en, switch_ca_verify, loop_detect, bench_en,
+                 ver, no_strict);
 
     c_thread_start(&ctrl_hdl, sthreads, athreads);
     while (1) {

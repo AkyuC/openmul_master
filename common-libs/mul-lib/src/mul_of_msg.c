@@ -66,6 +66,7 @@ of_inst_parser_alloc(struct flow *fl, struct flow *mask,
                      struct ofp_act_parsers *act_parsers)
 {
     struct ofp_inst_parser_arg *ofp_dp = calloc(1, sizeof(*ofp_dp));
+    struct ofp_inst_check_args *inst_args = u_arg; 
 
     assert(ofp_dp);
 
@@ -77,6 +78,11 @@ of_inst_parser_alloc(struct flow *fl, struct flow *mask,
     ofp_dp->u_arg = u_arg;
     ofp_dp->parsers = parsers;
     ofp_dp->act_parsers = act_parsers;
+
+    if (inst_args && inst_args->fl)
+        ofp_dp->mod_fl_flag = true;
+    else
+        ofp_dp->mod_fl_flag = false;
 
     return ofp_dp;
 }
@@ -633,8 +639,10 @@ of_dump_act_out(struct ofp_action_header *action, void *arg)
     struct ofp_inst_parser_arg *dp = arg;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "%s-Port(%u),",
-                        "act-output", ntohs(of_ao->port));
+                        "%s-Port(%u%s),",
+                        "act-output", ntohs(of_ao->port),
+                        ntohs(of_ao->port) == OFPP_CONTROLLER ?
+                        "-Controller":"");
     assert(dp->len < OF_DUMP_INST_SZ-1);
     return ntohs(action->len);
 }
@@ -1465,6 +1473,140 @@ err_out:
     return NULL;
 }
 
+static bool
+__of_match_flows_l4(struct flow *f1,
+                    struct flow *m1,
+                    struct flow *f2)
+{
+    if ((!m1->nw_proto || f1->nw_proto == f2->nw_proto) &&
+        (!m1->nw_tos || f1->nw_tos == f2->nw_tos) &&
+        (!m1->tp_dst || f1->tp_dst == f2->tp_dst) &&
+        (!m1->tp_src || f1->tp_src == f2->tp_src))
+        return true;
+
+    return false;
+}
+
+static bool
+__of_match_flows_ip(struct flow *fl1, 
+                    struct flow *mask,
+                    struct flow *fl2)
+{
+    /* Assumes fl1 and fl2's mask are equal */
+    if (!mask->dl_type)  return true;
+
+    if (fl1->dl_type != fl2->dl_type) return false;
+
+    if (fl1->dl_type == htons(ETH_TYPE_IPV6)) {
+        if (ipv6_addr_mask_equal(&fl1->ipv6.nw_src,
+                                 &mask->ipv6.nw_src,
+                                &fl1->ipv6.nw_src) &&
+           ipv6_addr_mask_equal(&fl1->ipv6.nw_dst,
+                                &mask->ipv6.nw_dst,
+                                &fl1->ipv6.nw_dst)) {
+            return true;
+        }
+        return false;
+    } else if (fl1->dl_type == htons(ETH_TYPE_IP) ||
+               fl1->dl_type == htons(ETH_TYPE_ARP)) {
+        if ((fl1->ip.nw_dst & mask->ip.nw_dst) == fl2->ip.nw_dst &&
+            (fl1->ip.nw_src & mask->ip.nw_src) == fl2->ip.nw_src) {
+            return true;
+        }
+
+        return false;
+    }
+
+    return true;
+}
+
+static inline bool
+__of_match_flows_mpls(struct flow *f1,
+                      struct flow *m1,
+                      struct flow *f2)
+{
+    if ((!m1->mpls_label || f1->mpls_label == f2->mpls_label) &&
+        (!m1->mpls_tc || f1->mpls_tc == f2->mpls_tc) &&
+        (!m1->mpls_bos || f1->mpls_bos == f2->mpls_bos))
+        return true;
+
+    return false;
+}
+
+static inline bool
+__of_match_flows_vlan(struct flow *f1,
+                      struct flow *m1,
+                      struct flow *f2)
+{
+    if (m1->dl_vlan && f1->dl_vlan == htons(0xfff) && f2->dl_vlan) {
+        return true;
+    }
+    if ((!m1->dl_vlan || f1->dl_vlan == f2->dl_vlan) &&
+        (!m1->dl_vlan_pcp || f1->dl_vlan_pcp == f2->dl_vlan_pcp))
+        return true;
+
+    return false;
+}
+
+static inline bool
+__of_match_flows_l2(struct flow *f1,
+                 struct flow *m1,
+                 struct flow *f2)
+{
+    uint8_t zero_mac[6] = { 0, 0, 0, 0, 0, 0};
+
+    if ((!memcmp(m1->dl_dst, zero_mac, 6) ||
+         !memcmp(f1->dl_dst, f2->dl_dst, 6)) &&
+        (!memcmp(m1->dl_src, zero_mac, 6) ||
+         !memcmp(f1->dl_src, f2->dl_src, 6)) &&
+        (!m1->dl_type || f1->dl_type == f2->dl_type)) 
+        return true;
+    return false;
+}
+
+static inline bool
+__of_match_flows_mdata(struct flow *f1,
+                       struct flow *m1,
+                       struct flow *f2)
+{
+    if ((!m1->in_port || f1->in_port == f2->in_port) &&
+        (!m1->metadata || f1->metadata == f2->metadata) &&
+        (!m1->tunnel_id || f1->tunnel_id == f2->tunnel_id))
+        return true;
+
+    return false;
+}
+
+bool
+__of_match_flows(struct flow *f1,
+                 struct flow *m1,
+                 struct flow *f2)
+{
+    if (__of_match_flows_l2(f1, m1, f2) &&
+        __of_match_flows_mpls(f1, m1, f2) &&
+        __of_match_flows_vlan(f1, m1, f2) &&
+        __of_match_flows_ip(f1, m1, f2) &&
+        __of_match_flows_l4(f1, m1, f2) &&
+        __of_match_flows_mdata(f1, m1, f2)) {
+        return true;
+    }
+
+    return false;
+}
+
+bool
+of_match_flows_prio(struct flow *f1, struct flow *m1,
+                    struct flow *f2, struct flow *m2,
+                    uint16_t p1, uint16_t p2)
+{
+    if ((p1 == p2) &&
+        !memcmp(m1, m2, sizeof(*m1)-sizeof(m1->pad)) &&
+         __of_match_flows(f1, m1, f2)) {
+        return true;
+    } 
+    return false;
+}
+
 bool
 of_check_flow_wildcard_generic(struct flow *fl UNUSED, struct flow *mask)
 {
@@ -2209,18 +2351,39 @@ of131_prep_echo_reply_msg(uint32_t xid)
     return of131_prep_msg(sizeof(struct ofp_header), OFPT131_ECHO_REQUEST, xid);
 }
 
-struct cbuf *
-of131_prep_set_config_msg(uint16_t flags, uint16_t miss_len)
+static struct cbuf *
+of13_14_prep_set_config_msg(uint16_t flags, uint16_t miss_len, 
+                            uint8_t version)
 {
     struct cbuf *b;
     struct ofp_switch_config *ofp_sc;
 
     /* Send OFPT_SET_CONFIG. */
-    b = of131_prep_msg(sizeof(struct ofp_switch_config), OFPT131_SET_CONFIG, 0);
+    if(version == OFP_VERSION_131) {
+        b = of131_prep_msg(sizeof(struct ofp_switch_config), OFPT131_SET_CONFIG, 0);
+    } else {
+        b = of140_prep_msg(sizeof(struct ofp_switch_config), OFPT140_SET_CONFIG, 0);
+    }
     ofp_sc = (void *)(b->data);
     ofp_sc->flags = htons(flags);
     ofp_sc->miss_send_len = htons(miss_len);
 
+    return b;
+}
+
+struct cbuf *
+of131_prep_set_config_msg(uint16_t flags, uint16_t miss_len)
+{
+    struct cbuf *b;
+    b = of13_14_prep_set_config_msg(flags, miss_len, OFP_VERSION_131);
+    return b;
+}
+
+struct cbuf *
+of140_prep_set_config_msg(uint16_t flags, uint16_t miss_len)
+{
+    struct cbuf *b;
+    b = of13_14_prep_set_config_msg(flags, miss_len, OFP_VERSION_140);
     return b;
 }
 
@@ -2240,13 +2403,17 @@ of_role_to_str(uint32_t role)
     return "HA-role-unknown";
 }
 
-struct cbuf *
-of131_prep_role_request_msg(uint32_t role, uint64_t gen_id)
+static struct cbuf *
+of13_14_prep_role_request_msg(uint32_t role, uint64_t gen_id, uint8_t version)
 {
     struct cbuf *b;
     struct ofp_role_request *ofp_rr;
 
-    b = of131_prep_msg(sizeof(*ofp_rr), OFPT131_ROLE_REQUEST, 0);
+    if(version == OFP_VERSION_131) {
+        b = of131_prep_msg(sizeof(*ofp_rr), OFPT131_ROLE_REQUEST, 0);
+    } else {
+        b = of140_prep_msg(sizeof(*ofp_rr), OFPT140_ROLE_REQUEST, 0);
+    }
     ofp_rr = (void *)(b->data);
     ofp_rr->role = htonl(role);
     ofp_rr->generation_id = htonll(gen_id);
@@ -2254,6 +2421,23 @@ of131_prep_role_request_msg(uint32_t role, uint64_t gen_id)
     return b;
 }
 
+struct cbuf *
+of131_prep_role_request_msg(uint32_t role, uint64_t gen_id)
+{
+    struct cbuf *b;
+    b = of13_14_prep_role_request_msg(role, gen_id,
+            OFP_VERSION_131);
+    return b;
+}
+
+struct cbuf *
+of140_prep_role_request_msg(uint32_t role, uint64_t gen_id)
+{
+    struct cbuf *b;
+    b = of13_14_prep_role_request_msg(role, gen_id,
+            OFP_VERSION_140);
+    return b;
+}
 struct cbuf *
 of131_prep_features_request_msg(void)
 {
@@ -2269,9 +2453,9 @@ of131_prep_pkt_out_msg(struct of_pkt_out_params *parms)
     void                     *data;
 
     tot_len = sizeof(struct ofp131_packet_out) + parms->action_len
-                        + parms->data_len;
+        + parms->data_len;
 
-    b = of131_prep_msg(tot_len, OFPT131_PACKET_OUT, (unsigned long)parms->data);
+    b = of131_prep_msg(tot_len, OFPT131_PACKET_OUT,(unsigned long)parms->data);
 
     out = (void *)b->data;
     out->buffer_id = htonl(parms->buffer_id);
@@ -2286,6 +2470,31 @@ of131_prep_pkt_out_msg(struct of_pkt_out_params *parms)
     return b;
 }
 
+struct cbuf * __fastpath
+of140_prep_pkt_out_msg(struct of_pkt_out_params *parms)
+{
+    size_t                   tot_len;
+    struct ofp140_packet_out *out;
+    struct cbuf              *b;
+    void                     *data;
+
+    tot_len = sizeof(struct ofp140_packet_out) + parms->action_len
+        + parms->data_len;
+
+    b = of140_prep_msg(tot_len, OFPT140_PACKET_OUT,(unsigned long)parms->data);
+
+    out = (void *)b->data;
+    out->buffer_id = htonl(parms->buffer_id);
+    out->in_port   = htonl(parms->in_port ?: OFPP140_CONTROLLER);
+    out->actions_len = htons(parms->action_len);
+
+    data = (uint8_t *)out->actions + parms->action_len;
+    /* Hate it !! */
+    memcpy(out->actions, parms->action_list, parms->action_len);
+    memcpy(data, parms->data, parms->data_len);
+
+    return b;
+}
 static struct cbuf *
 of13_14_prep_mpart_msg(uint16_t type, uint16_t flags, size_t body_len,
                        uint8_t version)
@@ -2335,6 +2544,16 @@ of131_prep_barrier_req(void)
     struct ofp_header *oh;
     
     b = of131_prep_msg(sizeof(*oh), OFPT131_BARRIER_REQUEST, 0);
+    return b;
+}
+
+struct cbuf *
+of140_prep_barrier_req(void)
+{
+    struct cbuf *b;
+    struct ofp_header *oh;
+    
+    b = of140_prep_msg(sizeof(*oh), OFPT140_BARRIER_REQUEST, 0);
     return b;
 }
 
@@ -2416,7 +2635,10 @@ of131_add_oxm_fields(uint8_t *buf,
         oxm->length = OFPXMT_OFB_VLAN_VID_SZ;
         oxm_field_sz += sizeof(*oxm) + oxm->length;
         HTON_OXM_HDR(oxm);
-        *(uint16_t *)(oxm->data) = flow->dl_vlan | htons(OFPVID_PRESENT);
+        if(flow->dl_vlan) {
+            *(uint16_t *)(oxm->data) = (flow->dl_vlan == htons(0xfff) ? 0 :
+                flow->dl_vlan) | htons(OFPVID_PRESENT);
+        } 
         oxm = INC_PTR8(buf, oxm_field_sz);
     }
     if (mask->dl_vlan && mask->dl_vlan_pcp) {
@@ -2742,7 +2964,11 @@ of131_ofpx_match_to_flow(struct ofpx_match *ofx,
                     c_log_err("%s: vlan-vid err", FN);
                 return -1;
             }
-            flow->dl_vlan = *(uint16_t *)(oxm_ptr->data) & htons(0xfff);
+            if(ntohs(*(uint16_t *)(oxm_ptr->data)) == OFPVID_PRESENT) {
+                flow->dl_vlan = htons(0xfff);
+            } else {
+                flow->dl_vlan = *(uint16_t *)(oxm_ptr->data) & htons(0xfff);
+            }
             if (OFP_OXM_GHDR_HM(oxm)) {
                 mask->dl_vlan = *(uint16_t *)(oxm_ptr->data +
                                               OFPXMT_OFB_VLAN_VID_SZ);
@@ -4663,8 +4889,10 @@ of131_dump_act_output(struct ofp_action_header *action, void *arg)
     struct ofp_inst_parser_arg *dp = arg;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "%s-port(%u):max-len(0x%x),",
+                        "%s-port(%u%s):max-len(0x%x),",
                         "act-out", ntohl(of_ao->port),
+                        ntohl(of_ao->port) == OFPP131_CONTROLLER ?
+                        "-Controller":"",
                         ntohs(of_ao->max_len));
     assert(dp->len < OF_DUMP_INST_SZ-1);
 
@@ -4703,10 +4931,17 @@ of131_check_act_output(struct ofp_action_header *action, void *arg)
     if (!of_ao->port ||
         (u_arg && u_arg->check_port &&
          !u_arg->check_port(u_arg->sw_ctx, ntohl(of_ao->port)))) {
-        c_log_err("%s: output port invalid", FN); 
+        c_log_err("%s: output port invalid %lu",
+                  FN, U322UL(ntohl(of_ao->port))); 
         dp->res = -1;
         return 0;
     }
+
+    if (ntohl(of_ao->port) == OFPP131_CONTROLLER)
+        u_arg->inst_local = true;
+
+    if (dp->mod_fl_flag)
+        u_arg->out_port = ntohl(of_ao->port);
 
     return ntohs(action->len);
 }
@@ -5311,6 +5546,9 @@ of131_check_group_act(struct ofp_action_header *action, void *arg)
         dp->res = -1;
         return 0;
     }
+
+    if (dp->mod_fl_flag)
+        u_arg->group_id = ntohl(grp_act->group_id);
     
     return ntohs(action->len);
 }
@@ -5358,15 +5596,20 @@ of131_dump_cmd_set_field_dl_dst(struct ofp_oxm_header *oxm, void *arg)
 }
 
 static int
-of131_check_set_field_dl_dst(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_dl_dst_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     struct ofp_inst_parser_arg *dp = arg;
+    struct ofp_inst_check_args *u_arg = dp->u_arg;
+    uint8_t *mac = oxm->data;
 
     if (OFP_OXM_GHDR_HM(oxm) || 
         !of131_check_setfield_supported(dp, OFPXMT_OFB_ETH_DST)) {
         dp->res = -1;
         return 0;
     }
+
+    if (dp->mod_fl_flag)
+        memcpy(u_arg->fl->dl_dst, mac, ETH_ADDR_LEN);
 
     return oxm->length;
 }
@@ -5405,15 +5648,20 @@ of131_dump_cmd_set_field_dl_src(struct ofp_oxm_header *oxm, void *arg)
 }
 
 static int
-of131_check_set_field_dl_src(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_dl_src_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     struct ofp_inst_parser_arg *dp = arg;
+    struct ofp_inst_check_args *u_arg = dp->u_arg;
+    uint8_t *mac = oxm->data;
 
     if (OFP_OXM_GHDR_HM(oxm) ||
         !of131_check_setfield_supported(dp, OFPXMT_OFB_ETH_SRC)) {
         dp->res = -1;
         return 0;
     }
+
+    if (dp->mod_fl_flag)
+        memcpy(u_arg->fl->dl_src, mac, ETH_ADDR_LEN);
 
     return oxm->length;
 }
@@ -5449,15 +5697,20 @@ of131_dump_cmd_set_field_dl_type(struct ofp_oxm_header *oxm, void *arg)
 }
 
 static int
-of131_check_set_field_dl_type(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_dl_type_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     struct ofp_inst_parser_arg *dp = arg;
+    struct ofp_inst_check_args *u_arg = dp->u_arg;
+    uint16_t dl_type = *(uint16_t *)(oxm->data);
 
     if (OFP_OXM_GHDR_HM(oxm) ||
         !of131_check_setfield_supported(dp, OFPXMT_OFB_ETH_TYPE)) {
         dp->res = -1;
         return 0;
     }
+
+    if (dp->mod_fl_flag)
+        u_arg->fl->dl_type = dl_type;
 
     return oxm->length;
 }
@@ -5491,9 +5744,12 @@ of131_dump_cmd_set_field_dl_vlan(struct ofp_oxm_header *oxm, void *arg)
 }
 
 static int
-of131_check_set_field_dl_vlan(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_dl_vlan_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     struct ofp_inst_parser_arg *dp = arg;
+    struct ofp_inst_check_args *u_arg = dp->u_arg;
+    uint16_t *vid = (uint16_t *)(oxm->data);
+    uint16_t tmp_vid;
 
     if (OFP_OXM_GHDR_HM(oxm) ||
         !of131_check_setfield_supported(dp, OFPXMT_OFB_VLAN_VID)) {
@@ -5505,6 +5761,11 @@ of131_check_set_field_dl_vlan(struct ofp_oxm_header *oxm, void *arg)
         c_log_err("%s: No outer vlan header", FN);
         dp->res = -1;
         return 0;
+    }
+
+    if (dp->mod_fl_flag) {
+        tmp_vid = ntohs(*vid) & 0xfff;
+        u_arg->fl->dl_vlan = htons(tmp_vid);
     }
 
     return oxm->length;
@@ -5539,9 +5800,11 @@ of131_dump_cmd_set_field_dl_vlan_pcp(struct ofp_oxm_header *oxm, void *arg)
 }
 
 static int
-of131_check_set_field_dl_vlan_pcp(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_dl_vlan_pcp_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     struct ofp_inst_parser_arg *dp = arg;
+    struct ofp_inst_check_args *u_arg = dp->u_arg;
+    uint8_t *vlan_pcp = oxm->data;
 
     if (OFP_OXM_GHDR_HM(oxm) ||
         !of131_check_setfield_supported(dp, OFPXMT_OFB_VLAN_PCP)) {
@@ -5554,6 +5817,10 @@ of131_check_set_field_dl_vlan_pcp(struct ofp_oxm_header *oxm, void *arg)
         dp->res = -1;
         return 0;
     }
+  
+    if (dp->mod_fl_flag)
+        u_arg->fl->dl_vlan_pcp = *vlan_pcp;
+
     return oxm->length;
 }
 
@@ -5593,9 +5860,13 @@ of131_dump_cmd_set_field_mpls_label(struct ofp_oxm_header *oxm, void *arg)
 }
 
 static int
-of131_check_set_field_mpls_label(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_mpls_label_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     struct ofp_inst_parser_arg *dp = arg;
+    struct ofp_inst_check_args *u_arg = dp->u_arg;
+    uint32_t label;
+
+    of_get_mpls_label_oxm(oxm->data, &label, oxm->length);
 
     if (OFP_OXM_GHDR_HM(oxm) ||
         !of131_check_setfield_supported(dp, OFPXMT_OFB_MPLS_LABEL)) {
@@ -5608,6 +5879,9 @@ of131_check_set_field_mpls_label(struct ofp_oxm_header *oxm, void *arg)
         dp->res = -1;
         return 0;
     }
+
+    if (dp->mod_fl_flag)
+        u_arg->fl->mpls_label = label;
 
     return oxm->length;
 }
@@ -5643,9 +5917,11 @@ of131_dump_cmd_set_field_mpls_tc(struct ofp_oxm_header *oxm, void *arg)
 }
 
 static int
-of131_check_set_field_mpls_tc(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_mpls_tc_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     struct ofp_inst_parser_arg *dp = arg;
+    struct ofp_inst_check_args *u_arg = dp->u_arg;
+    uint8_t *tc = oxm->data;
 
     if (OFP_OXM_GHDR_HM(oxm) ||
         !of131_check_setfield_supported(dp, OFPXMT_OFB_MPLS_TC)) {
@@ -5658,6 +5934,9 @@ of131_check_set_field_mpls_tc(struct ofp_oxm_header *oxm, void *arg)
         dp->res = -1;
         return 0;
     }
+    
+    if (dp->mod_fl_flag)
+        u_arg->fl->mpls_tc = *tc;
                         
     return oxm->length;
 }
@@ -5693,9 +5972,11 @@ of131_dump_cmd_set_field_mpls_bos(struct ofp_oxm_header *oxm, void *arg)
 }
 
 static int
-of131_check_set_field_mpls_bos(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_mpls_bos_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     struct ofp_inst_parser_arg *dp = arg;
+    struct ofp_inst_check_args *u_arg = dp->u_arg;
+    uint8_t *bos = oxm->data;
 
     if (OFP_OXM_GHDR_HM(oxm) ||
         !of131_check_setfield_supported(dp, OFPXMT_OFB_MPLS_BOS)) {
@@ -5708,6 +5989,9 @@ of131_check_set_field_mpls_bos(struct ofp_oxm_header *oxm, void *arg)
         dp->res = -1;
         return 0;
     }
+
+    if (dp->mod_fl_flag)
+        u_arg->fl->mpls_bos = *bos;
 
     return oxm->length;
 }
@@ -5745,9 +6029,13 @@ of131_dump_cmd_set_field_ipv4_src(struct ofp_oxm_header *oxm, void *arg)
 }
 
 static int
-of131_check_set_field_ipv4_src(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_ipv4_src_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     struct ofp_inst_parser_arg *dp = arg;
+    struct ofp_inst_check_args *u_arg = dp->u_arg;
+    struct in_addr in;
+
+    in.s_addr = *(uint32_t *)(oxm->data);
 
     if (OFP_OXM_GHDR_HM(oxm) ||
         !of131_check_setfield_supported(dp, OFPXMT_OFB_IPV4_SRC)) {
@@ -5763,6 +6051,9 @@ of131_check_set_field_ipv4_src(struct ofp_oxm_header *oxm, void *arg)
             return 0;
         }
     }
+
+    if (dp->mod_fl_flag) 
+        u_arg->fl->ip.nw_src = in.s_addr;
 
     return oxm->length;
 }
@@ -5800,9 +6091,13 @@ of131_dump_cmd_set_field_ipv4_dst(struct ofp_oxm_header *oxm, void *arg)
 }
 
 static int
-of131_check_set_field_ipv4_dst(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_ipv4_dst_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     struct ofp_inst_parser_arg *dp = arg;
+    struct ofp_inst_check_args *u_arg = dp->u_arg;
+    struct in_addr in;
+
+    in.s_addr = *(uint32_t *)(oxm->data);
 
     if (OFP_OXM_GHDR_HM(oxm) ||
         !of131_check_setfield_supported(dp, OFPXMT_OFB_IPV4_DST)) {
@@ -5818,6 +6113,9 @@ of131_check_set_field_ipv4_dst(struct ofp_oxm_header *oxm, void *arg)
             return 0;
         }
     }
+
+    if (dp->mod_fl_flag)
+        u_arg->fl->ip.nw_dst = in.s_addr;
 
     return oxm->length;
 }
@@ -5978,9 +6276,11 @@ of131_dump_cmd_set_field_dscp(struct ofp_oxm_header *oxm, void *arg)
 }
 
 static int
-of131_check_set_field_ipv4_dscp(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_ipv4_dscp_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     struct ofp_inst_parser_arg *dp = arg;
+    struct ofp_inst_check_args *u_arg = dp->u_arg;
+    uint8_t dscp  = *(uint8_t *)(oxm->data);
 
     if (OFP_OXM_GHDR_HM(oxm) ||
         !of131_check_setfield_supported(dp, OFPXMT_OFB_IP_DSCP)) {
@@ -5995,6 +6295,9 @@ of131_check_set_field_ipv4_dscp(struct ofp_oxm_header *oxm, void *arg)
             return 0;
         }
     }
+
+    if (dp->mod_fl_flag)
+        u_arg->fl->nw_tos = dscp;
 
     return oxm->length;
 }
@@ -6036,6 +6339,8 @@ of131_check_set_field_tp_port(struct ofp_oxm_header *oxm, void *arg,
                               uint8_t oxm_field)
 {
     struct ofp_inst_parser_arg *dp = arg;
+    struct ofp_inst_check_args *u_arg = dp->u_arg;
+    uint16_t port = *(uint16_t *)(oxm->data);
 
     if (OFP_OXM_GHDR_HM(oxm) ||
         !of131_check_setfield_supported(dp, oxm_field)) {
@@ -6056,6 +6361,16 @@ of131_check_set_field_tp_port(struct ofp_oxm_header *oxm, void *arg,
             dp->res = -1;
             c_log_err("%s: No udp,tcp or sctp", FN);
             return 0;
+        }
+    }
+
+    if (dp->mod_fl_flag) {
+        if ((oxm_field == OFPXMT_OFB_UDP_SRC) || 
+            (oxm_field == OFPXMT_OFB_TCP_SRC)) {
+            u_arg->fl->tp_src = port;
+        } else if ((oxm_field == OFPXMT_OFB_TCP_DST) || 
+                   (oxm_field == OFPXMT_OFB_UDP_DST)) {
+            u_arg->fl->tp_dst = port;
         }
     }
 
@@ -6111,25 +6426,25 @@ of131_dump_cmd_set_field_tp_tcp_dport(struct ofp_oxm_header *oxm, void *arg)
 }
 
 static int
-of131_check_set_field_tp_udp_sport(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_tp_udp_sport_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     return of131_check_set_field_tp_port(oxm, arg, OFPXMT_OFB_UDP_SRC);
 }
 
 static int
-of131_check_set_field_tp_udp_dport(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_tp_udp_dport_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     return of131_check_set_field_tp_port(oxm, arg, OFPXMT_OFB_UDP_DST);
 }
 
 static int
-of131_check_set_field_tp_tcp_sport(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_tp_tcp_sport_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     return of131_check_set_field_tp_port(oxm, arg, OFPXMT_OFB_TCP_SRC);
 }
 
 static int
-of131_check_set_field_tp_tcp_dport(struct ofp_oxm_header *oxm, void *arg)
+of131_check_set_field_tp_tcp_dport_mod_uflow(struct ofp_oxm_header *oxm, void *arg)
 {
     return of131_check_set_field_tp_port(oxm, arg, OFPXMT_OFB_TCP_DST);
 }
@@ -6249,7 +6564,7 @@ of131_dump_cmd_goto_inst(struct ofp_instruction *inst, void *arg)
     struct ofp_inst_parser_arg *dp = arg;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "%s %d,", "instruction-goto", ofp_ig->table_id);
+                        "%s %d\r\n", "instruction-goto", ofp_ig->table_id);
     assert(dp->len < OF_DUMP_INST_SZ-1);
 
     return ntohs(inst->len); 
@@ -6286,7 +6601,9 @@ of131_check_meter_inst(struct ofp_instruction *inst, void *arg)
 static int
 of131_check_goto_inst(struct ofp_instruction *inst, void *arg)
 {
+    struct ofp_instruction_goto_table *ofp_ig = (void *)(inst);
     struct ofp_inst_parser_arg *dp = arg;
+    struct ofp_inst_check_args *u_arg = dp->u_arg;
 
     if (dp->inst_goto) {
         dp->res = -1;
@@ -6299,7 +6616,16 @@ of131_check_goto_inst(struct ofp_instruction *inst, void *arg)
         return 0;
     }
 
+    if (u_arg &&
+        u_arg->get_v2p_tbl) {
+        ofp_ig->table_id = u_arg->get_v2p_tbl(u_arg->sw_ctx,
+                                              ofp_ig->table_id);
+    }
+
     dp->inst_goto = true;
+    
+    if (dp->mod_fl_flag)
+        u_arg->fl->table_id = ofp_ig->table_id;
 
     return ntohs(inst->len); 
 }
@@ -6752,7 +7078,7 @@ struct ofp_act_parsers of131_dump_cmd_act_parsers = {
     .act_set_grp = of131_dump_cmd_group_act
 };
 
-struct ofp_act_parsers of131_check_act_parsers = {
+struct ofp_act_parsers of131_check_mod_act_parsers = {
     .act_output = of131_check_act_output,
     .act_push = of131_check_push_action,
     .act_pop_vlan = of131_check_pop_vlan_action,
@@ -6766,23 +7092,23 @@ struct ofp_act_parsers of131_check_act_parsers = {
     .act_cp_ttl_out = of131_check_cp_ttl_out,
     .act_cp_ttl_in = of131_check_cp_ttl_in,
     .act_set_field = of131_check_act_set_field,
-    .act_setf_dl_dst = of131_check_set_field_dl_dst,
-    .act_setf_dl_src = of131_check_set_field_dl_src,
-    .act_setf_dl_type = of131_check_set_field_dl_type,
-    .act_setf_dl_vlan = of131_check_set_field_dl_vlan,
-    .act_setf_dl_vlan_pcp = of131_check_set_field_dl_vlan_pcp,
-    .act_setf_mpls_label = of131_check_set_field_mpls_label,
-    .act_setf_mpls_tc = of131_check_set_field_mpls_tc,
-    .act_setf_mpls_bos = of131_check_set_field_mpls_bos,
-    .act_setf_ipv4_src = of131_check_set_field_ipv4_src,
-    .act_setf_ipv4_dst = of131_check_set_field_ipv4_dst,
+    .act_setf_dl_dst = of131_check_set_field_dl_dst_mod_uflow,
+    .act_setf_dl_src = of131_check_set_field_dl_src_mod_uflow,
+    .act_setf_dl_type = of131_check_set_field_dl_type_mod_uflow,
+    .act_setf_dl_vlan = of131_check_set_field_dl_vlan_mod_uflow,
+    .act_setf_dl_vlan_pcp = of131_check_set_field_dl_vlan_pcp_mod_uflow,
+    .act_setf_mpls_label = of131_check_set_field_mpls_label_mod_uflow,
+    .act_setf_mpls_tc = of131_check_set_field_mpls_tc_mod_uflow,
+    .act_setf_mpls_bos = of131_check_set_field_mpls_bos_mod_uflow,
+    .act_setf_ipv4_src = of131_check_set_field_ipv4_src_mod_uflow,
+    .act_setf_ipv4_dst = of131_check_set_field_ipv4_dst_mod_uflow,
     .act_setf_ipv6_src = of131_check_set_field_ipv6_src,
     .act_setf_ipv6_dst = of131_check_set_field_ipv6_dst,
-    .act_setf_ipv4_dscp = of131_check_set_field_ipv4_dscp,
-    .act_setf_tcp_src = of131_check_set_field_tp_tcp_sport,
-    .act_setf_tcp_dst = of131_check_set_field_tp_tcp_dport,
-    .act_setf_udp_src = of131_check_set_field_tp_udp_sport,
-    .act_setf_udp_dst = of131_check_set_field_tp_udp_dport,
+    .act_setf_ipv4_dscp = of131_check_set_field_ipv4_dscp_mod_uflow,
+    .act_setf_tcp_src = of131_check_set_field_tp_tcp_sport_mod_uflow,
+    .act_setf_tcp_dst = of131_check_set_field_tp_tcp_dport_mod_uflow,
+    .act_setf_udp_src = of131_check_set_field_tp_udp_sport_mod_uflow,
+    .act_setf_udp_dst = of131_check_set_field_tp_udp_dport_mod_uflow,
     .act_set_grp = of131_check_group_act
 };
 
@@ -6915,6 +7241,23 @@ done:
 }
 
 int
+of131_modify_uflow(struct flow *fl, struct flow *mask,
+                   void *inst_list, size_t inst_len,
+                   bool acts_only, void *arg)
+{
+    struct ofp_inst_parser_arg *dp;
+    int ret = 0;
+
+    dp = of131_parse_instructions(fl, mask, inst_list, inst_len,
+                                  &of131_check_inst_parsers,
+                                  &of131_check_mod_act_parsers, arg,
+                                  acts_only);
+    ret =  dp ? dp->res : -1;
+    of_inst_parser_free(dp);
+    return ret;
+}
+
+int
 of131_validate_actions(struct flow *fl, struct flow *mask,
                        void *inst_list, size_t inst_len,
                        bool acts_only, void *arg)
@@ -6924,7 +7267,7 @@ of131_validate_actions(struct flow *fl, struct flow *mask,
 
     dp = of131_parse_instructions(fl, mask, inst_list, inst_len,
                                   &of131_check_inst_parsers,
-                                  &of131_check_act_parsers, arg,
+                                  &of131_check_mod_act_parsers, arg,
                                   acts_only);
     ret =  dp ? dp->res : -1;
     of_inst_parser_free(dp);
@@ -8128,9 +8471,10 @@ of131_table_features_dump(of_flow_tbl_props_t *prop)
 }
 
 bool
-of131_switch_supports_group_stats(uint32_t cap)
+of131_switch_supports_group_stats(uint32_t cap UNUSED)
 {
-    return cap & OFPC131_GROUP_STATS;
+    /* FIXME for OVS - return cap & OFPC131_GROUP_STATS; */
+    return true;
 }
 
 bool
@@ -8274,18 +8618,39 @@ of140_prep_port_stat_req(uint32_t port_no)
     return b;
 }
 
-struct cbuf *
-of131_prep_q_get_config(uint32_t port_no)
+static struct cbuf *
+of13_14_prep_q_get_config(uint32_t port_no, uint8_t version)
 {
     struct cbuf *b;
     struct ofp131_queue_get_config_request *ofp_gcf;
 
-    b = of131_prep_msg(sizeof(*ofp_gcf), OFPT131_QUEUE_GET_CONFIG_REQUEST, 0);
+    if(version == OFP_VERSION_131) {
+        b = of131_prep_msg(sizeof(*ofp_gcf), OFPT131_QUEUE_GET_CONFIG_REQUEST, 0);
+    } else {
+        b = of140_prep_msg(sizeof(*ofp_gcf), OFPT140_QUEUE_GET_CONFIG_REQUEST, 0);
+    }
     ofp_gcf = CBUF_DATA(b);
     ofp_gcf->port = htonl(port_no);
 
     return b;
 }
+
+struct cbuf *
+of131_prep_q_get_config(uint32_t port_no)
+{
+    struct cbuf *b;
+    b = of13_14_prep_q_get_config(port_no, OFP_VERSION_131);
+    return b;
+}
+
+struct cbuf *
+of140_prep_q_get_config(uint32_t port_no)
+{
+    struct cbuf *b;
+    b = of13_14_prep_q_get_config(port_no, OFP_VERSION_140);
+    return b;
+}
+
 
 static char *
 of131_dump_error_msg(struct ofp_header *ofp, ssize_t tot_len UNUSED)
@@ -9457,7 +9822,7 @@ malformed:
 } 
 
 void
-of131_dump_msg(struct cbuf *b, bool tx, uint64_t dpid)
+of131_dump_msg(struct cbuf *b, bool tx, uint64_t *mask, uint64_t dpid)
 {
     struct ofp_header *ofp = CBUF_DATA(b);
     ssize_t tot_len = b->len; 
@@ -9466,6 +9831,10 @@ of131_dump_msg(struct cbuf *b, bool tx, uint64_t dpid)
 
     if (b->len < ntohs(ofp->length)) {
         c_log_err("%s: Buf len problem. Aborting parse", FN);
+        return;
+    }
+
+    if (!GET_BIT_IN_64MASK(mask, ofp->type)) {
         return;
     }
 
@@ -9564,8 +9933,8 @@ of131_dump_msg(struct cbuf *b, bool tx, uint64_t dpid)
         break;
     }
 
-    c_log_debug("[SWITCH] 0x%llx (%s): type %d len %hu xid 0x%lx",
-                U642ULL(dpid), str, ofp->type, ntohs(ofp->length),
+    c_log_debug("[SWITCH] 0x%llx (%s): ver %d type %d len %hu xid 0x%lx",
+                U642ULL(dpid), str, ofp->version, ofp->type, ntohs(ofp->length),
                 U322UL(ntohl(ofp->xid)));
     if (pbuf) {
         c_log_debug("[OF-DUMP]: %s\n", pbuf);
@@ -9612,21 +9981,6 @@ of140_prep_features_request_msg(void)
 {
     return of140_prep_msg(sizeof(struct ofp_header), OFPT140_FEATURES_REQUEST, 0);
 }
-
-struct cbuf *
-of140_prep_role_request_msg(uint32_t role, uint64_t gen_id)
-{
-    struct cbuf *b;
-    struct ofp_role_request *ofp_rr;
-
-    b = of140_prep_msg(sizeof(*ofp_rr), OFPT131_ROLE_REQUEST, 0);
-    ofp_rr = (void *)(b->data);
-    ofp_rr->role = htonl(role);
-    ofp_rr->generation_id = htonll(gen_id);
-
-    return b;
-}
-
 
 /*********************************************************/
 
@@ -9802,4 +10156,17 @@ ofp_dump_port_details(char *string, uint32_t config, uint32_t state)
     }
 }
 
-
+void 
+ofp_convert_flow_endian_hton(struct flow *fl) 
+{
+    fl->in_port = htonl(fl->in_port);
+    fl->dl_vlan = htons(fl->dl_vlan);
+    fl->dl_type = htons(fl->dl_type);
+    fl->mpls_label = htonl(fl->mpls_label);
+    fl->ip.nw_src = htonl(fl->ip.nw_src);
+    fl->ip.nw_dst = htonl(fl->ip.nw_dst);
+    fl->tp_src = htons(fl->tp_src);
+    fl->tp_dst = htons(fl->tp_dst);
+    fl->tunnel_id = htonll(fl->tunnel_id);
+    fl->metadata = htonll(fl->metadata);
+}

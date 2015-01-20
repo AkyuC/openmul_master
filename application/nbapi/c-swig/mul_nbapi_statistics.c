@@ -22,6 +22,7 @@
 #include "mul_nbapi_statistics.h"
 #include "mul_nbapi_endian.h"
 
+
 char *nbapi_parse_bps_to_str(uint8_t *bps) {
     char *ret = calloc(sizeof(char), 32);
     if (!ret) return NULL;
@@ -34,21 +35,22 @@ char *nbapi_parse_pps_to_str(uint8_t *pps) {
     sprintf(ret, "%s", pps);
     return ret;
 }
-
 /* callback function to return an array of flow_info */
 static void
-nbapi_switch_flow_dump(void *list_arg, void *flow_arg)
+nbapi_make_switch_flow_dump(nbapi_switch_flow_list_t *list, c_ofp_flow_info_t *cofp_fi)
 {
-    nbapi_switch_flow_list_t *list = list_arg;
-    c_ofp_flow_info_t *cofp_fi = flow_arg;
-
-    /* add the flow_info to flow_list */
+    /* add the flow_info to flow_list *
+     *
+     */
 	c_ofp_flow_info_t *cofp_arg = calloc(1, sizeof(*cofp_fi));
-    if (!cofp_arg) return;
-
     *cofp_arg = *cofp_fi;
-	ntoh_c_ofp_flow_info(cofp_arg);
-	list->array = g_slist_append(list->array, cofp_arg);
+	ntoh_c_ofp_flow_info(cofp_arg); // flow , byte count, packet count conversion
+	list->array = g_slist_prepend(list->array, cofp_arg);
+}
+static void
+nbapi_switch_flow_dump(void *list, void * cofp_fi){
+    nbapi_make_switch_flow_dump((nbapi_switch_flow_list_t *)list,
+                           (c_ofp_flow_info_t *)cofp_fi);
 }
 
 /* returns array of flow_info */
@@ -59,21 +61,21 @@ nbapi_switch_flow_list_t get_switch_statistics_all(uint64_t datapath_id) {
     list.array = NULL;
     list.length = 0;
 
-    c_wr_lock(&nbapi_app_data->lock);
+    c_rd_lock(&nbapi_app_data->lock);
     if (!nbapi_app_data->mul_service) {
-        c_wr_unlock(&nbapi_app_data->lock);
+        c_rd_unlock(&nbapi_app_data->lock);
         return list;
     }
 
     n_flows = mul_get_flow_info(nbapi_app_data->mul_service,
-    		                    datapath_id, false,
-                                false, true, &list,
-                                nbapi_switch_flow_dump);
+    		datapath_id, 0, false, true, false,
+            false, true, &list,
+            nbapi_switch_flow_dump);
 
-    c_wr_unlock(&nbapi_app_data->lock);
+    c_rd_unlock(&nbapi_app_data->lock);
 
     list.length = n_flows;
-
+    list.array = g_slist_reverse(list.array);
     return list;
 }
 
@@ -83,20 +85,18 @@ list_array_ent_free(void *arg)
     free(arg);
 }
 
-nb_port_stats_t *
-get_switch_statistics_port(uint64_t datapath_id, uint16_t port,
-                           int type UNUSED)
-{
+Port_Stats_t 
+*get_switch_statistics_port(uint64_t datapath_id, uint16_t port){//, int type) {
     int n_flows;
     nbapi_switch_flow_list_t list;
     float pps=0;
     float bps=0;
     c_ofp_flow_info_t *cofp_arg = NULL;
-    nb_port_stats_t *port_stats_arg = NULL;
+    Port_Stats_t *port_stats_arg = NULL;
     int i;
 
     if (!port_stats_arg) {
-        port_stats_arg = calloc(1, sizeof(nb_port_stats_t));
+        port_stats_arg = calloc(1, sizeof(Port_Stats_t));
     }
 
     list.array = NULL;
@@ -109,7 +109,7 @@ get_switch_statistics_port(uint64_t datapath_id, uint16_t port,
     }
 
     n_flows = mul_get_flow_info(nbapi_app_data->mul_service,
-    		datapath_id, false,
+    		datapath_id, 0, false, true, false,
             false, true, &list,
             nbapi_switch_flow_dump);
 
@@ -136,8 +136,83 @@ get_switch_statistics_port(uint64_t datapath_id, uint16_t port,
     return port_stats_arg;
 }
 
-struct c_ofp_switch_table_stats *
-get_table_stats(uint64_t dpid, uint8_t table)
+static bool nbapi_ha_config_cap(void) { //bool replay)
+    uint32_t sysid = 0, state = 0;
+    uint64_t generation_id = 0;
+
+    if (mul_get_ha_state(nbapi_app_data->mul_service, &sysid, &state, 
+                            &generation_id)) {
+        return false;
+    }
+
+    if ((state == C_HA_STATE_NONE) ||
+        (state == C_HA_STATE_MASTER) ||
+        (state == C_HA_STATE_NOHA)) {
+        return true;
+    }
+
+    return false;
+}
+
+int 
+set_port_stats(uint64_t dpid, bool enable) 
+{
+
+    if (!nbapi_ha_config_cap()) {//false)) {
+        return 0;
+    }
+
+    if (!c_app_switch_get_version_with_id(dpid)) {
+        return 0;
+    }
+
+    if (mul_set_switch_stats_mode(nbapi_app_data->mul_service, 
+                                                dpid, enable)) {
+        return 0;
+    }
+
+    return 1;
+}
+
+struct ofp131_port_stats *show_port_stats (uint64_t dpid, uint32_t port_no){
+
+    struct cbuf *b = NULL;
+    struct c_ofp_auxapp_cmd *cofp_auc;
+    struct c_ofp_switch_port_query *cofp_pq;
+    struct ofp131_port_stats *ofp_ps = NULL;
+    int version = 0;
+    size_t feat_len = 0;
+    set_port_stats(dpid,true);
+    b =  mul_get_switch_port_stats(nbapi_app_data->mul_service ,dpid, port_no);
+
+    if (!b) return NULL;
+
+    cofp_auc = CBUF_DATA(b);
+    if (cofp_auc->cmd_code != htonl(C_AUX_CMD_MUL_SWITCH_PORT_QUERY)) {
+        free_cbuf(b);
+        return NULL;
+    }
+
+    feat_len = ntohs(cofp_auc->header.length) - (sizeof(*cofp_auc) +
+                        sizeof(*cofp_pq));
+    
+    cofp_pq = ASSIGN_PTR(cofp_auc->data);
+
+    version = c_app_switch_get_version_with_id(ntohll(cofp_pq->datapath_id));
+
+    if (version == OFP_VERSION_131) {
+	if (feat_len < sizeof(struct ofp131_port_stats)) {
+	    free_cbuf(b);
+	    return NULL;
+	}
+        ofp_ps = calloc(1, sizeof(*ofp_ps));
+        memcpy(ofp_ps, cofp_pq->data, sizeof(*ofp_ps));
+        ntoh_ofp131_port_stats(ofp_ps);
+    }
+
+    return ofp_ps;
+}
+struct c_ofp_switch_table_stats *get_table_stats(uint64_t dpid, uint8_t table)
 {
     struct cbuf *b;
     struct c_ofp_auxapp_cmd *cofp_auc;

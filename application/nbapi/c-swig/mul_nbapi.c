@@ -17,6 +17,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 #include "mul_nbapi.h"
+#include "mul_nbapi_statistics.h"
+#include <curl/curl.h>
+
 #define NBAPI_DP_EVENTS (C_DP_REG | C_DP_UNREG | C_PACKET_IN | C_PORT_CHANGE)
 
 extern struct mul_app_client_cb nbapi_app_cbs;
@@ -24,37 +27,131 @@ extern struct mul_app_client_cb nbapi_app_cbs;
 static void
 mul_core_service_conn_event(void *service UNUSED, unsigned char conn_event)
 {
-    c_log_err("%s: %d", FN, conn_event);
+    c_log_info("%s: %d", FN, conn_event);
 }
 
 static void
 mul_route_service_conn_event(void *service UNUSED, unsigned char conn_event)
 {
-    c_log_err("%s: %d", FN, conn_event);
+    c_log_info("%s: %d", FN, conn_event);
 }
 
 static void
 mul_tr_service_conn_event(void *service UNUSED, unsigned char conn_event)
 {
-    c_log_err("%s: %d", FN, conn_event);
+    c_log_info("%s: %d", FN, conn_event);
 }
 
 static void
 mul_fab_service_conn_event(void *service UNUSED, unsigned char conn_event)
 {
-    c_log_err("%s: %d", FN, conn_event);
+    c_log_info("%s: %d", FN, conn_event);
 }
 
 static void
 mul_makdi_service_conn_event(void *service UNUSED, unsigned char conn_event)
 {
-    c_log_err("%s: %d", FN, conn_event);
+    c_log_info("%s: %d", FN, conn_event);
+}
+
+static void
+send_request(void *gui_server, void *message)
+{
+    char url[512];
+    CURL *curl;
+    CURLcode res;
+
+    sprintf(url, "http://%s/notification/notify",(char *)gui_server);
+    c_log_info("send_request to  %s",url); 
+    curl = curl_easy_init();
+
+    sprintf(url, "http://%s/notification/notify",(char *)gui_server);
+    c_log_info("send_request to  %s",url); 
+ 
+    if (curl){
+	    curl_easy_setopt(curl, CURLOPT_URL, url);
+	    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, (char *)message);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, strlen((char *)message));
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 1);
+    	res = curl_easy_perform(curl);
+	    res = curl_easy_perform(curl);
+        if(CURLE_OK != res) {
+            c_log_debug("Error: %s\n", strerror(res));
+        }
+
+        curl_easy_cleanup(curl);
+    }
+    c_log_info("%s, %s", url, (char *)message);
+}
+
+static void
+nbapi_switch_add(mul_switch_t *sw)
+{
+    char message[512];
+
+    set_port_stats(sw->dpid, true);
+    sprintf(message, "{dpid:'0x%llx',notification:'NOTIFICATION'}",
+			U642ULL(sw->dpid));
+    if(gui_server_list){
+	    g_slist_foreach(gui_server_list, 
+		            (GFunc)send_request, (void *)message);
+    }
+//    c_log_info("%s: ", FN);
+    return;
+}
+
+static void
+nbapi_switch_del(mul_switch_t *sw)
+{
+    char message[512];
+    sprintf(message, "{dpid:'0x%llx',notification:'NOTIFICATION'}",
+			U642ULL(sw->dpid));
+//    c_log_info("%s: ", FN);
+    if(gui_server_list){
+        g_slist_foreach(gui_server_list, 
+                (GFunc)send_request, (void *)message);
+    }
+    return;
+}
+static void
+nbapi_port_add(mul_switch_t *sw, mul_port_t *port)
+{
+    char message[512]; 
+    sprintf(message, "{dpid:'0x%llx',port:'%lu',notification:'NOTIFICATION'}",
+            U642ULL(sw->dpid), U322UL(port->port_no));
+//    c_log_info("%s: ", FN);
+    if(gui_server_list){
+        g_slist_foreach(gui_server_list, 
+                (GFunc)send_request, (void *)message);
+    }
+    return;
+}
+
+static void
+nbapi_port_del(mul_switch_t *sw, mul_port_t *port)
+{
+    char message[512]; 
+    sprintf(message, "{dpid:'0x%llx',port:'%lu',notification:'NOTIFICATION'}",
+            U642ULL(sw->dpid), U322UL(port->port_no));
+//    c_log_info("%s: ", FN);
+    if(gui_server_list){
+        g_slist_foreach(gui_server_list,
+                (GFunc)send_request, (void *)message);
+    }
+    return;
 }
 
 static void
 nbapi_core_closed(void)
 {
     c_log_info("%s: ", FN);
+    if (gui_server_list) {
+        g_slist_foreach(gui_server_list,
+                (GFunc)send_request, "{}");
+    }
     return;
 }
 
@@ -68,6 +165,10 @@ nbapi_core_reconn(void)
 }
 
 struct mul_app_client_cb nbapi_app_cbs = {
+    .switch_add_cb =  nbapi_switch_add,
+    .switch_del_cb = nbapi_switch_del,
+    .switch_port_add_cb = nbapi_port_add,
+    .switch_port_del_cb = nbapi_port_del,
     .core_conn_closed = nbapi_core_closed,
     .core_conn_reconn = nbapi_core_reconn
 };
@@ -90,6 +191,8 @@ nbapi_timer_cb(evutil_socket_t fd UNUSED,
     mul_service_t *service = NULL;
     int i = 0;
     struct timeval tv = { MUL_NB_TIMEO, 0 };
+
+    return;
 
     serv_arr[0] = nbapi_app_data->mul_service;
     serv_arr[1] = nbapi_app_data->tr_service;

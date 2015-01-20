@@ -3,7 +3,7 @@
 
 AC_PREREQ(2.6)
 
-AC_INIT(MuL, 1.1, [http://sourceforge.net/projects/mul/])
+AC_INIT(OpenMUL, 5.0.1, [http://www.openmul.org])
 AC_CONFIG_SRCDIR(common/mul_app_main.c)
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -161,7 +161,25 @@ fi
 
 AM_CONDITIONAL(HAVE_MUL_VTY, test "$have_vty" = yes)
 
+AC_CHECK_PROGS([DOXYGEN], [doxygen])
+if test -z "$DOXYGEN";
+   then AC_MSG_WARN([Doxygen not found - continuing without Doxygen support])
+fi
+
+AM_CONDITIONAL([HAVE_DOXYGEN], 
+[test -n "$DOXYGEN"])AM_COND_IF([HAVE_DOXYGEN], [AC_CONFIG_FILES([docs/Doxyfile])])
+
 AM_SILENT_RULES([yes])
 
-AC_CONFIG_FILES([Makefile mul/Makefile application/hello/Makefile application/l2switch/Makefile application/fabric/Makefile application/cli/Makefile application/nbapi/c-swig/Makefile services/loadable/topo_routing/Makefile common-libs/3rd-party/quagga-lib/Makefile common-libs/mul-lib/Makefile])
+AC_CONFIG_FILES([Makefile mul/Makefile application/l2switch/Makefile \
+        docs/Makefile \
+        application/drone/Makefile \
+        application/makdi/Makefile application/fabric/Makefile \
+        application/cli/Makefile application/prism/agent/Makefile \
+        application/prism/app/Makefile application/nbapi/c-swig/Makefile \
+        services/loadable/topo_routing/Makefile \
+        services/loadable/conx/Makefile \
+        common-libs/3rd-party/quagga-lib/Makefile \
+        common-libs/mul-lib/Makefile \
+        common-libs/util-linux/libuuid/Makefile])
 AC_OUTPUT

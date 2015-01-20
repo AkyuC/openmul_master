@@ -18,6 +18,7 @@
  */
 #ifndef __MUL_APP_INTERFACE_H__
 #define __MUL_APP_INTERFACE_H__
+#include "uuid.h"
 
 typedef void (*initcall_t)(void *);
 extern initcall_t __start_modinit_sec, __stop_modinit_sec;
@@ -38,8 +39,19 @@ extern initcall_t __start_modvtyinit_sec, __stop_modvtyinit_sec;
 #define MAKDI_APP_NAME "mul-makdi"
 #define FEMTO_APP_NAME "mul-femto"
 #define PRISM_APP_NAME "prism"
-#define HELLO_APP_NAME "hello"
-#define MUL_MAX_SERVICE_NUM 8
+#define CONX_APP_NAME "ConX"
+#define DRONE_APP_NAME "Drone"
+#define MUL_MAX_SERVICE_NUM 9
+
+#define FAB_APP_COOKIE 0x1111 
+#define CLI_APP_COOKIE 0x0
+#define L2SW_APP_COOKIE 0x5555 
+#define TR_APP_COOKIE 0x6666 
+#define MAKDI_APP_COOKIE 0x2222 
+#define FEMTO_APP_COOKIE 0x0 
+#define PRISM_APP_COOKIE 0x3333 
+#define CONX_APP_COOKIE 0x4444 
+#define MUL_MAX_SERVICE_NUM 9
 
 /* Controller app event notifications */
 typedef enum c_app_event {
@@ -52,6 +64,8 @@ typedef enum c_app_event {
     C_HA_STATE,
     C_VENDOR_MSG,
     C_TR_STATUS,
+    C_GROUP_MOD_FAILED,
+    C_METER_MOD_FAILED,
     C_EVENT_MAX
 } c_app_event_t;
 #define C_APP_ALL_EVENTS  ((1 << C_EVENT_MAX) - 1) 
@@ -223,25 +237,33 @@ struct c_ofp_flow_mod {
 
     struct flow         flow; 
     struct flow         mask; 
-#define C_FL_ENT_STATIC     (0x1) 
-#define C_FL_ENT_CLONE      (0x2)
-#define C_FL_ENT_LOCAL      (0x4)
-#define C_FL_ENT_NOCACHE    (0x8)
-#define C_FL_ENT_NOT_INST   (0x8) /* Note */
-#define C_FL_ENT_NOSYNC     (0x10)
-#define C_FL_ENT_GSTATS     (0x20)
-#define C_FL_ENT_SWALIAS    (0x40)
-#define C_FL_ENT_BARRIER    (0x80)
-#define C_FL_ENT_RESIDUAL   (0x100)
-#define C_FL_ENT_STALE      (0x200)
+#define C_FL_ENT_STATIC     (0x1)   /* A static flow */
+#define C_FL_ENT_CLONE      (0x2)   /* A cloned flow */
+#define C_FL_ENT_LOCAL      (0x4)   /* A Local flow which is not installed in the switch 
+                                       but only kept in local DB */
+#define C_FL_ENT_NOCACHE    (0x8)   /* Push the flow to the switch without keeping in 
+                                       local DB */
+#define C_FL_ENT_NOT_INST   (0x8)   /* Flow was not installed */
+#define C_FL_ENT_NOSYNC     (0x10)  /* Whether flow needs resyncing after HA event */ 
+#define C_FL_ENT_GSTATS     (0x20)  /* Gather stats flor this flow */
+#define C_FL_ENT_SWALIAS    (0x40)  /* Flow add should happen via switch alias-id rather
+                                       than dpid */
+#define C_FL_ENT_BARRIER    (0x80)  /* Send accompanying barrier message with flow mod */
+#define C_FL_ENT_RESIDUAL   (0x100) /* Flow is residual flow read from switch */
+#define C_FL_ENT_STALE      (0x200) /* Flow is stale */
+#define C_FL_NO_ACK         (0x400) /* Dont wait for ACK after flow add */
+#define C_FL_ENT_CTRL_LOCAL (0x800) /* Flow is meant for local controller delivery */
+#define C_FL_ENT_TBL_PHYS   (0x1000) /* Table-id in flow should not be translated to 
+                                        virtual table-id */
     uint64_t             flags;
     uint8_t              pad0;
 #define C_OFPC_ADD  0
 #define C_OFPC_DEL  1
     uint8_t             command;
-#define C_FL_PRIO_DFL 0
-#define C_FL_PRIO_FWD 1
-#define C_FL_PRIO_DRP 2
+#define C_FL_PRIO_DFL  0
+#define C_FL_PRIO_LDFL 1
+#define C_FL_PRIO_FWD  2
+#define C_FL_PRIO_DRP  3
 #define C_FL_PRIO_EXM 65535
     uint16_t            priority;
     uint32_t            sw_alias;
@@ -254,7 +276,7 @@ struct c_ofp_flow_mod {
     uint16_t            mod_flags;
     uint8_t             pad1[2];
     uint32_t            cookie;
-    uint32_t            pad2;
+    uint32_t            seq_cookie;
     struct ofp_action_header actions[0];
 };
 OFP_ASSERT(sizeof(struct c_ofp_flow_mod) == (240));
@@ -332,6 +354,8 @@ struct c_ofp_group_mod {
 #define C_GRP_BARRIER_EN 0x8
 #define C_GRP_NOT_INSTALLED 0x10
 #define C_GRP_RESIDUAL 0x20
+#define C_GRP_STALE 0x40
+#define C_GRP_LOCAL 0x80
     uint8_t             flags;     
     uint8_t             pad;
     uint32_t            group_id;
@@ -356,6 +380,7 @@ struct c_ofp_meter_mod {
 #define C_METER_BARRIER_EN 0x8
 #define C_METER_NOT_INSTALLED 0x10
 #define C_METER_RESIDUAL 0x20
+#define C_METER_STALE 0x40
     uint8_t             c_flags;     
     uint16_t            flags;      /* One of OFPMBT_*. */
     uint32_t            meter_id;
@@ -403,7 +428,7 @@ struct c_ofp_register_app {
     uint32_t            app_flags;
     uint32_t            ev_mask;
     uint32_t            dpid;
-    uint32_t            pad;
+    uint32_t            app_cookie;
     uint64_t            dpid_list[0];
 };
 OFP_ASSERT(sizeof(struct c_ofp_register_app) == 88);
@@ -463,6 +488,9 @@ struct c_ofp_auxapp_cmd {
 #define C_AUX_CMD_MUL_LOOP_EN (C_AUX_CMD_MUL_CORE_BASE + 22)
 #define C_AUX_CMD_MUL_LOOP_DIS (C_AUX_CMD_MUL_CORE_BASE + 23)
 #define C_AUX_CMD_MUL_TR_STATUS (C_AUX_CMD_MUL_CORE_BASE + 24)
+#define C_AUX_CMD_MUL_GET_MATCHED_GROUP (C_AUX_CMD_MUL_CORE_BASE + 25)
+#define C_AUX_CMD_MUL_GET_MATCHED_METER (C_AUX_CMD_MUL_CORE_BASE + 26)
+#define C_AUX_CMD_MUL_MOD_UFLOW (C_AUX_CMD_MUL_CORE_BASE + 27)
 
 #define C_AUX_CMD_TR_BASE (C_AUX_CMD_MUL_CORE_BASE + 1000) 
 #define C_AUX_CMD_TR_GET_NEIGH (C_AUX_CMD_TR_BASE + 1)
@@ -475,6 +503,11 @@ struct c_ofp_auxapp_cmd {
 #define C_AUX_CMD_FAB_SHOW_INACTIVE_HOSTS (C_AUX_CMD_FAB_BASE + 4)
 #define C_AUX_CMD_FAB_SHOW_ROUTES (C_AUX_CMD_FAB_BASE + 5)
 #define C_AUX_CMD_FAB_ROUTE (C_AUX_CMD_FAB_BASE + 6)
+#define C_AUX_CMD_FAB_SHOW_TENANT_NW (C_AUX_CMD_FAB_BASE + 7) 
+#define C_AUX_CMD_FAB_PORT_TNID_ADD (C_AUX_CMD_FAB_BASE + 8)
+#define C_AUX_CMD_FAB_PORT_TNID_DEL (C_AUX_CMD_FAB_BASE + 9)
+#define C_AUX_CMD_FAB_PORT_TNID_SHOW (C_AUX_CMD_FAB_BASE + 10)
+#define C_AUX_CMD_FAB_SHOW_HOST_ROUTE (C_AUX_CMD_FAB_BASE + 11)
 
 #define C_AUX_CMD_HA_BASE (C_AUX_CMD_MUL_CORE_BASE + 3000)
 #define C_AUX_CMD_HA_STATE (C_AUX_CMD_HA_BASE + 1)
@@ -488,7 +521,6 @@ struct c_ofp_auxapp_cmd {
 #define C_AUX_CMD_MAKDI_USER_DEL (C_AUX_CMD_MAKDI_BASE + 2) 
 #define C_AUX_CMD_MAKDI_SHOW_USER (C_AUX_CMD_MAKDI_BASE + 3) 
 #define C_AUX_CMD_MAKDI_USER (C_AUX_CMD_MAKDI_BASE + 4) 
-
 
 #define C_AUX_CMD_MAKDI_SERVICE_ADD (C_AUX_CMD_MAKDI_BASE + 5)
 #define C_AUX_CMD_MAKDI_SERVICE_DEL (C_AUX_CMD_MAKDI_BASE + 6)
@@ -505,7 +537,6 @@ struct c_ofp_auxapp_cmd {
 #define C_AUX_CMD_MAKDI_DEFAULT_SERVICE_ADD (C_AUX_CMD_MAKDI_BASE + 17)
 #define C_AUX_CMD_MAKDI_DEFAULT_SERVICE_DEL (C_AUX_CMD_MAKDI_BASE + 18)
 #define C_AUX_CMD_MAKDI_SHOW_DEFAULT_SERVICE (C_AUX_CMD_MAKDI_BASE + 19)
-
 #define C_AUX_CMD_MAKDI_NFV_STATS (C_AUX_CMD_MAKDI_BASE + 20)
 #define C_AUX_CMD_MAKDI_SERVICE_STATS (C_AUX_CMD_MAKDI_BASE + 21)
 #define C_AUX_CMD_MAKDI_USER_STATS (C_AUX_CMD_MAKDI_BASE + 22)
@@ -513,6 +544,11 @@ struct c_ofp_auxapp_cmd {
 #define C_AUX_CMD_MAKDI_SERVICE_STATS_ALL (C_AUX_CMD_MAKDI_BASE + 24)
 #define C_AUX_CMD_MAKDI_USER_STATS_ALL (C_AUX_CMD_MAKDI_BASE + 25)
 #define C_AUX_CMD_MAKDI_SHOW_SERVICE_CHAIN_ALL (C_AUX_CMD_MAKDI_BASE + 26)
+
+#define C_AUX_CMD_CONX_BASE (C_AUX_CMD_MUL_CORE_BASE + 5000)
+#define C_AUX_CMD_CONX_ADD_UFLOW (C_AUX_CMD_CONX_BASE + 1)
+#define C_AUX_CMD_CONX_DEL_UFLOW (C_AUX_CMD_CONX_BASE + 2)
+#define C_AUX_CMD_CONX_STALE (C_AUX_CMD_CONX_BASE + 3)
     uint32_t            cmd_code;
     uint32_t            pad;
     uint8_t             data[0];
@@ -523,6 +559,13 @@ struct c_ofp_req_dpid_attr {
     uint64_t            datapath_id;
 };
 OFP_ASSERT(sizeof(struct c_ofp_req_dpid_attr) == 8);
+
+struct c_ofp_group_info {
+    uint64_t            datapath_id;
+    uint32_t            group_id;
+    uint32_t            pad;
+};
+OFP_ASSERT(sizeof(struct c_ofp_group_info) == 16);
 
 struct c_ofp_port_neigh {
     uint16_t            port_no;
@@ -562,6 +605,7 @@ OFP_ASSERT(sizeof(struct c_ofp_switch_neigh) == 8);
 #define SW_FLOW_PROBE_DONE          (0x80000)
 #define SW_GROUP_PROBE_DONE         (0x100000)
 #define SW_METER_PROBE_DONE         (0x200000)
+#define SW_VTBL_MAP_DONE            (0x400000)
 #define MAX_SERVICE_NAME    64
 
 struct c_ofp_switch_brief {
@@ -593,8 +637,9 @@ struct c_ofp_switch_of_dump {
     uint64_t                   datapath_id;
     uint32_t                   rx_enable;
     uint32_t                   tx_enable;
+    uint64_t                   dump_mask[4];
 };
-OFP_ASSERT(sizeof(struct c_ofp_switch_of_dump) == 16);
+OFP_ASSERT(sizeof(struct c_ofp_switch_of_dump) == 48);
 
 struct c_ofp_switch_stats_strategy {
     uint64_t                   datapath_id;
@@ -638,16 +683,33 @@ OFP_ASSERT(sizeof(struct c_ofp_switch_port_query) == 24);
 
 struct c_ofp_host_mod {
     struct c_ofp_req_dpid_attr switch_id;
+    uuid_t                     tenant_id; 
+    uuid_t                     network_id; 
     struct flow                host_flow;
 };
-OFP_ASSERT(sizeof(struct c_ofp_host_mod) == 96);
+OFP_ASSERT(sizeof(struct c_ofp_host_mod) == 128);
+
+struct c_ofp_port_tnid_mod {
+    uint64_t		       datapath_id; 
+    uint32_t		       port;
+    uint32_t                   pad;
+    uuid_t                     tenant_id; 
+    uuid_t                     network_id;
+};  
+OFP_ASSERT(sizeof(struct c_ofp_port_tnid_mod) == 48);
+
+struct c_ofp_tenant_nw_mod {
+    uuid_t 		       tenant_id;
+    uuid_t		       network_id;
+};
+OFP_ASSERT(sizeof(struct c_ofp_tenant_nw_mod) == 32 );
 
 struct c_ofp_route {
     struct c_ofp_host_mod      src_host;
     struct c_ofp_host_mod      dst_host;
     uint8_t                    route_links[0];
 };
-OFP_ASSERT(sizeof(struct c_ofp_route) == 192);
+OFP_ASSERT(sizeof(struct c_ofp_route) == 256);
 
 struct c_ofp_route_link {
     uint64_t                   datapath_id;
@@ -688,6 +750,14 @@ struct c_ofp_tr_status_mod {
 };
 OFP_ASSERT(sizeof(struct c_ofp_tr_status_mod) == 8);
 
+struct c_ofp_fl_mod_info {
+    struct flow  flow;
+    uint64_t     datapath_id;
+    uint32_t     out_port;
+    uint32_t     pad;
+};
+OFP_ASSERT(sizeof(struct c_ofp_fl_mod_info) == 104);
+
 enum user_level_type {
     USER_LEVEL_PREMIUM,
     USER_LEVEL_GOLD,
@@ -704,7 +774,7 @@ struct c_ofp_s_chain_mod {
     char                       nfv_list[MAX_NFV][MAX_NFV_NAME];
     char                       service[MAX_NFV_NAME];
 };
-OFP_ASSERT(sizeof(struct c_ofp_s_chain_mod) == 280);
+OFP_ASSERT(sizeof(struct c_ofp_s_chain_mod) == 312);
 
 struct c_ofp_default_s_chain_mod {
     uint16_t                   num_nfvs;
@@ -734,7 +804,7 @@ struct c_ofp_s_chain_info {
     struct c_ofp_host_mod           user_info;      
     struct c_ofp_s_chain_nfv_list   nfv_list;      
 };
-OFP_ASSERT(sizeof(struct c_ofp_s_chain_info) == 584);
+OFP_ASSERT(sizeof(struct c_ofp_s_chain_info) == 616);
 
 struct c_ofp_service_info {
     uint16_t                        vlan;
@@ -821,6 +891,33 @@ struct c_ofp_user_stats_show {
 };
 OFP_ASSERT(sizeof(struct c_ofp_user_stats_show) == 320);
 
+typedef enum {
+    CONX_TUNNEL_OF,
+    CONX_TUNNEL_VXLAN,
+    CONX_TUNBEL_GRE,
+}conx_tunnel_t;
+
+struct c_conx_user_flow {
+    struct ofp_header           header;
+    uint64_t                    dst_dpid;
+    uint64_t                    n_src;
+    uint64_t                    fl_flags;
+
+    struct flow                 flow;
+    struct flow                 mask;
+
+    uint32_t                    tunnel_key;
+    uint32_t                    tunnel_type;
+
+    uint32_t                    app_cookie;
+#define CONX_UFLOW_FORCE 0x1
+#define CONX_UFLOW_DFL 0x2
+    uint32_t                    conx_flags;
+    
+    uint8_t                     src_dpid_list[0];
+    // uint8_t                  actions[0];
+};
+OFP_ASSERT(sizeof(struct c_conx_user_flow) == 224);
 
 #define C_OFP_ERR_CODE_BASE (100)
 
@@ -830,13 +927,17 @@ OFP_ASSERT(sizeof(struct c_ofp_user_stats_show) == 320);
 #define OFPBRC_BAD_APP_UREG (C_OFP_ERR_CODE_BASE + 2)
 #define OFPBRC_BAD_NO_INFO  (C_OFP_ERR_CODE_BASE + 3)
 #define OFPBRC_BAD_GENERIC  (C_OFP_ERR_CODE_BASE + 4)
+//#define OFPBRC_BAD_LEN      (C_OFP_ERR_CODE_BASE + 5)
+#define OFPBRC_BAD_GROUP_ID (C_OFP_ERR_CODE_BASE + 6)
+#define OFPBRC_BAD_METER_ID (C_OFP_ERR_CODE_BASE + 7)
 
 /* More bad action codes */
-#define OFPBAC_BAD_GENERIC  (C_OFP_ERR_CODE_BASE)  
+#define OFPBAC_BAD_GENERIC  (C_OFP_ERR_CODE_BASE + 100)
 
 /* More flow mod failed codes */
-#define OFPFMFC_BAD_FLAG    (C_OFP_ERR_CODE_BASE)   
-#define OFPFMFC_GENERIC     (C_OFP_ERR_CODE_BASE + 1)   
+#define OFPFMFC_BAD_FLAG    (C_OFP_ERR_CODE_BASE + 200)   
+#define OFPFMFC_GENERIC     (OFPFMFC_BAD_FLAG + 1)   
+#define OFPFMFC_FLOW_EXIST  (OFPFMFC_BAD_FLAG + 2)
 
 #define C_OFP_MAX_ERR_LEN 128
 
@@ -870,6 +971,8 @@ typedef struct c_ofp_switch_neigh c_ofp_switch_neigh_t;
 typedef struct c_ofp_port_neigh c_ofp_port_neigh_t;
 typedef struct c_ofp_switch_brief c_ofp_switch_brief_t;
 typedef struct c_ofp_host_mod c_ofp_host_mod_t; 
+typedef struct c_ofp_port_tnid_mod c_ofp_port_tnid_mod_t;
+typedef struct c_ofp_tenant_nw_mod c_ofp_tenant_nw_mod_t;
 typedef struct c_ofp_route c_ofp_route_t;
 typedef struct c_ofp_route_link c_ofp_route_link_t;
 typedef struct c_ofp_ha_state c_ofp_ha_state_t;
@@ -883,5 +986,6 @@ typedef struct c_opf_default_rule_info c_ofp_default_rule_info_t;
 typedef struct c_ofp_nfv_stats_show c_ofp_nfv_stats_show_t;
 typedef struct c_ofp_service_stats_show c_ofp_service_stats_show_t;
 typedef struct c_ofp_user_stats_show c_ofp_user_stats_show_t;
+typedef struct c_conx_user_flow c_conx_user_flow_t;
 
 #endif

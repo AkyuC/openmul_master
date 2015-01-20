@@ -14,18 +14,21 @@ INCLUDES = -I. -I$(top_srcdir)/mul -I$(top_srcdir)/common/ \
            -I$(top_srcdir)/services/loadable/topo_routing/ \
            -I$(top_srcdir)/common-libs/3rd-party/derived-lib/include/ \
            -I$(top_srcdir)/common-libs/3rd-party/quagga-lib/include/ \
-           -I$(top_srcdir)/common-libs/mul-lib/include/
+           -I$(top_srcdir)/common-libs/mul-lib/include/ \
+           -I$(top_srcdir)/common-libs/util-linux/libuuid/src/\
+           -I$(top_srcdir)/services/loadable/conx/
 
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 
-mulfab_CFLAGS = -DMUL_APP_V2_MLAPI
+mulfab_CFLAGS = -DAPP_HA -DMUL_APP_V2_MLAPI
 
 if HAVE_MUL_VTY
 mulfab_CFLAGS += -DMUL_APP_VTY
 endif
 
+
 libfab_la_SOURCES = \
-            mul_fabric_servlet.c
+            mul_fabric_servlet.c 
 
 mulfab_SOURCES = mul_fabric.c mul_fabric_host.c mul_fabric_vty.c  \
                 mul_fabric_route.c mul_fabric_switches.c mul_fabric_pkt.c \
@@ -47,6 +50,8 @@ mulfab_LDADD = \
                $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a  \
 			   $(top_srcdir)/mul/./.libs/libmul.a \
                $(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a -lrt \
+               $(top_srcdir)/common-libs/util-linux/libuuid/.libs/libuuid.a \
+               $(top_srcdir)/services/loadable/conx/.libs/libconx.a\
                -lcrypto -lssl
 if HAVE_MUL_VTY
 mulfab_LDADD += $(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libcli.a

@@ -47,7 +47,7 @@ __c_rd_lock(c_rw_lock_t *lock)
 
 #define c_rd_lock(lock) \
 do { \
-    printf ("%s:%s:%d\n", __FILE__, __FUNCTION__, __LINE__); \
+    printf ("%s:%s:%d (%p)\n", __FILE__, __FUNCTION__, __LINE__, lock); \
     __c_rd_lock(lock); \
 }while(0)
 
@@ -60,7 +60,7 @@ __c_rd_unlock(c_rw_lock_t *lock)
 
 #define c_rd_unlock(lock) \
 do { \
-    printf ("%s:%s:%d\n", __FILE__, __FUNCTION__, __LINE__); \
+    printf ("%s:%s:%d (%p)\n", __FILE__, __FUNCTION__, __LINE__, lock); \
     __c_rd_unlock(lock); \
 }while(0)
 
@@ -73,7 +73,7 @@ __c_wr_lock(c_rw_lock_t *lock)
 
 #define c_wr_lock(lock) \
 do { \
-    printf ("%s:%s:%d\n", __FILE__, __FUNCTION__, __LINE__); \
+    printf ("%s:%s:%d (%p)\n", __FILE__, __FUNCTION__, __LINE__, lock); \
     __c_wr_lock(lock); \
 }while(0)
 
@@ -86,7 +86,7 @@ __c_wr_unlock(c_rw_lock_t *lock)
 
 #define c_wr_unlock(lock) \
 do { \
-    printf ("%s:%s:%d\n", __FILE__, __FUNCTION__, __LINE__); \
+    printf ("%s:%s:%d (%p)\n", __FILE__, __FUNCTION__, __LINE__, lock); \
     __c_wr_unlock(lock); \
 }while(0)
 

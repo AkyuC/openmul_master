@@ -20,26 +20,20 @@
 #define __MUL_NBAPI_PATH_H__
 
 #include "mul_app_interface.h"
-#include "glib.h"
-#include "mul_route.h"
 #include "mul_nbapi_swig_helper.h"
+#include "mul_vty.h"
+#include "glib.h"
 
 #ifdef SWIG
-
+    %newobject get_simple_path;
+    %newobject get_switch_neighbor_all;
 #endif
 
-typedef struct nbapi_path_elem
-{
-	uint32_t switch_alias;
-	uint16_t ingress_port_no;
-	uint16_t egress_port_no;
-} nbapi_path_elem_t;
-MUL_NBAPI_PYLIST_RETURN( nbapi_path_elem , nbapi_path_elem_list_t )
+MUL_NBAPI_PYLIST_RETURN( rt_path_elem_ , nbapi_path_elem_list_t)
+MUL_NBAPI_PYLIST_RETURN(c_ofp_port_neigh, nbapi_port_neigh_list_t)
 
-nbapi_path_elem_list_t get_simple_path(int src_sw_alias, 
-									uint16_t src_port_no, 
-									int dest_sw_alias, 
-									uint16_t dest_port_no);
+nbapi_path_elem_list_t get_simple_path(int src_sw_alias, int dest_sw_alias);
+nbapi_port_neigh_list_t get_switch_neighbor_all(uint64_t datapath_id);
 
 
 

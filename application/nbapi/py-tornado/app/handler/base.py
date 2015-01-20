@@ -1,21 +1,12 @@
 import re
 import logging
-import httplib
+#import httplib
 
 import tornado
 import tornado.web
 
 logger = logging.getLogger("BaseHandler")
 logger.setLevel(logging.DEBUG)
-
-class MulError(Exception):
-    def __init__(self, message):
-	self.log_message = message
-	self.reason = message
-
-    def __str__(self):
-	return str(self.log_message)
-
 
 class BaseHandler(tornado.web.RequestHandler):
     URL_VERSION = "1.0"
@@ -30,6 +21,9 @@ class BaseHandler(tornado.web.RequestHandler):
 
     def get_request_uri(self):
         return self.request.uri
+
+    def get_client_ip(self):
+	return self.request.remote_ip
 
     def get_request_data(self):
         data = {}
@@ -77,31 +71,21 @@ class BaseHandler(tornado.web.RequestHandler):
         raise tornado.web.HTTPError(405, 'Method Not Allowed')
 
     def write_error(self, status_code, **kwargs):
+	err_msg = 'unknown error'
+	if int(status_code) == 404:
+	    err_msg = 'no such api'
         res = {
-            'error_code':       status_code,
-            'error_message':    httplib.responses[status_code]
+#            'error_code':       status_code#,
+#            'error_message':    httplib.responses[status_code]
+	     'error_message' : str(err_msg)
         }
         self.write(res)
 
-    def _handle_request_exception(self, e):
-	if isinstance(e, MulError):
-	    self.finish()
+    def on_message(self,msg):
+        if msg.kind == 'message':
 
+            self.finish(dict(complete=True,message=msg.body))
 
-    def raise_error(self, status_code, message, **kwargs):
-	reason = ""
-        if 'reason' in kwargs:
-            res = {
-                'error_code':       status_code,
-                'error_message':    message,
-                'reason':      kwargs.get('reason')
-            }
-	    reason = kwargs.get('reason')
-        else:
-            res = {
-                'error_code':       status_code,
-                'error_message':    message
-            }
-	#self.write(res)
-	self.finish(res)
-	#raise MulError(res)
+            self.client.unsubscribe('notification')
+            self.client.disconnect()
+

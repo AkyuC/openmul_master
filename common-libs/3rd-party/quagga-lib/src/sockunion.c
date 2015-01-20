@@ -326,7 +326,7 @@ sockunion_log (union sockunion *su)
    1 : connect is in progress */
 enum connect_result
 sockunion_connect (int fd, union sockunion *peersu, unsigned short port,
-		   unsigned int ifindex)
+		   unsigned int ifindex __attribute__((unused)))
 {
   int ret;
   int val;
@@ -486,7 +486,7 @@ sockopt_reuseport (int sock)
 }
 #else
 int
-sockopt_reuseport (int sock)
+sockopt_reuseport (int sock __attribute__((unused)))
 {
   return 0;
 }

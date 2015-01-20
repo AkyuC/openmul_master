@@ -1,6 +1,6 @@
 /*
  *  mul_cli.c: CLI application for MUL Controller 
- *  Copyright (C) 2012-2014, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
+ *  Copyright (C) 2012, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>,
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -18,7 +18,9 @@
  */
 #include "mul_cli.h"
 #include "mul_app_main.h"
+#include "uuid.h"
 
+#define CLI_CFG_FILE 1
 #ifdef MUL_APP_VTY
 
 cli_struct_t *cli;
@@ -27,6 +29,11 @@ static int cli_init_mul_service(cli_struct_t *cli, struct vty *vty);
 static void cli_switch_add(mul_switch_t *sw);
 static void cli_core_closed(void);
 static void cli_core_reconn(void);
+static char **conf_file_name_get_cb(int *num);
+static void cli_timer(evutil_socket_t fd, short event, void *arg);
+static bool cli_ha_config_cap(cli_struct_t *cli, struct vty *vty,
+                              bool replay);
+void cli_ha_state(uint32_t sysid, uint32_t ha_state);
 
 struct mul_app_client_cb cli_app_cbs = {
     .switch_add_cb = cli_switch_add,
@@ -102,6 +109,7 @@ cli_service_timer(struct thread *t)
         }
     }
 
+    cli_timer(0, 0, NULL);
     c_wr_unlock(&cli->lock);
     
     thread_add_timer(cli->vty_master,
@@ -123,6 +131,31 @@ cli_core_reconn(void)
     c_log_info("[Core] Reconnected");
     mul_register_app_cb(NULL, CLI_APP_NAME, C_APP_ALL_SW, C_APP_ALL_EVENTS,
                         0, NULL, &cli_app_cbs);
+}
+
+static bool
+cli_ha_config_cap(cli_struct_t *cli, struct vty *vty, bool replay UNUSED)
+{
+
+    if (cli_init_mul_service(cli, vty)) {
+        return false;
+    }
+
+    if (mul_get_ha_state(cli->mul_service, &cli->sysid, &cli->state,
+                &cli->generation_id)) {
+        if (vty) vty_out(vty, "HA state unavailable\r\n");
+        return false;
+    }
+
+    if ((cli->state == C_HA_STATE_NONE) ||
+        cli->state == C_HA_STATE_MASTER ||
+        cli->state == C_HA_STATE_NOHA) {
+        return true;
+    }
+
+    if (vty) vty_out(vty, "Config not allowed for current HA state\r\n");
+
+    return false;
 }
 
 /**
@@ -155,6 +188,17 @@ vty_dump(void *vty, void *pbuf)
     vty_out((struct vty *)vty, "%s", (char *)pbuf);
 }
 
+/**
+ * vty_config_dump -
+ */
+static void
+vty_config_dump(void *arg, void *pbuf)
+{
+    struct cli_config_wr_arg *cfg_wr_arg = arg;
+    vty_out(cfg_wr_arg->vty, "%s", (char *)pbuf);
+    cfg_wr_arg->write++;
+}
+
 /** 
  * cli_recv_err_msg -
  *
@@ -172,7 +216,53 @@ cli_recv_err_msg(cli_struct_t *cli UNUSED, c_ofp_error_msg_t *cofp_err)
 static void
 mul_core_service_conn_event(void *serv_arg UNUSED, unsigned char conn_event)
 {
-    c_log_err("%s: %d", FN, conn_event);
+    bool unlock;
+
+    unlock = !c_wr_trylock(&cli->lock);
+    if (conn_event == MUL_SERVICE_UP) { 
+        if (cli->mul_service_rep || !cli->init_events_triggered) {
+            if (unlock) c_wr_unlock(&cli->lock);
+            return;
+        }
+#ifdef CLI_CFG_FILE 
+        if (cli_ha_config_cap(cli, NULL, true)) {
+            int fl = 0, num_files = 0;
+            char **fnames;
+            char config_file[256];
+
+            if (!(fnames = conf_file_name_get_cb(&num_files))) { 
+                c_log_err("%s: get param failed", FN);
+                cli->mul_service_rep = true;
+                if (unlock) c_wr_unlock(&cli->lock);
+                return;
+            }
+
+            for (fl = 0; fl < num_files; fl++) {
+                /* Get filename. */
+                memset(config_file, 0, sizeof(config_file));
+                strncat(config_file, CLI_CONF_FILE, sizeof(config_file)-1);
+                strncat(config_file, fnames[fl],
+                        sizeof(config_file)-1-strlen(config_file));
+
+                c_log_err("%s: Triggering config %s", FN, config_file);
+                vty_read_config(NULL, config_file, 1, MUL_NODE);
+            }
+
+            if (fnames) {
+                for (fl = 0; fl < num_files; fl++) {
+                    if (fnames[fl])
+                        free((void *)(fnames[fl]));
+                }
+                free(fnames);
+            }
+        }
+#endif
+        cli->mul_service_rep = true;
+    } else {
+        cli->mul_service_rep = false;
+        cli->init_events_triggered = 0;
+    }
+    if (unlock) c_wr_unlock(&cli->lock);
 }
 
 static void
@@ -181,11 +271,39 @@ mul_tr_service_conn_event(void *serv_arg UNUSED, unsigned char conn_event)
     c_log_err("%s: %d", FN, conn_event);
 }
 
-
 static void
-mul_fab_service_conn_event(void *service UNUSED, unsigned char conn_event)
+mul_fab_service_conn_event(void *serv_arg UNUSED, unsigned char conn_event)
 {
     c_log_err("%s: %d", FN, conn_event);
+
+    if (conn_event == MUL_SERVICE_UP) { 
+#ifdef CLI_CFG_FILE
+        if (cli->init_events_triggered) {
+            sleep(1);
+            if (cli_ha_config_cap(cli, NULL, true)) {
+                c_log_err("%s: Triggering config", FN);
+                vty_read_config(NULL, CLI_CONF_FILE, 1, MULFAB_NODE);
+            }
+#endif
+            cli->fab_service_rep = true;
+        }
+    }
+}
+static void
+mul_makdi_service_conn_event(void *serv_arg UNUSED, unsigned char conn_event)
+{
+    c_log_err("%s: %d", FN, conn_event);
+    
+    if (conn_event == MUL_SERVICE_UP) {
+#ifdef CLI_CFG_FILE
+        sleep(1);
+        if (cli_ha_config_cap(cli, NULL, true)) {
+            c_log_err("%s: Triggering config", FN);
+            vty_read_config(NULL, CLI_CONF_FILE, 1, MULMAKDI_NODE);
+        }
+#endif
+        cli->makdi_service_rep = true;
+    }
 }
 
 static int
@@ -244,6 +362,25 @@ cli_init_tr_service(cli_struct_t *cli, struct vty *vty)
     return 0;
 }
 
+static int
+cli_init_makdi_service(cli_struct_t *cli, struct vty *vty)
+{
+     if (!cli->makdi_service) {
+        cli->makdi_service = mul_app_get_service_notify_ka(MUL_MAKDI_SERVICE_NAME,
+                                                  mul_makdi_service_conn_event,
+                                                  cli_dummy_infra_ka,
+                                                  false, NULL);
+        if (!cli->makdi_service) {
+            return return_vty(vty, 0, CMD_WARNING, "mul-mak dead");
+        }
+    } else if (!mul_service_available(cli->makdi_service)) {
+        return return_vty(vty, 0, CMD_WARNING, "mul-mak dead");
+    }
+
+    return 0;
+}
+
+
 static void UNUSED
 cli_exit_mul_service(cli_struct_t *cli)
 {
@@ -269,6 +406,68 @@ cli_exit_tr_service(cli_struct_t *cli)
         mul_app_destroy_service(cli->tr_service);
         cli->tr_service = NULL;
     }
+}
+
+static void UNUSED
+cli_exit_makdi_service(cli_struct_t *cli)
+{
+    if (cli->makdi_service) {
+        mul_app_destroy_service(cli->makdi_service);
+        cli->makdi_service = NULL;
+    }
+}
+
+
+static void
+cli_timer(evutil_socket_t fd UNUSED, short event UNUSED, void *arg UNUSED)
+{
+#ifdef CLI_CFG_FILE
+    int64_t curr_time;
+#endif
+
+    if (!cli->init_events_triggered) {
+        cli->init_events_triggered = true;
+    }
+
+#ifdef CLI_CFG_FILE
+    curr_time = g_get_monotonic_time();
+    if (!cli->last_sync) {
+        cli->last_sync = curr_time;
+    } else {
+        if (cli_ha_config_cap(cli, NULL, true) &&
+            cli->state == C_HA_STATE_MASTER) {
+            if (cli->last_sync + CLI_TIMER_CFG_SYNC_TMS < curr_time &&
+                !cli->need_sync && 
+                cli->ha_peer) {
+                cli->last_sync = curr_time;
+                cli->need_sync = true;
+            }
+        } else {
+            cli->last_sync = curr_time;
+        }
+    }
+#endif
+
+    if (cli->no_init_conf) return;
+
+    if (cli->fab_service &&
+        mul_service_available(cli->fab_service) &&
+        !cli->fab_service_rep)
+        mul_fab_service_conn_event(cli->fab_service,
+                                   MUL_SERVICE_UP);
+
+    if (cli->makdi_service &&
+        mul_service_available(cli->makdi_service) &&
+        !cli->makdi_service_rep)
+        mul_makdi_service_conn_event(cli->makdi_service,
+                                     MUL_SERVICE_UP);
+
+    if (cli->mul_service &&
+        mul_app_core_conn_available() &&
+        mul_service_available(cli->mul_service) &&
+        !cli->mul_service_rep)
+        mul_core_service_conn_event(cli->mul_service,
+                                    MUL_SERVICE_UP);
 }
 
 /**
@@ -312,9 +511,18 @@ cli_module_init(void *base_arg)
         c_log_err("[FABRIC] service not found");
     }
 
+    cli->makdi_service = mul_app_get_service_notify_ka(MUL_MAKDI_SERVICE_NAME,
+                                                  mul_makdi_service_conn_event,
+                                                  cli_dummy_infra_ka,
+                                                  false, NULL);
+    if (cli->makdi_service == NULL) {
+        c_log_err("[MAKDI] service not found");
+    }
+
     cli->cli_list = g_slist_append(cli->cli_list, "mul-core");
     cli->cli_list = g_slist_append(cli->cli_list, "mul-tr");
     cli->cli_list = g_slist_append(cli->cli_list, "mul-fab");
+    cli->cli_list = g_slist_append(cli->cli_list, "mul-makdi");
     
     /* Timer is invoked from vty timer event */
     /*cli->timer_event = evtimer_new(base, cli_timer, (void *)cli);
@@ -353,6 +561,15 @@ struct cmd_node fab_conf_node =
     NULL
 };
 
+struct cmd_node makdi_conf_node =
+{
+    MULMAKDI_NODE,
+    "(mul-mak)# ",
+    1,
+    NULL,
+    NULL
+};
+
 struct cmd_node flow_inst_node =
 {
     FLOW_NODE,
@@ -376,7 +593,8 @@ DEFUN (mul_conf,
        "mul-conf",
        "mul-core conf mode\n")
 {
-    if (cli_init_mul_service(cli, vty)) {
+    if (cli_init_mul_service(cli, vty) ||
+        !cli_ha_config_cap(cli, vty, false)) {
         vty->node = ENABLE_NODE;
         return CMD_SUCCESS;
     }
@@ -401,7 +619,8 @@ DEFUN (mul_tr_conf,
        "mul-tr (topo-route) conf mode\n")
 {
 
-    if (cli_init_tr_service(cli, vty)) {
+    if (cli_init_tr_service(cli, vty) ||
+        !cli_ha_config_cap(cli, vty, false)) {
         vty->node = ENABLE_NODE;
         return CMD_SUCCESS;
     }
@@ -426,7 +645,8 @@ DEFUN (mul_fab_conf,
        "mul-fab-conf",
        "mul-fab conf mode\n")
 {
-    if (cli_init_fab_service(cli, vty)) {
+    if (cli_init_fab_service(cli, vty) ||
+        !cli_ha_config_cap(cli, vty, false)) {
         vty->node = ENABLE_NODE;
         return CMD_SUCCESS;
     }
@@ -441,6 +661,29 @@ DEFUN (mul_fab_conf_exit,
        "Exit mul-fab conf mode\n")
 {
     /* cli_exit_fab_service(cli); */
+    vty->node = ENABLE_NODE;
+    return CMD_SUCCESS;
+}
+
+DEFUN (mul_makdi_conf,
+       mul_makdi_conf_cmd,
+       "mul-mak-conf",
+       "mul-makdi conf mode\n")
+{
+    if (cli_init_makdi_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+
+    vty->node = MULMAKDI_NODE;
+    return CMD_SUCCESS;
+}
+
+DEFUN (mul_makdi_conf_exit,
+       mul_makdi_conf_exit_cmd,
+       "exit",
+       "Exit mul-makdi conf mode\n")
+{
+    /* cli_exit_makdi_service(cli); */
     vty->node = ENABLE_NODE;
     return CMD_SUCCESS;
 }
@@ -709,7 +952,8 @@ DEFUN (of_switch_tx_rlim_get,
 
 DEFUN (of_switch_pkt_dump,
        of_switch_pkt_dump_cmd,
-       "set of-switch X pkt-dump rx (enable|disable) tx (enable|disable)",
+       "set of-switch X pkt-dump rx (enable|disable) tx (enable|disable) "
+       "mask0 (X|all) mask1 (X|all) mask2 (X|all) mask3 (X|all)",
        SET_STR
        "Openflow switches\n"
        "Datapath-id in 0xXXX format\n"
@@ -719,10 +963,23 @@ DEFUN (of_switch_pkt_dump,
        "Or Disable\n"
        "TX packet dump behaviour\n"
        "Enable\n"
-       "Or Disable\n")
+       "Or Disable\n"
+       "Mask0\n"
+       "Enter mask\n"
+       "Or All\n"
+       "Mask1\n"
+       "Enter mask\n"
+       "Or All\n"
+       "Mask2\n"
+       "Enter mask\n"
+       "Or All\n"
+       "Mask3\n"
+       "Enter mask\n"
+       "Or All\n")
 {
     uint64_t dp_id;
     bool rx_en, tx_en;
+    uint64_t mask[4];
 
     dp_id = strtoull(argv[0], NULL, 16);
 
@@ -743,8 +1000,32 @@ DEFUN (of_switch_pkt_dump,
         tx_en = false;
     }
 
+    if (!strncmp(argv[3], "all", strlen(argv[3]))) {
+        mask[0] = (uint64_t)(-1);
+    } else {
+        mask[0] = strtoull(argv[3], NULL, 16);
+    }
+
+    if (!strncmp(argv[4], "all", strlen(argv[4]))) {
+        mask[1] = (uint64_t)(-1);
+    } else {
+        mask[1] = strtoull(argv[4], NULL, 16);
+    }
+
+    if (!strncmp(argv[5], "all", strlen(argv[5]))) {
+        mask[2] = (uint64_t)(-1);
+    } else {
+        mask[2] = strtoull(argv[5], NULL, 16);
+    }
+
+    if (!strncmp(argv[6], "all", strlen(argv[6]))) {
+        mask[3] = (uint64_t)(-1);
+    } else {
+        mask[3] = strtoull(argv[6], NULL, 16);
+    }
+
     if (mul_set_switch_pkt_dump(cli->mul_service, dp_id,
-                                rx_en, tx_en)) {
+                                rx_en, tx_en, mask)) {
         vty_out(vty, "Failed to set switch pkt-dump%s", VTY_NEWLINE);
     }
 
@@ -1089,6 +1370,32 @@ DEFUN (show_of_switch_get_port_queues,
     return CMD_SUCCESS;
 }
 
+DEFUN (show_of_switch_flow_tbid,
+       show_of_switch_flow_tbid_cmd,
+       "show of-flow switch X table <0-255>",
+       SHOW_STR
+       "Openflow flow tuple\n"
+       "For a particular switch\n"
+       "datapath-id in 0xXXX format\n"
+       "For a particular table in a given switch\n"
+       "table-id in decimal format\n")
+{
+    uint64_t                    dp_id;
+    uint8_t                     tbid;
+
+    dp_id = strtoull(argv[0], NULL, 16);
+    tbid = strtoul(argv[1], NULL, 10);
+
+    if (cli_init_mul_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+
+    mul_get_flow_info(cli->mul_service, dp_id, tbid, false, true, true,
+                      false, false, vty, vty_dump);
+
+    return CMD_SUCCESS;
+}
+
 DEFUN (show_of_switch_flow,
        show_of_switch_flow_cmd,
        "show of-flow switch X",
@@ -1105,12 +1412,34 @@ DEFUN (show_of_switch_flow,
         return CMD_SUCCESS;
     }
 
-    mul_get_flow_info(cli->mul_service, dp_id, false,
+    mul_get_flow_info(cli->mul_service, dp_id, false, false, false, false,
                       false, false, vty, vty_dump);
 
     return CMD_SUCCESS;
 }
 
+DEFUN (show_of_switch_flow_all,
+       show_of_switch_flow_all_cmd,
+       "show of-flow switch X all",
+       SHOW_STR
+       "Openflow flow tuple\n"
+       "For a particular switch\n"
+       "datapath-id in 0xXXX format\n"
+       "all flows in the switch")
+{
+    uint64_t                    dp_id;
+
+    dp_id = strtoull(argv[0], NULL, 16);
+
+    if (cli_init_mul_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+
+    mul_get_flow_info(cli->mul_service, dp_id, false, false, true, false,
+                      false, false, vty, vty_dump);
+
+    return CMD_SUCCESS;
+}
 
 DEFUN (show_of_flow_all,
        show_of_flow_all_cmd,
@@ -1123,7 +1452,7 @@ DEFUN (show_of_flow_all,
         return CMD_SUCCESS;
     }
 
-    mul_get_flow_info(cli->mul_service, 0, false,
+    mul_get_flow_info(cli->mul_service, 0, false, false, true, false,
                       false, false, vty, vty_dump);
 
     return CMD_SUCCESS;
@@ -1145,7 +1474,7 @@ DEFUN (show_of_switch_flow_static,
 
     dp_id = strtoull(argv[0], NULL, 16);
 
-    mul_get_flow_info(cli->mul_service, dp_id, true,
+    mul_get_flow_info(cli->mul_service, dp_id, false, true, false, false,
                       false, false, vty, vty_dump);
 
     return CMD_SUCCESS;
@@ -1162,7 +1491,7 @@ DEFUN (show_of_flow_all_static,
         return CMD_SUCCESS;
     }
 
-    mul_get_flow_info(cli->mul_service, 0, true,
+    mul_get_flow_info(cli->mul_service, 0, false, true, false, false,
                       false, false, vty, vty_dump);
 
     return CMD_SUCCESS;
@@ -1587,7 +1916,7 @@ DEFUN (of_flow_vty_del,
         new_argv[counter] = (char *)argv[counter];
     }
 
-    strcpy(prio, "1");
+    sprintf(prio, "%d", C_FL_PRIO_FWD);
     strcpy(tunnel, "*");
 
     new_argv[argc] = prio;
@@ -1939,13 +2268,6 @@ DEFUN_NOSH (of_flow_vty_add,
     mask->tunnel_id = 0;
     mask->metadata = 0;
     
-#if 0
-    char *fl_str = of_dump_flow_generic(flow, mask);
-    printf ("%s\n", fl_str);
-    free(fl_str);
-    of1_0_flow_correction(flow, mask);
-#endif
-
     mul_app_act_alloc(mdata);
     if (mul_app_act_set_ctors(mdata, args->dpid)) {
         vty_out(vty, "Switch 0x%llx does not exist\r\n", U642ULL(args->dpid));
@@ -2756,12 +3078,6 @@ DEFUN_NOSH (of_flow6_vty_add,
     mask->tunnel_id = 0;
     mask->metadata = 0;
 
-#if 0
-    char *fl_str = of_dump_flow_generic(flow, mask);
-    printf ("%s\n", fl_str);
-    free(fl_str);
-#endif
-
     mul_app_act_alloc(mdata);
     if (mul_app_act_set_ctors(mdata, args->dpid)) {
         vty_out(vty, "Switch 0x%llx does not exist\r\n", U642ULL(args->dpid));
@@ -2900,6 +3216,19 @@ DEFUN (flow_barrier_en,
     return CMD_SUCCESS;
 }
 
+DEFUN (flow_no_post_validate,
+       flow_no_post_validate_cmd,
+       "flow-no-post-validate",
+       "Strictly verify if flow has installed in the switch after this flow-mod\n")
+{
+    struct cli_flow_action_parms *fl_parms = vty->index;
+
+    fl_parms->flags |= C_FL_NO_ACK;
+
+    return CMD_SUCCESS;
+}
+
+
 DEFUN (flow_prio,
        flow_prio_cmd,
        "flow-priority <0-65535>",
@@ -2940,7 +3269,7 @@ DEFUN (flow_tunnel,
 
 DEFUN (of_add_output_action,
        of_add_output_action_cmd,
-       "action-add output (<1-4294967294>|controller)",
+       "action-add output (<1-4294967294>|controller|normal)",
        "Add openflow action\n"
        "Output action\n"
        "Enter port-id\n")
@@ -2951,6 +3280,9 @@ DEFUN (of_add_output_action,
 
     if (!strncmp(argv[0], "controller", strlen("controller"))) {
         oport = 0; /* Send to the controller */
+    }
+    else if (!strncmp(argv[0], "normal", strlen("normal"))) {
+        oport = 0xfffffffa; /* Send to the Normal port */
     } else {
         oport = strtoull(argv[0], NULL, 0);;
     }
@@ -3524,7 +3856,7 @@ DEFUN (of_add_cp_ttl_out,
 
 DEFUN (of_add_set_group_action,
        of_add_set_group_action_cmd,
-       "action-add group-id <0-65535>",
+       "action-add group-id <0-4294967293>",
        "Add openflow action\n"
        "set group-id action\n"
        "Enter group-id\n")
@@ -3590,7 +3922,6 @@ DEFUN (flow_commit,
 {
     struct cli_flow_action_parms *args = vty->index;
     void *actions = NULL;
-    uint8_t prio;
     size_t action_len = args->mdata ? mul_app_act_len(args->mdata) : 0;
 
     if (args) {
@@ -3605,14 +3936,14 @@ DEFUN (flow_commit,
                 vty_out(vty, "Ignoring all non-drop actions if any%s",
                         VTY_NEWLINE);
             }
-            prio = args->fl_prio;
             mul_service_send_flow_add(cli->mul_service, args->dpid,
                                   args->fl, args->mask, 
                                   CLI_UNK_BUFFER_ID,
                                   actions, action_len,
-                                  0, 0, prio, 
+                                  0, 0, args->fl_prio, 
                                   args->flags | C_FL_ENT_STATIC);
-            if (c_service_timed_wait_response(cli->mul_service) > 0) {
+            if (!(args->flags & C_FL_NO_ACK) &&
+                c_service_timed_wait_response(cli->mul_service) > 0) {
                 vty_out(vty, "Failed to add a flow. Check log messages%s", 
                         VTY_NEWLINE);
             }
@@ -3655,6 +3986,32 @@ DEFUN (flow_actions_exit,
     }
 
     vty->node = MUL_NODE;
+    return CMD_SUCCESS;
+}
+
+DEFUN (show_ha_state,
+       show_ha_state_cmd,
+       "show ha-state",
+       SHOW_STR
+       "Display HA state\n")
+{
+    char *ha_str = NULL;
+
+    if (cli_init_mul_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+
+    if (mul_get_ha_state(cli->mul_service, &cli->sysid, &cli->state,
+                &cli->generation_id)) {
+        vty_out(vty, "HA state unavailable");
+        return CMD_SUCCESS;
+    }
+
+    ha_str = mul_ha_state_to_str(cli->sysid, cli->state);
+
+    vty_out(vty, "%s\r\n", ha_str);
+    vty_out(vty, "Generation ID: %llu\r\n", U642ULL(cli->generation_id));
+
     return CMD_SUCCESS;
 }
 
@@ -3885,7 +4242,7 @@ DEFUN (group_commit,
 
 DEFUN_NOSH (of_group_vty_add,
        of_group_vty_add_cmd,
-       "of-group add switch X group <0-65535> type (all|select|indirect|ff)",
+       "of-group add switch X group <0-4294967293> type (all|select|indirect|ff)",
        "OF-group configuration\n"
        "Add\n"
        "openflow-switch\n"
@@ -3904,6 +4261,11 @@ DEFUN_NOSH (of_group_vty_add,
     uint8_t type, version;
     int ret = CMD_WARNING;
     int i = 0;
+
+    if (!cli_ha_config_cap(cli, vty, false)) {
+        vty->node = ENABLE_NODE;
+        return CMD_SUCCESS;
+    }
 
     dpid = strtoull(argv[0], NULL, 16);
     if (!dpid) {
@@ -3972,7 +4334,7 @@ free_err_out:
 
 DEFUN (of_group_vty_del,
        of_group_vty_del_cmd,
-       "of-group del switch X group <0-65535>",
+       "of-group del switch X group <0-4294967293>",
        "OF-group configuration\n"
        "Delete\n"
        "openflow-switch\n"
@@ -4436,12 +4798,185 @@ DEFUN (show_neigh_switch_detail,
     return CMD_SUCCESS;
 }
 
+DEFUN (tr_loop_en,
+       tr_loop_en_cmd,
+       "set loop-detect (enable|disable)",
+       SET_STR
+       "Loop Detection\n"
+       "Enable the feature\n"
+       "Dosable the feature")
+{
+    int ret = 0;
+    bool enable;
+
+    if (cli_init_tr_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+
+    if (cli_init_mul_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+
+    if (!strncmp(argv[0], "enable", strlen("enable")))
+        enable = true;
+    else
+        enable = false;
+
+    ret = mul_set_loop_detect(cli->mul_service, enable);
+    if (!ret) {
+        ret = mul_set_tr_loop_detect(cli->tr_service, enable);
+        if (ret) {
+            mul_set_loop_detect(cli->mul_service, false);
+            c_log_err("Failed to set loop detect state");
+        }
+    }
+
+    return CMD_SUCCESS;
+}
+
+DEFUN (of_port_vty_mod,
+       of_port_vty_mod_cmd,
+       "of-port mod switch X port-no <0-4294967295> port-down"
+       " (set|unset|no-change) no-stp (set|unset|no-change) no-recv"
+       " (set|unset|no-change) no-recv-stp (set|unset|no-change) no-flood"
+       " (set|unset|no-change) no-fwd (set|unset|no-change) no-packet-in"
+       " (set|unset|no-change)",
+       "OF-port configuration\n"
+       "Modification\n"
+       "openflow-switch\n"
+       "datapath-id in 0xXXX format\n"
+       "Port number\n"
+       "Enter valid port number\n"
+       "Bit to set/unset port-down\n"
+       "To set the bit\n"
+       "To unset the bit\n"
+       "No change\n"
+       "Bit to set/unset no-stp\n"
+       "To set the bit\n"
+       "To unset the bit\n"
+       "No change\n"
+       "Bit to set/unset no-rcv\n"
+       "To set the bit\n"
+       "To unset the bit\n"
+       "No change\n"
+       "Bit to set/unset no-rcv-stp\n"
+       "To set the bit\n"
+       "To unset the bit\n"
+       "No change\n"
+       "Bit to set/unset no-flood\n"
+       "To set the bit\n"
+       "To unset the bit\n"
+       "No change\n"
+       "Bit to set/unset no-fwd\n"
+       "To set the bit\n"
+       "To unset the bit\n"
+       "No change\n"
+       "Bit to set/unset no-packet-in\n"
+       "To set the bit\n"
+       "To unset the bit\n"
+       "No change\n")
+{
+    struct of_port_mod_params pm_params;
+    uint64_t dpid = 0; 
+    uint32_t port_no = 0;
+    uint32_t config = 0;
+    uint32_t mask = 0;
+    uint8_t  version= 0;
+
+    if (!cli_ha_config_cap(cli, vty, false)) {
+        vty->node = ENABLE_NODE;
+        return CMD_SUCCESS;
+    }
+
+    dpid = strtoull(argv[0], NULL, 16);
+    if (!dpid) {
+        vty_out(vty, "No such switch\r\n");
+        return CMD_WARNING;
+    }
+
+
+    port_no = atol(argv[1]);
+
+    if (!strncmp(argv[2], "set", strlen(argv[2]))) {
+        config |= OFPPC_PORT_DOWN;
+        mask |= OFPPC_PORT_DOWN;
+    } else if (!strncmp(argv[2], "unset", strlen(argv[2]))) {
+        mask |= OFPPC_PORT_DOWN;
+    } 
+
+    if (!strncmp(argv[3], "set", strlen(argv[3]))) {
+        config |= OFPPC_NO_STP;
+        mask |= OFPPC_NO_STP;
+    } else if (!strncmp(argv[3], "unset", strlen(argv[3]))) {
+        mask |= OFPPC_NO_STP;
+    } 
+
+    if (!strncmp(argv[4], "set", strlen(argv[4]))) {
+        config |= OFPPC_NO_RECV;
+        mask |= OFPPC_NO_RECV;
+    } else if (!strncmp(argv[4], "unset", strlen(argv[4]))) {
+        mask |= OFPPC_NO_RECV;
+    } 
+
+    if (!strncmp(argv[5], "set", strlen(argv[5]))) {
+        config |= OFPPC_NO_RECV_STP;
+        mask |= OFPPC_NO_RECV_STP;
+    } else if (!strncmp(argv[5], "unset", strlen(argv[5]))) {
+        mask |= OFPPC_NO_RECV_STP;
+    } 
+
+    if (!strncmp(argv[6], "set", strlen(argv[6]))) {
+        config |= OFPPC_NO_FLOOD;
+        mask |= OFPPC_NO_FLOOD;
+    } else if (!strncmp(argv[6], "unset", strlen(argv[6]))) {
+        mask |= OFPPC_NO_FLOOD;
+    } 
+
+    if (!strncmp(argv[7], "set", strlen(argv[7]))) {
+        config |= OFPPC_NO_FWD;
+        mask |= OFPPC_NO_FWD;
+    } else if (!strncmp(argv[7], "unset", strlen(argv[7]))) {
+        mask |= OFPPC_NO_FWD;
+    } 
+
+    if (!strncmp(argv[8], "set", strlen(argv[8]))) {
+        config |= OFPPC_NO_PACKET_IN;
+        mask |= OFPPC_NO_PACKET_IN;
+    } else if (!strncmp(argv[8], "unset", strlen(argv[8]))) {
+        mask |= OFPPC_NO_PACKET_IN;
+    } 
+
+    version = c_app_switch_get_version_with_id(dpid);
+    if (version ==  OFP_VERSION_131 || version == OFP_VERSION_140) {
+        if (config & (OFPPC_NO_STP | OFPPC_NO_RECV_STP | OFPPC_NO_FLOOD )) {
+            vty_out(vty, "OpenFlow 1.3 and above doesnot support OFPPC_NO_STP,"
+                    " OFPPC_NO_RECV_STP, OFPPC_NO_FLOOD\r\n");
+            vty_out(vty, "Reverting these flags..\r\n");
+            config &= ~(OFPPC_NO_STP | OFPPC_NO_RECV_STP | OFPPC_NO_FLOOD);
+            mask &= ~(OFPPC_NO_STP | OFPPC_NO_RECV_STP | OFPPC_NO_FLOOD);
+        }
+    }
+    memset(&pm_params,0,sizeof(pm_params));
+    pm_params.port_no = port_no;
+    pm_params.config = config;
+    pm_params.mask = mask;
+
+    mul_service_send_port_mod(cli->mul_service, dpid, &pm_params);
+    if (c_service_timed_wait_response(cli->mul_service) > 0) {
+            vty_out(vty, "Failed to add meter. Check log messages%s",
+                            VTY_NEWLINE);
+    }
+
+    vty_out (vty,"port %u config %x mask %x \r\n", port_no, config, mask); 
+    return CMD_SUCCESS;
+
+}
 
 static int
 __add_fab_host_cmd(struct vty *vty, const char **argv, bool is_gw)
 {
-    uint16_t tenant_id;
-    uint16_t network_id;
+    uuid_t tenant_id;
+    uuid_t network_id;
     uint64_t dpid;
     struct flow fl;
     struct prefix_ipv4 host_ip;
@@ -4450,8 +4985,19 @@ __add_fab_host_cmd(struct vty *vty, const char **argv, bool is_gw)
 
     memset(&fl, 0, sizeof(fl));
 
-    tenant_id = atoi(argv[0]);
-    network_id = atoi(argv[1]);
+    ret = uuid_parse(argv[0], tenant_id);
+    if(ret == -1) {
+        return return_vty(vty, 0,
+                          CMD_WARNING, "Malformed TenantID");
+    }
+
+	ret = uuid_parse(argv[1], network_id);
+    if(ret == -1) {
+        return return_vty(vty, 0,
+                          CMD_WARNING, "Malformed NetworkID");
+    }
+
+
     dpid = strtoull(argv[4], NULL, 16);
     fl.in_port= htonl(atoi(argv[5]));
 
@@ -4462,8 +5008,6 @@ __add_fab_host_cmd(struct vty *vty, const char **argv, bool is_gw)
     }
 
     fl.ip.nw_src = host_ip.prefix.s_addr;
-    fab_add_tenant_id(&fl, NULL, tenant_id);
-    fab_add_network_id(&fl, network_id);
     fl.FL_DFL_GW = is_gw;
 
     mac_str = (void *)argv[3];
@@ -4479,7 +5023,8 @@ __add_fab_host_cmd(struct vty *vty, const char **argv, bool is_gw)
                           CMD_WARNING, "Malformed address");
     }
 
-    if (mul_fabric_host_mod(cli->fab_service, dpid, &fl, true)) {
+    if (mul_fabric_host_mod(cli->fab_service, dpid, &fl, tenant_id,
+                network_id, true)) {
         return return_vty(vty, 0,
                           CMD_WARNING, "Host add failed");
     }
@@ -4491,7 +5036,7 @@ __add_fab_host_cmd(struct vty *vty, const char **argv, bool is_gw)
 
 DEFUN (add_fab_host_nongw,
        add_fab_host_nongw_cmd,
-        "add fabric-host tenant <0-4096> network <0-65535> "
+        "add fabric-host tenant (String) network (String) "
         "host-ip A.B.C.D host-mac X "
         "switch X port <0-65535> non-gw",
         "Add a configuration\n"
@@ -4515,7 +5060,7 @@ DEFUN (add_fab_host_nongw,
 
 DEFUN (add_fab_host_gw,
        add_fab_host_gw_cmd,
-        "add fabric-host tenant <0-4096> network <0-65535> "
+        "add fabric-host tenant (String) network (String) "
         "host-ip A.B.C.D host-mac X "
         "switch X port <0-65535> gw",
         "Add a configuration\n"
@@ -4540,7 +5085,7 @@ DEFUN (add_fab_host_gw,
 
 DEFUN (del_fab_host,
        del_fab_host_cmd,
-        "del fabric-host tenant <0-4096> network <0-65535> "
+        "del fabric-host tenant (String) network (String) "
         "host-ip A.B.C.D host-mac X",
         "Del a configuration\n"
         "Fabric connected host\n"
@@ -4553,17 +5098,25 @@ DEFUN (del_fab_host,
         "Host mac address\n"
         "Valid mac address in X:X...X format \n")
 {
-    uint16_t tenant_id;
-    uint16_t network_id;
+    uuid_t tenant_id;
+    uuid_t network_id;
     struct flow fl;
     struct prefix_ipv4 host_ip;
     char *mac_str = NULL, *next = NULL;
     int  i = 0, ret = 0;
 
     memset(&fl, 0, sizeof(fl));
+    ret = uuid_parse(argv[0], tenant_id);
+    if(ret == -1) {
+        return return_vty(vty, 0,
+                          CMD_WARNING, "Malformed TenantID");
+    }
 
-    tenant_id = atoi(argv[0]);
-    network_id = atoi(argv[1]);
+	ret = uuid_parse(argv[1], network_id);
+    if(ret == -1) {
+        return return_vty(vty, 0,
+                          CMD_WARNING, "Malformed NetworkID");
+    }
 
     ret = str2prefix(argv[2], (void *)&host_ip);
     if (ret <= 0) {
@@ -4572,9 +5125,6 @@ DEFUN (del_fab_host,
     }
 
     fl.ip.nw_src = host_ip.prefix.s_addr;
-    fab_add_tenant_id(&fl, NULL, tenant_id);
-    fab_add_network_id(&fl, network_id);
-
     mac_str = (void *)argv[3];
     for (i = 0; i < 6; i++) {
         fl.dl_src[i] = (uint8_t)strtoul(mac_str, &next, 16);
@@ -4588,7 +5138,8 @@ DEFUN (del_fab_host,
                           CMD_WARNING, "Malformed mac address");
     }
 
-    if (mul_fabric_host_mod(cli->fab_service, 0, &fl, false)) {
+    if (mul_fabric_host_mod(cli->fab_service, 0, &fl, tenant_id, 
+                network_id, false)) {
         return return_vty(vty, 0,
                           CMD_WARNING, "Host delete failed");
     }
@@ -4614,7 +5165,7 @@ DEFUN (show_fab_host_all_active,
         return CMD_SUCCESS;
     }
 
-    mul_fabric_show_hosts(cli->fab_service, true, false,
+    mul_fabric_show_hosts(cli->fab_service, true, false, false,
                           (void *)vty, vty_dump);
 
     vty_out (vty,
@@ -4643,7 +5194,7 @@ DEFUN (show_fab_host_all_inactive,
         return CMD_SUCCESS;
     }
 
-    mul_fabric_show_hosts(cli->fab_service, false, false,
+    mul_fabric_show_hosts(cli->fab_service, false, false, false,
                           (void *)vty, vty_dump);
 
 
@@ -4655,6 +5206,98 @@ DEFUN (show_fab_host_all_inactive,
 
     return CMD_SUCCESS;
 }
+
+DEFUN (show_fab_port_tnid_all,
+       show_fab_port_tnid_all_cmd,
+       "show fabric-port-tnid all",
+       SHOW_STR
+       "Fabric registered port-tnid\n"
+       "All active hosts\n")
+{
+    vty_out (vty,
+            "-------------------------------------------"
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    if (cli_init_fab_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+
+    mul_fabric_port_tnid_show(cli->fab_service, true,
+                          (void *)vty, vty_dump);
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    return CMD_SUCCESS;
+}
+static int
+__add_del_fab_port_tnid_cmd(struct vty *vty, const char **argv, bool add)
+{
+    uuid_t tenant_id, network_id;
+    uint64_t dpid;
+    int32_t port;
+    int ret = 0;
+
+    ret = uuid_parse(argv[0], tenant_id);
+    if(ret == -1){
+        return return_vty(vty, 0, CMD_WARNING, "Malformed TenantID");
+    }
+
+    ret = uuid_parse(argv[1], network_id);
+    if(ret == -1){
+        return return_vty(vty, 0, CMD_WARNING, "Malformed NetworkID");
+    }
+   
+    dpid = strtoull(argv[2], NULL, 16);
+
+    port = atoi(argv[3]);
+
+    if(mul_fabric_port_tnid_mod(cli->fab_service, dpid, port, tenant_id, network_id, add)){
+        return return_vty(vty, 0, CMD_WARNING, "Port_tnid add failed");
+    }
+    return return_vty(vty, 0, CMD_SUCCESS, NULL);
+}
+DEFUN (add_fab_port_tnid,
+       add_fab_port_tnid_cmd,
+        "add fabric-host tenant (String) network (String) "
+        "switch X port <0-65535>",
+        "Add a configuration\n"
+        "Fabric registered port-tnid\n"
+        "Tenant\n"
+        "Enter Tenant-id\n"
+        "Network\n"
+        "Enter Network-id\n"
+        "Switch directly connected to\n"
+        "Enter dpid\n"
+        "Connected Port on switch\n"
+        "Enter port-number\n")
+{
+    return __add_del_fab_port_tnid_cmd(vty, argv, true);    
+}
+
+DEFUN (del_fab_port_tnid,
+       del_fab_port_tnid_cmd,
+        "del fabric-host tenant (String) network (String) "
+        "switch X port <0-65535>",
+        "Add a configuration\n"
+        "Fabric registered port-tnid\n"
+        "Tenant\n"
+        "Enter Tenant-id\n"
+        "Network\n"
+        "Enter Network-id\n"
+        "Switch directly connected to\n"
+        "Enter dpid\n"
+        "Connected Port on switch\n"
+        "Enter port-number\n")
+{
+    return __add_del_fab_port_tnid_cmd(vty, argv, false);
+}
+
 
 static void
 vty_src_host_dump(void *vty_arg, char *pbuf)
@@ -4707,11 +5350,750 @@ DEFUN (show_fab_route_all,
         return CMD_SUCCESS;
     }
 
-    mul_fabric_show_routes(cli->fab_service, vty, vty_src_host_dump,
+    mul_fabric_show_routes(cli->fab_service, vty, false, vty_src_host_dump,
                            vty_dst_host_dump, vty_route_dump);
 
 
     return CMD_SUCCESS;
+}
+
+#ifdef CLI_MAKDI
+
+DEFUN (add_makdi_nfv_group,
+       add_makdi_nfv_group_cmd,
+        "add makdi-nfv-group X ",
+        "Add a nfv-group configuration\n"
+        "makdi nfv-group service\n"
+        "Enter nfv-group name (String)")
+{
+    int ret;
+    char *group_name;
+
+    group_name = (char *)argv[0];
+    
+    if (cli_init_makdi_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+    
+    ret = mul_makdi_group_mod(cli->makdi_service, group_name, true);
+    return ret;
+}
+
+DEFUN (del_makdi_nfv_group,
+       del_makdi_nfv_group_cmd,
+       "del makdi-nfv-group X ",
+       "Del a nfv-group configuration\n"
+       "makdi nfv-group service\n"
+       "Enter nfv group name (String)")
+{
+    int ret;
+    char *group_name;
+
+    group_name = (char *)argv[0];
+
+    ret = mul_makdi_group_mod(cli->makdi_service, group_name, false);
+    return ret;
+}
+
+DEFUN (add_makdi_nfv,
+       add_makdi_nfv_cmd,
+       "add makdi-nfv group X nfv X switch X in-port <1-65535> out-port <1-65535>",
+       "Add\n"
+       "Add a makdi-nfv attach point\n"
+       "NFV group\n"
+       "Enter nfv group name\n"
+       "NFV on the group\n"
+       "Enter nfv name\n"
+       "DP information\n"
+       "Enter dp-id\n"
+       "in-port\n"
+       "Enter in port-number\n"
+       "out-port\n"
+       "Enter out port-number\n")
+{
+    int ret;
+    char *group_name;
+    char *nfv_name;
+
+    uint16_t in_port = atoi(argv[3]);
+    uint16_t out_port = atoi(argv[4]);
+    uint64_t dpid = strtoull(argv[2], NULL, 16);
+
+    group_name = (char *)argv[0];
+    nfv_name = (char *)argv[1];
+
+    ret = mul_makdi_nfv_mod(cli->makdi_service, dpid, group_name,
+                            in_port, out_port, nfv_name, TRUE);
+    return ret;
+}
+
+DEFUN (del_makdi_nfv,
+       del_makdi_nfv_cmd,
+       "del makdi-nfv group X nfv X switch X in-port <1-65535> out-port <1-65535>",
+       "Del\n"
+       "Del a makdi-nfv attach point\n"
+       "NFV group\n"
+       "Enter nfv group name\n"
+       "NFV on the group\n"
+       "Enter nfv name\n"
+       "DP information\n"
+       "Enter dp-id\n"
+       "in-port\n"
+       "Enter in port-number\n"
+       "out-port\n"
+       "Enter out port-number\n")
+{
+    int ret;
+    char *group_name;
+    char *nfv_name;
+
+    uint16_t in_port = atoi(argv[3]);
+    uint16_t out_port = atoi(argv[4]);
+    uint64_t dpid = strtoull(argv[2], NULL, 16);
+
+    group_name = (char *)argv[0];
+    nfv_name = (char *)argv[1];
+
+    ret = mul_makdi_nfv_mod(cli->makdi_service, dpid, group_name, in_port,
+                            out_port, nfv_name, false);
+    return ret;
+}
+
+DEFUN (show_makdi_nfv,
+       show_makdi_nfv_cmd,
+       "show makdi-nfv-group all",
+       SHOW_STR
+       "NFV informations\n"
+       "Summary information for all nfv")
+{
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    if (cli_init_makdi_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+
+    mul_makdi_show_nfv(cli->makdi_service, (void *)vty, false, vty_dump);
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    return CMD_SUCCESS;
+}
+
+DEFUN (add_makdi_service,
+       add_makdi_service_cmd,
+       "add makdi-service X vlan <0-4096>",
+       "Add a service configuration\n"
+       "makdi service\n"
+       "Enter service name\n"
+       "makdi service vlan number\n"
+       "Enter vlan number")
+{
+    int ret;
+    char *service_name;
+    uint16_t vlan = atoi(argv[1]);
+
+    service_name = (char *)argv[0];
+
+    ret = mul_makdi_service_mod(cli->makdi_service, service_name, vlan, TRUE);
+    return ret;
+}
+
+DEFUN (del_makdi_service,
+       del_makdi_service_cmd,
+        "del makdi-service X vlan <0-4096>",
+        "Del a service configuration\n"
+        "makdi service\n"
+        "Enter service name\n"
+        "makdi service vlan number\n"
+        "Enter vlan number")
+{
+    int ret;
+    char *service_name;
+    uint16_t vlan = atoi(argv[1]);
+
+    service_name = (char *)argv[0];
+
+    ret = mul_makdi_service_mod(cli->makdi_service, service_name, vlan, false);
+    return ret;
+}
+
+DEFUN (show_makdi_service,
+       show_makdi_service_cmd,
+       "show makdi-service all",
+       SHOW_STR
+       "Service informations\n"
+       "Summary information for all service")
+{
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    if (cli_init_makdi_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+
+    mul_makdi_show_service(cli->makdi_service, (void *)vty, false, vty_dump);
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    return CMD_SUCCESS;
+}
+
+DEFUN (add_makdi_nfv_sc_rule,
+       add_makdi_nfv_sc_rule_cmd,
+       "add makdi-service-chain switch X service X host-ip A.B.C.D "
+       "nfv-grp1 (X|*) nfv-grp2 (X|*) nfv-grp3 (X|*) nfv-grp4 (X|*)"
+       " nfv-grp5 (X|*) nfv-grp6 (X|*)",
+       "Add makdi-service-chain\n"
+       "makdi service chain configuration\n"
+       "Switch info\n"
+       "Enter dp-id\n"
+       "Service info\n"
+       "Enter service name\n"
+       "Host info\n"
+       "Enter Host IP address\n"
+       "NFV List or (None)\n"
+       "Enter NFV group\n"
+       "* for none\n"
+       "NFV List or (None)\n"
+       "Enter NFV group\n"
+       "* for none\n"
+       "NFV List or (None)\n"
+       "Enter NFV group\n"
+       "* for none\n"
+       "NFV List or (None)\n"
+       "Enter NFV group\n"
+       "* for none")
+{
+    int ret;
+    uint32_t nw_src;
+    uint32_t vlan = atoi(argv[3]);
+    struct prefix_ipv4 host_ip;
+    uint64_t dpid = strtoull(argv[0], NULL, 16);
+    int i = 3;
+    char **nfv_list;
+    char *service;
+    int num_nfv = 0;
+
+    nfv_list = (char **)calloc(4, sizeof(char *));
+
+    ret = str2prefix(argv[2], (void *)&host_ip);
+    if (ret <= 0) {
+        return CMD_WARNING;
+    }
+
+    nw_src = ntohl(host_ip.prefix.s_addr);
+
+    for (; i < 9; i++) {
+        if (!strncmp(argv[i], "none", MAX_NFV_NAME - 1) ||
+            !strncmp(argv[i], "None", MAX_NFV_NAME - 1) ||
+            !strncmp(argv[i], "*", MAX_NFV_NAME - 1)) {
+            continue;
+        }
+        nfv_list[num_nfv++] = (char *)argv[i];
+    }
+    service = (void *)argv[1];
+
+    ret = mul_makdi_servicechain_mod(cli->makdi_service, dpid, 
+                        vlan, service, nw_src, num_nfv, nfv_list, TRUE);
+    return ret;
+}
+
+DEFUN (del_makdi_nfv_sc_rule,
+       del_makdi_nfv_sc_rule_cmd,
+       "del makdi-service-chain switch X service X host-ip A.B.C.D",
+       "Del makdi-service-chain\n"
+       "makdi service chain configuration\n"
+       "Switch info\n"
+       "Enter dp-id\n"
+       "Service info\n"
+       "Enter service name\n"
+       "Host info\n"
+       "Enter Host IP address")
+{
+    int ret;
+    uint32_t nw_src;
+    struct prefix_ipv4 host_ip;
+    uint64_t dpid = strtoull(argv[0], NULL, 16);
+    char *service;
+
+    ret = str2prefix(argv[2], (void *)&host_ip);
+    if (ret <= 0) {
+        return CMD_WARNING;
+    }
+
+    nw_src = ntohl(host_ip.prefix.s_addr);
+    service = (void *)argv[1];
+
+    ret = mul_makdi_servicechain_mod(cli->makdi_service, dpid, 
+                                     0, service, nw_src, 0, NULL, false);
+    return ret;
+}
+
+DEFUN (show_makdi_nfv_stats,
+       show_makdi_nfv_stats_cmd,
+       "show makdi-nfv-stats all",
+       SHOW_STR
+       "NFV Statistics informations\n"
+       "Statistics information for all nfv group")
+{
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    if (cli_init_makdi_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+    
+    mul_makdi_show_nfv_stats_all(cli->makdi_service,(void *)vty, false, vty_dump);
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    return CMD_SUCCESS;
+}
+
+DEFUN (show_makdi_service_stats,
+       show_makdi_service_stats_cmd,
+       "show makdi-service-stats all",
+       SHOW_STR
+       "NFV Service Statistics informations\n"
+       "Statistics information for all service")
+{
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    if (cli_init_makdi_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+
+    mul_makdi_show_service_stats_all(cli->makdi_service,(void *)vty, false, vty_dump);
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    return CMD_SUCCESS;
+}
+
+DEFUN (show_makdi_user_stats,
+       show_makdi_user_stats_cmd,
+       "show makdi-user-stats all",
+       SHOW_STR
+       "User Statistics informations\n"
+       "Summary information for all user")
+{
+    vty_out (vty,
+            "-------------------------------------------"
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    if (cli_init_makdi_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+
+    mul_makdi_show_user_stats_all(cli->makdi_service,(void *)vty, false, vty_dump);
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    return CMD_SUCCESS;
+}
+
+DEFUN (show_makdi_service_chain,
+       show_makdi_service_chain_cmd,
+       "show makdi-service-chain all",
+       SHOW_STR
+       "Service Chain\n"
+       "Summary information for all")
+
+{
+    vty_out (vty,
+            "-------------------------------------------"
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    if (cli_init_makdi_service(cli, vty)) {
+        return CMD_SUCCESS;
+    }
+
+    mul_makdi_show_service_chain(cli->makdi_service,(void *)vty, false, vty_dump);
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    return CMD_SUCCESS;
+}
+#endif
+
+DEFUN_HIDDEN (set_async_config,
+              set_async_config_cmd,
+              "set-async-config switch X master packet-in X \
+              port-status X flow-removed X slave packet-in X \
+              port-status X flow-removed X",
+              "Set Asynchronous Message Configuration\n"
+              "openflow-switch\n"
+              "datapath-id in 0xXXX format\n"
+              "Set Configuration for MASTER_STATE Controller\n"
+              "Packet-in Mask\n"
+              "Enter the mask in 0xXXX format - Bit 0: NO-MATCH, Bit"
+              "1: ACTION, Bit 2: INVALID\n"
+              "Port-Status Mask\n"
+              "Enter the mask in 0xXXX format - Bit 0: ADD, Bit1: DELETE," 
+              "Bit 2: MODIFY\n"
+              "Flow Removed Mask\n"
+              "Enter the mask in 0xXXX format - Bit 0: IDLE_TIMEOUT, Bit1: "
+              "HARD_TIMEOUT, Bit 2: DELETE, Bit 3: GROUP_DELETE\n"
+              "Set Configuration for SLAVE_STATE Controller\n"
+              "Packet-in Mask\n"
+              "Enter the mask in 0xXXX format - Bit 0: NO-MATCH, Bit "
+              "1: ACTION, Bit 2: INVALID\n"
+              "Port-Status Mask\n"
+              "Enter the mask in 0xXXX format - Bit 0: ADD, Bit1: DELETE, "
+              "Bit 2: MODIFY\n"
+              "Flow Removed Mask\n"
+              "Enter the mask in 0xXXX format - Bit 0: IDLE_TIMEOUT, Bit1: "
+              "HARD_TIMEOUT, Bit 2: DELETE, Bit 3: GROUP_DELETE\n")
+
+{
+    struct of_async_config_params *args = NULL;
+    uint64_t dpid = 0;
+    uint8_t version = 0;
+
+    dpid = strtoull(argv[0], NULL, 16);
+
+    version = c_app_switch_get_version_with_id(dpid);
+    if (version !=  OFP_VERSION_131) {
+        vty_out(vty, "Switch 0x%llx does not support async-config, version\
+                %d\r\n", U642ULL(dpid),version);
+        return CMD_WARNING;
+    }
+    
+    args = calloc(1, sizeof(*args));
+    if (!args) {
+        return CMD_WARNING;
+    }
+
+    /*MASTER_STATE Details*/
+    args->packet_in_mask[MASTER_STATE] = strtoul(argv[1], NULL, 16);
+    if(args->packet_in_mask[MASTER_STATE] > 7) {
+        vty_out(vty, "Packet-In Mask greater than 0x7 is not allowed\r\n");
+        return CMD_WARNING;
+    }
+
+    args->port_status_mask[MASTER_STATE] = strtoul(argv[2], NULL, 16);
+    if(args->port_status_mask[MASTER_STATE] > 7) {
+        vty_out(vty, "Port-Status Mask greater than 0x7 is not allowed\r\n");
+        return CMD_WARNING;
+    }
+    args->flow_removed_mask[MASTER_STATE] = strtoul(argv[3], NULL, 16);
+    if(args->flow_removed_mask[MASTER_STATE] > 15) {
+        vty_out(vty, "Flow-Removed Mask greater than 0x7 is not allowed\r\n");
+        return CMD_WARNING;
+    }
+
+    /*SLAVE_STATE Details*/
+    args->packet_in_mask[SLAVE_STATE] = strtoul(argv[4], NULL, 16);
+    if(args->packet_in_mask[SLAVE_STATE] > 7) {
+        vty_out(vty, "Packet-In Mask greater than 0x7 is not allowed\r\n");
+        return CMD_WARNING;
+    }
+    args->port_status_mask[SLAVE_STATE] = strtoul(argv[5], NULL, 16);
+    if(args->port_status_mask[SLAVE_STATE] > 7) {
+        vty_out(vty, "Port-Status Mask greater than 0x7 is not allowed\r\n");
+        return CMD_WARNING;
+    }
+    args->flow_removed_mask[SLAVE_STATE] = strtoul(argv[6], NULL, 16);
+    if(args->flow_removed_mask[SLAVE_STATE] > 15) {
+        vty_out(vty, "Flow-Removed Mask greater than 0x7 is not allowed\r\n");
+        return CMD_WARNING;
+    }
+    
+    mul_service_send_async_config(cli->mul_service, dpid, args);
+
+    if (c_service_timed_wait_response(cli->mul_service) > 0) {
+        vty_out(vty, "Failed. Check log messages%s",
+                VTY_NEWLINE);
+    }
+    free(args);
+    vty->index = NULL;
+    return CMD_SUCCESS;
+}
+
+
+static int
+cli_fab_config_write(struct vty *vty)
+{
+    struct cli_config_wr_arg cfg_wr_arg = { .vty = vty,
+                                            .write = 0 };
+
+    c_log_debug("Saving fabric config");
+    if (!cli->fab_service) {
+        cli->fab_service = mul_app_get_service_notify_ka(MUL_FAB_CLI_SERVICE_NAME,
+                                                  mul_fab_service_conn_event,
+                                                  cli_dummy_infra_ka,
+                                                  false, NULL);
+        if (!cli->fab_service) {
+            c_log_err("mul-fab service is not alive");
+            return cfg_wr_arg.write;
+        }
+    }
+
+    vty_out (vty, "mul-fab-conf %s", VTY_NEWLINE);
+    cfg_wr_arg.write++;
+
+    mul_fabric_show_hosts(cli->fab_service, true, true, false,
+                          (void *)&cfg_wr_arg, vty_config_dump);
+
+    mul_fabric_show_hosts(cli->fab_service, false, true, false,
+                          (void *)&cfg_wr_arg, vty_config_dump);
+
+    vty_out (vty, "exit %s", VTY_NEWLINE);
+    cfg_wr_arg.write++;
+
+    return cfg_wr_arg.write;
+}
+
+static int
+cli_makdi_config_write(struct vty *vty)
+{
+    struct cli_config_wr_arg cfg_wr_arg = { .vty = vty,
+                                            .write = 0 };
+
+    c_log_debug("Saving makdi config");
+    if (!cli->makdi_service) {
+        cli->makdi_service = mul_app_get_service_notify_ka(MUL_MAKDI_SERVICE_NAME,
+                                                  mul_makdi_service_conn_event,
+                                                  cli_dummy_infra_ka,
+                                                  false, NULL);
+        if (!cli->makdi_service) {
+            c_log_err(":mul-mak service is not alive");
+            return cfg_wr_arg.write;
+        }
+    }
+
+    vty_out (vty, "mul-mak-conf %s", VTY_NEWLINE);
+    cfg_wr_arg.write++;
+
+    mul_makdi_show_nfv(cli->makdi_service, (void *)&cfg_wr_arg,
+                       true, vty_config_dump);
+
+    mul_makdi_show_service(cli->makdi_service, (void *)&cfg_wr_arg,
+                           true, vty_config_dump);
+
+    mul_makdi_show_service_chain(cli->makdi_service,(void *)&cfg_wr_arg,
+                                 true, vty_config_dump);
+
+    vty_out (vty, "exit %s", VTY_NEWLINE);
+    cfg_wr_arg.write++;
+
+    return cfg_wr_arg.write;
+}
+
+
+static int
+cli_mul_config_write(struct vty *vty)
+{
+    struct cli_config_wr_arg cfg_wr_arg = { .vty = vty,
+                                            .write = 0 };
+    uint64_t dpid = 0;
+
+    if (!vty->dpid) {
+        c_log_err("%s:Unknown switch", FN);
+        return -1;
+    }
+
+    dpid = strtoull(vty->dpid, NULL, 16);
+    if ((dpid == (uint64_t)(-1) && errno == ERANGE))  {
+        c_log_err("%s:switch dpid parse fail", FN);
+        return -1;
+    }
+
+    if (!c_app_switch_get_version_with_id(dpid)) {
+        c_log_err("%s:No such switch 0x%llx", FN, U642ULL(dpid));
+        return CMD_SUCCESS;
+    }
+
+    c_log_debug("Saving config for switch 0x%llx", U642ULL(dpid));
+    if (!cli->mul_service) {
+        cli->mul_service = mul_app_get_service_notify_ka(MUL_CORE_SERVICE_NAME,
+                                                  mul_core_service_conn_event,
+                                                  cli_dummy_infra_ka,
+                                                  false, NULL);
+        if (!cli->mul_service) {
+            c_log_err("%s:mul-core service is not alive", FN);
+            return cfg_wr_arg.write;
+        }
+    }
+
+    vty_out (vty, "mul-conf %s", VTY_NEWLINE);
+    cfg_wr_arg.write++;
+
+    mul_get_switch_detail_config(cli->mul_service, dpid,
+                                (void *)&cfg_wr_arg, vty_config_dump);
+
+    mul_get_meter_info(cli->mul_service, dpid,
+                       true, false, (void *)&cfg_wr_arg, vty_config_dump);
+
+    mul_get_group_info(cli->mul_service, dpid,
+                       true, false, (void *)&cfg_wr_arg, vty_config_dump);
+
+    mul_get_flow_info(cli->mul_service, dpid, false, true, false, false, true, false,
+                      (void *)&cfg_wr_arg, vty_config_dump); 
+
+    vty_out (vty, "exit %s", VTY_NEWLINE);
+    cfg_wr_arg.write++;
+
+    return cfg_wr_arg.write;
+}
+
+static void
+c_app_per_switch_dpid_fetch(void *key UNUSED, void *sw_arg, void *uarg)
+{
+    GSList **list = uarg;
+    mul_switch_t *sw = sw_arg;
+    uint64_t *swid;
+
+    swid = calloc(1, sizeof(*swid));
+    if (!swid) return;
+
+    *swid = sw->dpid;
+    *list = g_slist_append(*list, swid);
+}
+
+static void
+cli_elem_free(void *elem)
+{
+    free(elem);
+}
+
+static char ** 
+conf_file_name_get_cb(int *num)
+{
+    GSList *list = NULL;
+    GSList *iterator = NULL;
+    uint64_t *swid = NULL;
+    char **fnames = NULL;
+
+#define MAX_SWITCH_NAME_LEN 64
+    if (!num) return NULL;
+    *num = 0;
+
+    c_app_traverse_all_switches(c_app_per_switch_dpid_fetch, &list);
+
+    if (!list) return NULL;
+
+    fnames = (char **)calloc(1, g_slist_length(list) * sizeof(char *));
+    for (iterator = list; iterator; iterator = iterator->next) {
+        swid = iterator->data;
+        if (swid) {
+            fnames[*num] = calloc(1, MAX_SWITCH_NAME_LEN);
+            snprintf(fnames[*num], MAX_SWITCH_NAME_LEN - 1, "%llx",
+                     U642ULL(*swid)); 
+            ++*num;
+        }
+    }
+
+    g_slist_free_full(list, cli_elem_free);
+    return fnames;
+    
+#undef MAX_SWITCH_NAME_LEN
+}
+
+DEFUN (config_save_file,
+       config_save_file_cmd,
+       "write",
+       "Write running configuration to persistent store\n")
+{
+    int err = 0;
+    if (cli_ha_config_cap(cli, NULL, true)) {
+        err = config_write_file_all(vty);
+        if (err == CMD_SUCCESS && cli->state == C_HA_STATE_MASTER &&
+            cli->ha_peer) {
+            cli->need_sync = true;
+        }
+    }
+
+    return err;
+}
+
+DEFUN (config_write_term,
+       config_write_term_cmd,
+       "write terminal",
+       "Write running configuration \n"
+       "To terminal\n")
+{
+    return config_write_terminal_all(vty);
+}
+
+
+DEFUN (config_read_file,
+       config_read_file_cmd,
+       "read X",
+       "Read configuration and apply\n"
+       "Enter filename(Absolute Path)\n")
+{
+    FILE *fp = NULL;
+
+    fp = fopen(argv[0], "r");
+    if (!fp) {
+        vty_out(vty, "%s read failed\r\n", argv[0]);
+    }
+    fclose(fp);
+
+    vty_out(vty, "Applying config file %s\r\n", argv[0]);
+    vty_read_config(NULL, (void *)argv[0], 1, MUL_NODE);
+
+    return CMD_SUCCESS;
+}
+
+/* Write current configuration into the terminal. */
+ALIAS (config_write_term,
+       show_running_config_cmd,
+       "show running-config",
+       SHOW_STR
+       "running configuration\n")
+
+static void *
+c_cfg_fsync_thread(void *arg)
+{
+    cli_struct_t *cli = arg;
+
+    while (1) {
+        if (cli->need_sync) {
+            cli->need_sync = false;
+            c_log_info("Config-sync Started");
+            c_fsync_dir(CLI_CONF_DIR, cli->ha_peer, 0 /* Take default */);
+            c_log_info("Config-sync Complete");
+        }
+        sleep(1);
+    }
+
+    return NULL;
 }
 
 /**
@@ -4723,19 +6105,56 @@ void
 cli_module_vty_init(void *arg)
 {
     c_app_hdl_t *hdl = arg;
+
+    if (hdl->ha_server) {
+        c_log_info("Starting config sync service");
+        cli->ha_peer = hdl->ha_server;
+        fsync_server_start();
+        pthread_create(&cli->fsync_thread, NULL, c_cfg_fsync_thread, cli); 
+    } else {
+        c_log_info("Starting without config sync service");
+    }
+
+    cli->no_init_conf = hdl->no_init_conf;
+
+#ifdef CLI_CFG_FILE
+    install_node(&mul_conf_node, cli_mul_config_write);
+    install_node(&fab_conf_node, cli_fab_config_write);
+    install_node(&makdi_conf_node, cli_makdi_config_write);
+#else
     install_node(&mul_conf_node, NULL);
     install_node(&fab_conf_node, NULL);
+    install_node(&makdi_conf_node, NULL);
+#endif
+    install_node(&tr_conf_node, NULL);
     install_node(&flow_inst_node, NULL);
     install_node(&inst_actions_node, NULL);
     install_node(&group_node, NULL);
     install_node(&meter_node, NULL);
 
     install_default(MUL_NODE);
+    install_default(MULTR_NODE);
     install_default(MULFAB_NODE);
+    install_default(MULMAKDI_NODE);
     install_default(FLOW_NODE);
     install_default(INST_NODE);
     install_default(GROUP_NODE);
     install_default(METER_NODE);
+
+#ifdef CLI_CFG_FILE
+    install_element(ENABLE_NODE, &config_save_file_cmd);
+    install_element(CONFIG_NODE, &config_save_file_cmd);
+    install_element(MUL_NODE, &config_save_file_cmd);
+    install_element(MULFAB_NODE, &config_save_file_cmd);
+
+    install_element(ENABLE_NODE, &config_write_term_cmd);
+    install_element(CONFIG_NODE, &config_write_term_cmd);
+    install_element(MUL_NODE, &config_write_term_cmd);
+    install_element(MULFAB_NODE, &config_write_term_cmd);
+    
+    install_element(ENABLE_NODE, &show_running_config_cmd);
+    install_element(MUL_NODE, &config_read_file_cmd);
+#endif
 
     install_element_attr_type(CONFIG_NODE, &mul_conf_cmd, MUL_NODE);
     //install_element(MUL_NODE, &mul_conf_exit_cmd);
@@ -4744,10 +6163,15 @@ cli_module_vty_init(void *arg)
     install_element(ENABLE_NODE, &show_of_switch_group_detail_cmd);
     install_element(ENABLE_NODE, &show_of_switch_meter_detail_cmd);
     install_element(ENABLE_NODE, &show_of_switch_table_detail_cmd);
+/*CLI changes for displaying flow wrt table id*/
+    install_element(ENABLE_NODE, &show_of_switch_flow_tbid_cmd);
+/*CLI changes for displaying flow wrt table id*/
     install_element(ENABLE_NODE, &show_of_switch_flow_cmd);
     install_element(ENABLE_NODE, &show_of_flow_all_cmd);
+    install_element(ENABLE_NODE, &show_of_switch_flow_all_cmd);
     install_element(ENABLE_NODE, &show_of_switch_flow_static_cmd);
     install_element(ENABLE_NODE, &show_of_flow_all_static_cmd);
+    install_element(ENABLE_NODE, &show_ha_state_cmd);
     install_element(ENABLE_NODE, &show_of_switch_get_port_queues_cmd);
     install_element(ENABLE_NODE, &of_switch_rx_rlim_get_cmd);
     install_element(ENABLE_NODE, &of_switch_tx_rlim_get_cmd);
@@ -4760,17 +6184,20 @@ cli_module_vty_init(void *arg)
     install_element(MUL_NODE, &of_switch_stats_strategy_cmd);
     install_element(MUL_NODE, &of_switch_port_stats_cmd);
     install_element(MUL_NODE, &of_flow_vty_add_cmd);
+    install_element(MUL_NODE, &of_flow6_vty_add_cmd);
     install_element(MUL_NODE, &of_flow_vty_del_cmd);
     install_element(MUL_NODE, &of_flow_vty_del_extended_cmd);
     install_element(MUL_NODE, &of_flow6_vty_del_cmd);
     install_element(MUL_NODE, &of_flow6_vty_del_extended_cmd);
     install_element(MUL_NODE, &of_switch_pkt_dump_cmd);
+    install_element(MUL_NODE, &of_port_vty_mod_cmd);
     install_element_attr_type(FLOW_NODE, &of_add_goto_instruction_cmd, MUL_NODE);
     install_element_attr_type(FLOW_NODE, &of_add_meter_inst_cmd, MUL_NODE);
     install_element_attr_type(FLOW_NODE, &of_add_write_instruction_cmd, MUL_NODE);
     install_element_attr_type(FLOW_NODE, &of_add_apply_instruction_cmd, MUL_NODE);
     install_element_attr_type(FLOW_NODE, &flow_stats_en_cmd, MUL_NODE);
     install_element_attr_type(FLOW_NODE, &flow_barrier_en_cmd, MUL_NODE);
+    install_element_attr_type(FLOW_NODE, &flow_no_post_validate_cmd, MUL_NODE);
     install_element_attr_type(FLOW_NODE, &flow_prio_cmd, MUL_NODE);
     install_element_attr_type(FLOW_NODE, &flow_tunnel_cmd, MUL_NODE);
     install_element_attr_type(FLOW_NODE, &flow_commit_cmd, MUL_NODE);
@@ -4846,6 +6273,7 @@ cli_module_vty_init(void *arg)
     install_element_attr_type(GROUP_NODE, &group_act_vector_ff_port_cmd, MUL_NODE);
     install_element_attr_type(GROUP_NODE, &group_act_vector_ff_group_cmd, MUL_NODE);
     install_element_attr_type(GROUP_NODE, &group_act_vector_done_cmd, MUL_NODE);
+    install_element_attr_type(GROUP_NODE, &group_barrier_en_cmd, MUL_NODE);
     install_element_attr_type(GROUP_NODE, &group_commit_cmd, MUL_NODE);
     install_element_attr_type(GROUP_NODE, &group_act_vec_exit_cmd, MUL_NODE);
     
@@ -4859,8 +6287,13 @@ cli_module_vty_init(void *arg)
     install_element_attr_type(METER_NODE, &meter_commit_cmd, MUL_NODE);
     install_element_attr_type(METER_NODE, &meter_act_vec_exit_cmd, MUL_NODE);
 
+#ifdef CLI_TR
+    install_element_attr_type(CONFIG_NODE, &mul_tr_conf_cmd, MULTR_NODE);
+    install_element(MULTR_NODE, &tr_loop_en_cmd);
     install_element(ENABLE_NODE, &show_neigh_switch_detail_cmd);
+#endif
 
+#ifdef CLI_FABRIC
     install_element_attr_type(CONFIG_NODE, &mul_fab_conf_cmd, MULFAB_NODE);
     install_element(MULFAB_NODE, &add_fab_host_gw_cmd);
     install_element(MULFAB_NODE, &add_fab_host_nongw_cmd);
@@ -4868,8 +6301,29 @@ cli_module_vty_init(void *arg)
     install_element(ENABLE_NODE, &show_fab_host_all_active_cmd);
     install_element(ENABLE_NODE, &show_fab_host_all_inactive_cmd);
     install_element(ENABLE_NODE, &show_fab_route_all_cmd);
+    install_element(ENABLE_NODE, &show_fab_port_tnid_all_cmd);
+#endif
 
-    host_config_set(CLI_CONF_FILE);
+#ifdef CLI_MAKDI
+    install_element_attr_type(CONFIG_NODE, &mul_makdi_conf_cmd, MULMAKDI_NODE);
+    install_element(ENABLE_NODE, &show_makdi_service_cmd);
+    install_element(MULMAKDI_NODE, &add_makdi_nfv_group_cmd);
+    install_element(MULMAKDI_NODE, &del_makdi_nfv_group_cmd);
+    install_element(MULMAKDI_NODE, &add_makdi_nfv_cmd);
+    install_element(MULMAKDI_NODE, &del_makdi_nfv_cmd);
+    install_element(ENABLE_NODE, &show_makdi_nfv_cmd);
+    install_element(ENABLE_NODE, &show_makdi_nfv_stats_cmd);
+    install_element(MULMAKDI_NODE, &add_makdi_service_cmd);
+    install_element(MULMAKDI_NODE, &del_makdi_service_cmd);
+    install_element(MULMAKDI_NODE, &add_makdi_nfv_sc_rule_cmd);
+    install_element(MULMAKDI_NODE, &del_makdi_nfv_sc_rule_cmd);
+    install_element(ENABLE_NODE, &show_makdi_service_chain_cmd);
+#endif
+
+    install_element(MUL_NODE, &set_async_config_cmd);
+    host_config_file_cb_set(CLI_CONF_FILE, conf_file_name_get_cb);
+
+    vty_read_config(NULL, CLI_CONF_FILE, 1, CONFIG_NODE);
     cli->vty_master = hdl->vty_master; 
     thread_add_timer(cli->vty_master,
                      cli_service_timer, cli, CLI_TIMER_INIT_TS);

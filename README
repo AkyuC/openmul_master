@@ -2,81 +2,25 @@
 
 $  git clone https://github.com/openmul/openmul.git
 
-For getting source code based on permissive license (eg Apache or BSD), please contact support@openmul.org
+For getting source code based on permissive license (eg Apache or BSD) or any support, please contact support@openmul.org
 
-## How to build MUL Controller on Ubuntu ?
+## How to build MUL Controller on Ubuntu/CentOS ?
 
-1. Get necessary packages 
+1. Run all-in-one build command : 
 
- a) For Ubuntu 10.04.3 LTS or recent, the following packages should be installed :
+ a) For Ubuntu 10.04.3LTS+, CentOS-5+, run the following command : 
    
-  $ sudo apt-get install flex bison libwxgtk2.6-dev build-essential expect g++-multilib tofrodos zlib1g-dev gawk libffi-dev gettext python python-all-dev swig libcurl4-gnutls-dev libglib2.0-dev libevent-dev libssl-dev autoconf libtool
+   $ ./build.sh 
 
-    For CentOS 6 and above, the following packages should be installed :
-    (Please replace 64-bit packages with corresponding 32-bit ones if  underlying platform is 32-bit)
+   The above command will install all necessary packages and build necessary modules.
 
-  $ yum install flex bison gettext wxGTK-devel.x86_64 wxGTK.x86_64 make autoconf automake expect libstdc++-devel.x86_64 libstdc++.x86_64 zlib-devel.x86_64 zlib.x86_64 gawk libffi-devel.x86_64 libevent-devel.x86_64 libglib2.0-dev.x86_64
+2. Executables will be built as :
 
-
- b) Install Python libraries
-
-    Upgrade `pip` to the latest version
-
-    $ pip install --upgrade pip
-
-    Install project dependencies
-
-    $ pip install -r python_req.txt
-
-    Install python daemon library :
-    $ sudo apt-get install python-daemon
-
- c) [Optional for performance] Install google's tcmalloc  
-
-   $ sudo apt-get install libtcmalloc-minimal0
-    
-   Before running MuL, execute the following:
-   $ export LD_PRELOAD=/usr/lib/libtcmalloc_minimal.so.0
-
-2. Configure MuL 
-
- a) Generate Makefiles:
- 
-   $ cd <top-mul-dir>
-   $ ./autogen.sh
-
- b) Set build environment
-
-   $ source pythonpath.sh 
-
-   For i386, the following can be used :
-   $ export CFLAGS="-I /usr/include/glib-2.0/ -I /usr/lib/i386-linux-gnu/glib-2.0/include/"
-
-   For x86-64, we can pass the following CFLAGS :
-   $ export CFLAGS="-I /usr/include/glib-2.0/ -I /usr/lib/x86_64-linux-gnu/glib-2.0/include/"
-
- c) Run configure script 
-
-   $ ./configure --with-vty=yes
-
-   If you are building for release, use the following option with configure script: 
-      --prefix=`pwd`/RELEASE
-
-3. Build openmul 
-
-   $ make 
-
-4. Executable will be built as <top-mul-dir>/mul/mul
-
+   Core :  <top-mul-dir>/mul/mul
+   Application (eg l2switch) :  <top-mul-dir>/application/l2switch/mull2sw
+                   
+   - Other applications will be built in their respective directories inside <top-mul-dir>/application/
    - You need to run using sudo or as admin.
-
-5. Application binaries will be built in their respective directories. For example:
-
-    $ cd application/l2switch/
-
-    Executable :  mull2sw
-
-    Same thing applies to other apps in applications folder. 
 
 6. How to run ?
     

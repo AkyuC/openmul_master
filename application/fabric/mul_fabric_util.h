@@ -131,7 +131,7 @@ fab_extract_network_id(struct flow *fl)
 static inline uint16_t
 fab_tnid_to_tid(uint32_t tnid)
 {
-    return (uint16_t)((tnid > 16) & 0xffff);
+    return (uint16_t)((tnid >> 16) & 0xffff);
 }
 
 static inline uint16_t
@@ -142,6 +142,7 @@ fab_tnid_to_nid(uint32_t tnid)
 
 
 #define HOST_PBUF_SZ 512
+#define FAB_UUID_STR_SZ 37
 
 /**
  * fab_dump_single_host_from_flow -
@@ -149,17 +150,21 @@ fab_tnid_to_nid(uint32_t tnid)
  * Dump a single host from flow struct and dpid
  */
 static inline char * 
-fab_dump_single_host_from_flow(uint64_t dpid, struct flow *fl)
+fab_dump_single_host_from_flow(uint64_t dpid, struct flow *fl, 
+        uint8_t *host_tenant_id, uint8_t *host_network_id)
 {
     char     *pbuf = calloc(1, HOST_PBUF_SZ);
     int      len = 0;
+    uint8_t tenant_id[FAB_UUID_STR_SZ], network_id[FAB_UUID_STR_SZ];
+
+    uuid_unparse((const uint8_t *) host_tenant_id,(char* ) tenant_id);
+    uuid_unparse((const uint8_t *) host_network_id, (char* ) network_id);
     
     len += snprintf(pbuf+len, HOST_PBUF_SZ-len-1,
-                    "Tenant %4hu, Network %4hu, host-ip 0x%-8x,host-mac "
+                    "Tenant %s, Network %s, host-ip 0x%-8x,host-mac "
                     "%02x:%02x:%02x:%02x:%02x:%02x on switch "
                     "0x%016llx port %4hu (%s)\r\n",
-                    fab_extract_tenant_id(fl), 
-                    fab_extract_network_id(fl), 
+                    tenant_id, network_id,
                     ntohl(fl->ip.nw_src),
                     fl->dl_src[0], fl->dl_src[1],
                     fl->dl_src[2], fl->dl_src[3],
@@ -170,4 +175,29 @@ fab_dump_single_host_from_flow(uint64_t dpid, struct flow *fl)
     assert(len < HOST_PBUF_SZ-1);
     return pbuf;
 }
+/**
+ * fab_dump_single_host_from_flow -
+ *  
+ * Dump a single host from flow struct and dpid
+ */
+static inline char *
+fab_dump_port_tnid(uint64_t dpid, uint32_t port,
+        uint8_t *host_tenant_id, uint8_t *host_network_id)
+{
+    char     *pbuf = calloc(1, HOST_PBUF_SZ);
+    int      len = 0;
+    uint8_t tenant_id[FAB_UUID_STR_SZ], network_id[FAB_UUID_STR_SZ];
+
+    uuid_unparse((const uint8_t *) host_tenant_id,(char* ) tenant_id);
+    uuid_unparse((const uint8_t *) host_network_id, (char* ) network_id);
+
+    len += snprintf(pbuf+len, HOST_PBUF_SZ-len-1,
+                    "Tenant %s, Network %s, switch 0x%016llx port %4hu\r\n",
+                    tenant_id, network_id,
+                    (unsigned long long)dpid,
+                    port);
+    assert(len < HOST_PBUF_SZ-1);
+    return pbuf;
+}
+
 #endif

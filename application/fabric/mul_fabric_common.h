@@ -24,5 +24,7 @@
 #include "mul_vty.h"
 #include "mul_fabric.h"
 #include "mul_fabric_util.h"
+#include "uuid.h"
+#include "mul_app_main.h"
 
 #endif

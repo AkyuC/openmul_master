@@ -20,6 +20,18 @@
 
 topo_hdl_t *topo_hdl;
 
+static void
+__lldp_set_next_tr_timeo(time_t timeo)
+{
+    time_t ctime = time(NULL);
+    if (!topo_hdl->tr->rt_timeo_set) {
+        topo_hdl->tr->rt.rt_next_trigger_ts = ctime + timeo;
+        topo_hdl->tr->rt_timeo_set = true;
+        c_log_err("%s: Topo routing set to expire at %lu",
+                   FN, topo_hdl->tr->rt.rt_next_trigger_ts);
+    }
+}
+
 /** 
  * __lldp_get_max_switch_alias -
  *
@@ -72,6 +84,8 @@ lldp_send_rt_neigh_conn(void *port_arg, void *u_arg)
         neigh_query->tr->rt.rt_add_neigh_conn(neigh_query->tr, 
                                               neigh_query->src_sw,
                                               neigh_query->dst_sw,
+                                              neigh_query->src_dpid,
+                                              neigh_query->dst_dpid,
                                               &lw_pair, false);
     }
 
@@ -118,6 +132,8 @@ __lldp_init_neigh_pair_adjacencies(tr_neigh_query_arg_t *arg)
         return;
     }
 
+    arg->src_dpid = from_sw->dpid;
+    arg->dst_dpid = to_sw->dpid;
     lldp_traverse_all_neigh_ports(neighbour, lldp_send_rt_neigh_conn, 
                                   (void *)arg);
     
@@ -320,6 +336,24 @@ lldp_service_neigh_request(uint64_t dpid, uint32_t xid)
     return b;
 }
 
+/**
+ * lldp_service_set_loop_detect -
+ *
+ * Handle loop detect enable or disable
+ */
+void
+lldp_service_set_loop_detect(bool enable)
+{
+    if (enable) {
+        __lldp_set_next_tr_timeo(LOOP_PORT_TR_TIMEO);
+        topo_hdl->tr->loop_en = true;
+    } else {
+        __lldp_set_next_tr_timeo(LOOP_PORT_TR_TIMEO);
+        mul_loop_detect_reset(true);
+        topo_hdl->tr->loop_en = false;
+    }
+}
+ 
 
 /**
  * lldp_port_connect_to_neigh -
@@ -560,6 +594,7 @@ lldp_switch_add(mul_switch_t *sw)
     lldp_switch_t *new_switch;
     struct flow fl;      /* Flow entry for lldp packer handler */
     struct flow mask;
+    mul_act_mdata_t mdata;
 
     of_mask_set_dc_all(&mask);
 
@@ -623,9 +658,18 @@ lldp_switch_add(mul_switch_t *sw)
     fl.dl_type = htons(0x88cc);
     of_mask_set_dl_type(&mask);
 
+    mul_app_act_alloc(&mdata);
+    mul_app_act_set_ctors(&mdata, dpid);
+    mul_app_action_output(&mdata, 0); /* Send to controller */
+
     mul_app_send_flow_add(MUL_TR_SERVICE_NAME, NULL, dpid, &fl, &mask,
-                          (uint32_t)-1, NULL, 0, 0, 0, C_FL_PRIO_FWD,
-                          C_FL_ENT_LOCAL);
+                          (uint32_t)-1,
+                          mdata.act_base, mul_app_act_len(&mdata),
+                          0, 0,
+                          C_FL_PRIO_EXM, 
+                          C_FL_ENT_LOCAL
+                          /*C_FL_ENT_GSTATS | C_FL_ENT_CTRL_LOCAL*/);
+    mul_app_act_free(&mdata);
 
     return;
 
@@ -749,7 +793,7 @@ lldp_port_add(void *app_arg, lldp_switch_t *this_switch,
         return 0;
     }
 
-    c_log_debug("|lldp-port-add| %u to switch 0x%llx", port_no,
+    c_log_debug("%s: adding %u to switch 0x%llx", FN, port_no, 
                 (unsigned long long)this_switch->dpid);
 
     if (need_lock) {
@@ -782,6 +826,11 @@ lldp_port_add(void *app_arg, lldp_switch_t *this_switch,
 
     config_mask = port_info->config;
     state_mask = port_info->state;
+
+    if (topo_hdl->tr->loop_en) {
+        __mul_loop_port_update(this_switch, new_port, LOOP_PORT_STATUS_INIT);
+        __lldp_set_next_tr_timeo(LOOP_PORT_TR_TIMEO);
+    } 
 
     /* if port is connected to something send lldp packet */
     if (!(config_mask & OFPPC_PORT_DOWN) && !(state_mask & OFPPS_LINK_DOWN)) {
@@ -876,6 +925,10 @@ lldp_port_mod(void *app_arg, uint64_t switch_id, mul_port_t *port_info,
         c_log_debug("%s: switch 0x%llx port(%u)->UP", 
                     FN, U642ULL(this_switch->dpid), port_no);
 
+        if (topo_hdl->tr->loop_en) {
+            __mul_loop_port_update(this_switch, this_port, LOOP_PORT_STATUS_INIT);
+            __lldp_set_next_tr_timeo(LOOP_PORT_TR_TIMEO);
+        }
         lldp_tx(app_arg, this_switch, this_port);
     }
 
@@ -923,6 +976,11 @@ lldp_port_delete(uint64_t switch_id, mul_port_t *port_info)
 
     c_wr_unlock(&this_switch->lock);
     lldp_switch_unref(this_switch);
+
+    if (topo_hdl->tr->loop_en) {
+        __lldp_set_next_tr_timeo(LOOP_PORT_TR_TIMEO);
+        // mul_loop_detect_reset(true);
+    }
 
     return 0;
 }
@@ -1193,6 +1251,8 @@ lldp_update_timer(evutil_socket_t fd UNUSED, short event UNUSED, void *arg)
         trig_core = true;
     }
 
+    mul_loop_detect(hdl, true);
+
     /* Send route convergence notification to MUL Core*/
     if (trig_core) {
         mul_app_send_tr_status(C_RT_APSP_CONVERGED);
@@ -1226,6 +1286,7 @@ mul_lldp_init(tr_struct_t *tr)
     }
 
     lldp_init_sw_imap(hdl);
+    hdl->loop_info.root_dpid = MUL_LLDP_INV_DPID;
 
     c_rw_lock_init(&hdl->switch_lock);
     c_rw_lock_init(&hdl->pkt_lock);

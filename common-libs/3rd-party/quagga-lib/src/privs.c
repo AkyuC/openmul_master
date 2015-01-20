@@ -576,7 +576,7 @@ zprivs_state_uid (void)
 }
 
 int
-zprivs_change_null (zebra_privs_ops_t op)
+zprivs_change_null (zebra_privs_ops_t op __attribute__((unused)))
 {
   return 0;
 }

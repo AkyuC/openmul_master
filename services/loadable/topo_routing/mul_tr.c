@@ -109,6 +109,45 @@ tr_get_route(tr_struct_t *tr, int src_node, int dst_node)
     return route;
 }
 
+/**
+ * __tr_get_route_all -
+ *
+ * Get all route
+ */
+static rt_list_t *
+__tr_get_route_all(tr_struct_t *tr, int src_node, int dst_node)
+{
+    rt_list_t *rt_list = NULL;
+    int num_nodes = 0;
+
+    num_nodes = __tr_get_max_switch_alias(tr);
+
+    if (!(num_nodes) || 
+        src_node < 0 || dst_node < 0 ||
+        src_node > num_nodes || dst_node > num_nodes) {
+        return NULL;        
+    }
+
+    rt_list = tr->rt.rt_get_sp_all(tr, src_node, dst_node);
+
+    return rt_list;
+}
+
+/**
+ * tr_get_route_all -
+ *
+ * Get all routes
+ */
+rt_list_t *
+tr_get_route_all(tr_struct_t *tr, int src_node, int dst_node)
+{
+    rt_list_t *route = NULL;
+    lldp_sw_rd_lock(tr->topo_hdl);
+    route = __tr_get_route_all(tr, src_node, dst_node);
+    lldp_sw_rd_unlock(tr_hdl->topo_hdl);
+
+    return route;
+}
 
 /**
  * tr_dump_route -
@@ -330,6 +369,10 @@ tr_service_handler(void *tr_service, struct cbuf *b)
     switch(ntohl(cofp_aac->cmd_code)) {
     case C_AUX_CMD_TR_GET_NEIGH:
         return tr_service_request_neigh(tr_service, b, cofp_aac);
+    case C_AUX_CMD_MUL_LOOP_EN:
+        return tr_service_set_loop_detect(tr_service, b, cofp_aac, true);
+    case C_AUX_CMD_MUL_LOOP_DIS:
+        return tr_service_set_loop_detect(tr_service, b, cofp_aac, false);
     default:
         tr_service_error(tr_service, b, OFPET_BAD_REQUEST, OFPBRC_BAD_GENERIC);
     }

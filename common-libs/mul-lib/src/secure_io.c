@@ -134,7 +134,8 @@ sec_file_read(FILE *fp, EVP_CIPHER_CTX *de, void *info, int buf_len)
     }
 
     cipher = calloc(1, len);
-    fread(cipher, len, 1, fp);
+    ret = fread(cipher, len, 1, fp);
+    if (ret <= 0) goto out;
     plain = (char *)sec_io_aes_decrypt(de, cipher, &len);
     if (plain && len) {
         memcpy(info, plain, buf_len);
@@ -143,6 +144,7 @@ sec_file_read(FILE *fp, EVP_CIPHER_CTX *de, void *info, int buf_len)
     } else {
         ret = -1;
     }
+out:
     free(cipher);
     return ret;
 }

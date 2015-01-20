@@ -46,6 +46,11 @@ DEFUN (show_fab_route,
     src_aliasid = atoi(argv[0]);
     dst_aliasid = atoi(argv[1]);
 
+    if (src_aliasid == dst_aliasid){
+	vty_out(vty, "source and destination switch node-id cannot be same%s", VTY_NEWLINE);
+	return CMD_SUCCESS;
+    }
+
     iroute = fab_route_get(fab_ctx->route_service, src_aliasid, dst_aliasid,
                            NULL);
     if (!iroute) {
@@ -75,8 +80,8 @@ DEFUN (show_fab_route,
 static int 
 __add_fab_host_cmd(struct vty *vty, const char **argv, bool is_gw)
 {
-    uint16_t tenant_id;
-    uint16_t network_id;
+    uuid_t tenant_id;
+    uuid_t network_id;
     uint64_t dpid;
     struct flow fl;
     struct prefix_ipv4 host_ip;
@@ -85,8 +90,18 @@ __add_fab_host_cmd(struct vty *vty, const char **argv, bool is_gw)
 
     memset(&fl, 0, sizeof(fl));
 
-    tenant_id = atoi(argv[0]);
-    network_id = atoi(argv[1]);
+    ret = uuid_parse(argv[0], tenant_id);
+    if(!ret) {
+        vty_out (vty, "%% Malformed TenantID%s", VTY_NEWLINE);
+        return CMD_WARNING;
+    }
+
+	ret = uuid_parse(argv[1], network_id);
+    if(!ret) {
+        vty_out (vty, "%% Malformed NetworkID%s", VTY_NEWLINE);
+        return CMD_WARNING;
+    }
+
     dpid = strtoull(argv[4], NULL, 16);
     fl.in_port= htons(atoi(argv[5]));
     
@@ -97,8 +112,6 @@ __add_fab_host_cmd(struct vty *vty, const char **argv, bool is_gw)
     }
 
     fl.ip.nw_src = host_ip.prefix.s_addr;
-    fab_add_tenant_id(&fl, NULL, tenant_id); 
-    fab_add_network_id(&fl, network_id); 
     fl.FL_DFL_GW = is_gw;
 
     mac_str = (void *)argv[3];
@@ -114,7 +127,7 @@ __add_fab_host_cmd(struct vty *vty, const char **argv, bool is_gw)
         return CMD_WARNING;
     }
 
-    fab_host_add(fab_ctx, dpid, &fl, true);
+    fab_host_add(fab_ctx, dpid, &fl, tenant_id, network_id, true);
 
     return CMD_SUCCESS;
 
@@ -122,7 +135,7 @@ __add_fab_host_cmd(struct vty *vty, const char **argv, bool is_gw)
 
 DEFUN (add_fab_host_nongw,
        add_fab_host_nongw_cmd,
-        "add fabric-host tenant <0-4096> network <0-65535> "
+        "add fabric-host tenant (String) network (String) "
         "host-ip A.B.C.D host-mac X "
         "switch X port <0-65535> non-gw",
         "Add a configuration" 
@@ -147,7 +160,7 @@ DEFUN (add_fab_host_nongw,
 
 DEFUN (add_fab_host_gw,
        add_fab_host_gw_cmd,
-        "add fabric-host tenant <0-4096> network <0-65535> "
+        "add fabric-host tenant (String) network (String) "
         "host-ip A.B.C.D host-mac X "
         "switch X port <0-65535> gw",
         "Add a configuration" 
@@ -226,7 +239,7 @@ DEFUN (show_fab_route_all,
  
 DEFUN (del_fab_host,
        del_fab_host_cmd,
-        "del fabric-host tenant <0-4096> network <0-65535> "
+        "del fabric-host tenant (String) network (String) "
         "host-ip A.B.C.D host-mac X",
         "Del a configuration" 
         "Fabric connected host\n"
@@ -237,18 +250,26 @@ DEFUN (del_fab_host,
         "Host mac address\n"
         "Valid mac address in X:X...X format \n")
 {
-    uint16_t tenant_id;
-    uint16_t network_id;
+    uuid_t tenant_id;
+    uuid_t network_id;
     struct flow fl;
     struct prefix_ipv4 host_ip;
     char *mac_str = NULL, *next = NULL;
     int  i = 0, ret = 0;
 
     memset(&fl, 0, sizeof(fl));
+    ret = uuid_parse(argv[0], tenant_id);
+    if(ret == -1) {
+        vty_out (vty, "%% Malformed TenantID%s", VTY_NEWLINE);
+        return CMD_WARNING;
+    }
 
-    tenant_id = atoi(argv[0]);
-    network_id = atoi(argv[1]);
-    
+	ret = uuid_parse(argv[1], network_id);
+    if(ret == -1) {
+        vty_out (vty, "%% Malformed NetworkID%s", VTY_NEWLINE);
+        return CMD_WARNING;
+    }
+
     ret = str2prefix(argv[2], (void *)&host_ip);
     if (ret <= 0) {
         vty_out (vty, "%% Malformed address%s", VTY_NEWLINE);
@@ -256,9 +277,6 @@ DEFUN (del_fab_host,
     }
 
     fl.ip.nw_src = host_ip.prefix.s_addr;
-    fab_add_tenant_id(&fl, NULL, tenant_id); 
-    fab_add_network_id(&fl, network_id); 
-
     mac_str = (void *)argv[3];
     for (i = 0; i < 6; i++) {
         fl.dl_src[i] = (uint8_t)strtoul(mac_str, &next, 16);
@@ -272,7 +290,8 @@ DEFUN (del_fab_host,
         return CMD_WARNING;
     }
 
-    fab_host_delete(fab_ctx, &fl, false, false, true);
+    fab_host_delete(fab_ctx, &fl, tenant_id, network_id, 
+            false, false, true);
 
     return CMD_SUCCESS;
 }
@@ -304,7 +323,7 @@ show_vty_fab_host(void *host, void *v_arg UNUSED, void *vty_arg)
 
 DEFUN (show_fab_host,
        show_fab_host_cmd,
-        "show fabric-hosts tenant <0-4096> network <0-65535>",
+	"show fabric-hosts tenant (String) network (String)",
         SHOW_STR
         "Fabric connected host\n"
         "Tenant\n"
@@ -315,8 +334,26 @@ DEFUN (show_fab_host,
 {
     uint32_t tn_id;
     fab_tenant_net_t *tenant_nw = NULL;
+    uuid_t tenant_id;
+    uuid_t network_id;
+    int ret = 0;
 
-    FAB_MK_TEN_NET_ID(tn_id, atoi(argv[0]), atoi(argv[1]));
+    ret = uuid_parse(argv[0], tenant_id);
+    if(ret == -1) {
+        vty_out (vty, "%% Malformed TenantID%s", VTY_NEWLINE);
+        return CMD_WARNING;
+    }
+
+    ret = uuid_parse(argv[1], network_id);
+    if(ret == -1) {
+        vty_out (vty, "%% Malformed NetworkID%s", VTY_NEWLINE);
+        return CMD_WARNING;
+    }
+
+
+    FAB_MK_TEN_NET_ID(tn_id,
+		      fab_tenant_nw_uuid_hash_func(tenant_id),
+		      fab_tenant_nw_uuid_hash_func(network_id));
 
     c_rd_lock(&fab_ctx->lock);
     if (!(tenant_nw = g_hash_table_lookup(fab_ctx->tenant_net_htbl,

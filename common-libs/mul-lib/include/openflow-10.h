@@ -359,15 +359,6 @@ struct ofp_action_vendor_header {
                                        as in "struct ofp_vendor_header". */
 };
 OFP_ASSERT(sizeof(struct ofp_action_vendor_header) == 8);
-/* Action header for OFPAT_KULCLOUD. The rest of the body is vendor-defined. */
-struct ofp_action_kulcloud {
-	uint16_t type;					/* OFPAT_Kulcoud. */
-	uint16_t len;					/* Length is a multiple of 8. */
-	uint32_t kulcloud;				/* Kulcoud ID, which takes the same form
-										   as in "struct ofp_kulcloud_header". */
-};
-OFP_ASSERT(sizeof(struct ofp_action_kulcloud) == 8);
-
 
 /* Send packet (controller -> datapath). */
 struct ofp_packet_out {

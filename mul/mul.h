@@ -31,5 +31,6 @@
 #include "mul_thread.h" 
 #include "mul_priv.h"
 #include "mul_of.h"
+#include "mul_ha.h"
 
 #endif

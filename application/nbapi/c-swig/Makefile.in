@@ -89,7 +89,10 @@ LTLIBRARIES = $(pkgpyexec_LTLIBRARIES)
 _mul_nbapi_la_DEPENDENCIES =  \
 	$(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.la \
 	$(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.la \
+	$(top_srcdir)/common-libs/util-linux/libuuid/.libs/libuuid.la \
 	$(top_srcdir)/mul/./.libs/libmul.la \
+	$(top_srcdir)/application/makdi/libmakdi.la \
+	$(top_srcdir)/application/fabric/libfab.la \
 	$(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libcli.la \
 	$(am__append_3)
 am__objects_1 =
@@ -97,6 +100,8 @@ am__mul_nbapi_la_OBJECTS = _mul_nbapi_la-mul_nbapi_wrap.lo \
 	$(am__objects_1) _mul_nbapi_la-mul_nbapi_statistics.lo \
 	_mul_nbapi_la-mul_nbapi_topology.lo \
 	_mul_nbapi_la-mul_nbapi_flow.lo \
+	_mul_nbapi_la-mul_nbapi_meter.lo \
+	_mul_nbapi_la-mul_nbapi_fabric.lo \
 	_mul_nbapi_la-mul_nbapi_path.lo _mul_nbapi_la-mul_nbapi.lo \
 	_mul_nbapi_la-mul_app_main.lo
 _mul_nbapi_la_OBJECTS = $(am__mul_nbapi_la_OBJECTS)
@@ -159,6 +164,7 @@ CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 DEPDIR = @DEPDIR@
 DLLTOOL = @DLLTOOL@
+DOXYGEN = @DOXYGEN@
 DSYMUTIL = @DSYMUTIL@
 DUMPBIN = @DUMPBIN@
 ECHO_C = @ECHO_C@
@@ -281,39 +287,49 @@ ACLOCAL_AMFLAGS = -I m4 ${ACLOCAL_FLAGS}
 pkgconfigdir = $(libdir)/pkgconfig
 BUILT_SOURCES = mul_nbapi_wrap.c
 SWIG_SOURCES = mul_nbapi.i
-SWIG_DEPEND = mul_nbapi_statistics.h mul_nbapi_topology.h mul_nbapi_flow.h mul_nbapi_path.h \
-              mul_nbapi_swig_helper.h $(top_srcdir)/common-libs/mul-lib/include//mul_app_interface.h \
-              $(top_srcdir)/common-libs/mul-lib/include/mul_fabric_servlet.h \
-              $(top_srcdir)/common-libs/mul-lib/include/openflow-10.h \
-              $(top_srcdir)/common-libs/mul-lib/include/openflow-131.h \
-              $(top_srcdir)/common-libs/mul-lib/include/mul_route.h
+SWIG_DEPEND = mul_nbapi_statistics.h mul_nbapi_topology.h mul_nbapi_flow.h \
+          mul_nbapi_fabric.h mul_nbapi_meter.h mul_nbapi_path.h \
+	      mul_nbapi_swig_helper.h $(top_srcdir)/common-libs/mul-lib/include/mul_app_interface.h \
+	      $(top_srcdir)/common-libs/mul-lib/include/mul_fabric_servlet.h \
+	      $(top_srcdir)/common-libs/mul-lib/include/makdi_servlet.h \
+	      $(top_srcdir)/common-libs/mul-lib/include/mul_servlet.h \
+	      $(top_srcdir)/common-libs/mul-lib/include/mul_tr_servlet.h \
+	      $(top_srcdir)/common-libs/mul-lib/include/openflow-10.h \
+	      $(top_srcdir)/common-libs/mul-lib/include/openflow-131.h \
+	      $(top_srcdir)/common-libs/mul-lib/include/mul_route.h
 
 pkgpython_PYTHON = mul_nbapi.py
 pkgpyexec_LTLIBRARIES = _mul_nbapi.la
 INCLUDES = -I. -I$(top_srcdir)/common/ -I$(top_srcdir)/mul/ \
 	-I$(top_srcdir)/services/loadable/topo_routing/ \
 	-I$(top_srcdir)/application/fabric/ \
+	-I$(top_srcdir)/application/makdi/ \
 	-I$(top_srcdir)/common-libs/3rd-party/quagga-lib/include/ \
 	-I$(top_srcdir)/common-libs/mul-lib/include/ \
+	-I$(top_srcdir)/common-libs/util-linux/libuuid/src/ \
 	$(PYTHON_CPPFLAGS) $(am__append_2) $(am__append_5)
 _mul_nbapi_la_CFLAGS = -DMUL_APP_V2_MLAPI -DSWIG_INFRA
 _mul_nbapi_la_SOURCES = mul_nbapi_wrap.c $(SWIG_SOURCES) \
-               mul_nbapi_statistics.c \
-               mul_nbapi_topology.c \
-               mul_nbapi_flow.c \
-               mul_nbapi_path.c \
-               mul_nbapi.c \
-               $(top_srcdir)/common/mul_app_main.c
+	       mul_nbapi_statistics.c \
+	       mul_nbapi_topology.c \
+	       mul_nbapi_flow.c \
+	       mul_nbapi_meter.c \
+	       mul_nbapi_fabric.c \
+	       mul_nbapi_path.c \
+	       mul_nbapi.c \
+	       $(top_srcdir)/common/mul_app_main.c
 
 LD_FLAGS = @LDFLAGS@ $(am__append_1) $(am__append_4)
 _mul_nbapi_la_LIBADD =  \
 	$(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.la \
 	$(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.la \
+	$(top_srcdir)/common-libs/util-linux/libuuid/.libs/libuuid.la \
 	$(top_srcdir)/mul/./.libs/libmul.la \
+	$(top_srcdir)/application/makdi/libmakdi.la \
+	$(top_srcdir)/application/fabric/libfab.la \
 	$(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libcli.la \
 	-levent -lcrypt -lcrypto -lrt -lssl $(am__append_3)
-_mul_nbapi_la_LDFLAGS = $(LD_FLAGS) -module -lpthread -lglib-2.0
-CLEANFILES = mul_nbapi_wrap.c mul_nbapi.py 
+_mul_nbapi_la_LDFLAGS = $(LD_FLAGS) -module -lpthread -lglib-2.0 -lcurl
 noinst_HEADERS = mul_nbapi.h mul_nbapi_common.h
 all: $(BUILT_SOURCES)
 	$(MAKE) $(AM_MAKEFLAGS) all-am
@@ -392,7 +408,9 @@ distclean-compile:
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/_mul_nbapi_la-mul_app_main.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/_mul_nbapi_la-mul_nbapi.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/_mul_nbapi_la-mul_nbapi_fabric.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/_mul_nbapi_la-mul_nbapi_flow.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/_mul_nbapi_la-mul_nbapi_meter.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/_mul_nbapi_la-mul_nbapi_path.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/_mul_nbapi_la-mul_nbapi_statistics.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/_mul_nbapi_la-mul_nbapi_topology.Plo@am__quote@
@@ -446,6 +464,20 @@ _mul_nbapi_la-mul_nbapi_flow.lo: mul_nbapi_flow.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_nbapi_flow.c' object='_mul_nbapi_la-mul_nbapi_flow.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(_mul_nbapi_la_CFLAGS) $(CFLAGS) -c -o _mul_nbapi_la-mul_nbapi_flow.lo `test -f 'mul_nbapi_flow.c' || echo '$(srcdir)/'`mul_nbapi_flow.c
+
+_mul_nbapi_la-mul_nbapi_meter.lo: mul_nbapi_meter.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(_mul_nbapi_la_CFLAGS) $(CFLAGS) -MT _mul_nbapi_la-mul_nbapi_meter.lo -MD -MP -MF $(DEPDIR)/_mul_nbapi_la-mul_nbapi_meter.Tpo -c -o _mul_nbapi_la-mul_nbapi_meter.lo `test -f 'mul_nbapi_meter.c' || echo '$(srcdir)/'`mul_nbapi_meter.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/_mul_nbapi_la-mul_nbapi_meter.Tpo $(DEPDIR)/_mul_nbapi_la-mul_nbapi_meter.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_nbapi_meter.c' object='_mul_nbapi_la-mul_nbapi_meter.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(_mul_nbapi_la_CFLAGS) $(CFLAGS) -c -o _mul_nbapi_la-mul_nbapi_meter.lo `test -f 'mul_nbapi_meter.c' || echo '$(srcdir)/'`mul_nbapi_meter.c
+
+_mul_nbapi_la-mul_nbapi_fabric.lo: mul_nbapi_fabric.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(_mul_nbapi_la_CFLAGS) $(CFLAGS) -MT _mul_nbapi_la-mul_nbapi_fabric.lo -MD -MP -MF $(DEPDIR)/_mul_nbapi_la-mul_nbapi_fabric.Tpo -c -o _mul_nbapi_la-mul_nbapi_fabric.lo `test -f 'mul_nbapi_fabric.c' || echo '$(srcdir)/'`mul_nbapi_fabric.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/_mul_nbapi_la-mul_nbapi_fabric.Tpo $(DEPDIR)/_mul_nbapi_la-mul_nbapi_fabric.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_nbapi_fabric.c' object='_mul_nbapi_la-mul_nbapi_fabric.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(_mul_nbapi_la_CFLAGS) $(CFLAGS) -c -o _mul_nbapi_la-mul_nbapi_fabric.lo `test -f 'mul_nbapi_fabric.c' || echo '$(srcdir)/'`mul_nbapi_fabric.c
 
 _mul_nbapi_la-mul_nbapi_path.lo: mul_nbapi_path.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(_mul_nbapi_la_CFLAGS) $(CFLAGS) -MT _mul_nbapi_la-mul_nbapi_path.lo -MD -MP -MF $(DEPDIR)/_mul_nbapi_la-mul_nbapi_path.Tpo -c -o _mul_nbapi_la-mul_nbapi_path.lo `test -f 'mul_nbapi_path.c' || echo '$(srcdir)/'`mul_nbapi_path.c
@@ -622,7 +654,6 @@ install-strip:
 mostlyclean-generic:
 
 clean-generic:
-	-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)
 
 distclean-generic:
 	-test -z "$(CONFIG_CLEAN_FILES)" || rm -f $(CONFIG_CLEAN_FILES)
@@ -634,8 +665,8 @@ maintainer-clean-generic:
 	-test -z "$(BUILT_SOURCES)" || rm -f $(BUILT_SOURCES)
 clean: clean-am
 
-clean-am: clean-generic clean-libtool clean-pkgpyexecLTLIBRARIES \
-	mostlyclean-am
+clean-am: clean-generic clean-libtool clean-local \
+	clean-pkgpyexecLTLIBRARIES mostlyclean-am
 
 distclean: distclean-am
 	-rm -rf ./$(DEPDIR)
@@ -706,15 +737,16 @@ uninstall-am: uninstall-pkgpyexecLTLIBRARIES uninstall-pkgpythonPYTHON
 .MAKE: all check install install-am install-strip
 
 .PHONY: CTAGS GTAGS all all-am check check-am clean clean-generic \
-	clean-libtool clean-pkgpyexecLTLIBRARIES ctags distclean \
-	distclean-compile distclean-generic distclean-libtool \
-	distclean-tags distdir dvi dvi-am html html-am info info-am \
-	install install-am install-data install-data-am install-dvi \
-	install-dvi-am install-exec install-exec-am install-html \
-	install-html-am install-info install-info-am install-man \
-	install-pdf install-pdf-am install-pkgpyexecLTLIBRARIES \
-	install-pkgpythonPYTHON install-ps install-ps-am install-strip \
-	installcheck installcheck-am installdirs maintainer-clean \
+	clean-libtool clean-local clean-pkgpyexecLTLIBRARIES ctags \
+	distclean distclean-compile distclean-generic \
+	distclean-libtool distclean-tags distdir dvi dvi-am html \
+	html-am info info-am install install-am install-data \
+	install-data-am install-dvi install-dvi-am install-exec \
+	install-exec-am install-html install-html-am install-info \
+	install-info-am install-man install-pdf install-pdf-am \
+	install-pkgpyexecLTLIBRARIES install-pkgpythonPYTHON \
+	install-ps install-ps-am install-strip installcheck \
+	installcheck-am installdirs maintainer-clean \
 	maintainer-clean-generic mostlyclean mostlyclean-compile \
 	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
 	tags uninstall uninstall-am uninstall-pkgpyexecLTLIBRARIES \
@@ -723,6 +755,10 @@ uninstall-am: uninstall-pkgpyexecLTLIBRARIES uninstall-pkgpythonPYTHON
 
 mul_nbapi_wrap.c : $(SWIG_SOURCES) $(SWIG_DEPEND)
 		$(SWIG) $(AX_SWIG_PYTHON_OPT) $(INCLUDES) -o $@ $<
+		./nbapi_autocopy.py
+
+clean-local:
+	-rm -fr mul_nbapi_wrap.c mul_nbapi.py
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

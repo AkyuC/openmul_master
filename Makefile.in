@@ -135,6 +135,7 @@ CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
 DLLTOOL = @DLLTOOL@
+DOXYGEN = @DOXYGEN@
 DSYMUTIL = @DSYMUTIL@
 DUMPBIN = @DUMPBIN@
 ECHO_C = @ECHO_C@
@@ -253,25 +254,39 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-SUBDIRS = common-libs/mul-lib \
+SUBDIRS = \
+          docs \
+          common-libs/mul-lib/ \
+          common-libs/util-linux/libuuid \
           common-libs/3rd-party/quagga-lib \
-          services/loadable/topo_routing \
           mul \
-          application/hello \
+          services/loadable/topo_routing \
+          services/loadable/conx \
           application/l2switch \
+		  application/makdi \
           application/fabric \
           application/cli \
-          application/nbapi/c-swig
+          application/prism/agent/ \
+          application/prism/app/ \
+          application/nbapi/c-swig\
+          application/drone
 
-DIST_SUBDIRS = common-libs/mul-lib \
+DIST_SUBDIRS = \
+               docs \
+               common-libs/mul-lib/ \
                common-libs/3rd-party/quagga-lib \
-               services/loadable/topo_routing/ \
+               common-libs/util-linux/libuuid \
                mul \
+               services/loadable/topo_routing/ \
+               services/loadable/conx/ \
                application/l2switch \
-               application/hello \
+		  	   application/makdi \
                application/fabric \
                application/cli \
-               application/nbapi/c-swig
+               application/prism/agent/ \
+               application/prism/app/ \
+               application/nbapi/c-swig\
+               application/drone
 
 EXTRA_DIST = aclocal.m4
 ACLOCAL_AMFLAGS = -I m4

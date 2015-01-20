@@ -1,36 +1,19 @@
-#!/usr/bin/env python
-
-# Copyright (C) 2013-2014, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
-#
-# Licensed under the Apache License, Version 2.0 (the "License"); you may
-# not use this file except in compliance with the License. You may obtain
-# a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT
-# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See
-# the
-# License for the specific language governing permissions and limitations
-# under the License.
-
 import json
 import logging
 
 from app.lib import mul_nbapi as mul
 from app.handler.base import BaseHandler
-from app.handler.ids import FlowHolder
+#from app.handler.ids import FlowHolder
 
 logger = logging.getLogger("StatHandler")
 logger.setLevel(logging.DEBUG)
 
+
 class StatHandler(BaseHandler):
     """
     This Handler manages the following URL:
-        GET     stats/switc/{dpid}/flow/{flow_id}           : get_(dpid)
-        GET     stats/switc/{dpid}/port/{port_no}           : get_(dpid)
+        GET     stats/switch/{dpid}/flow/{flow_id}           : get_(dpid)
+        GET     stats/switch/{dpid}/port/{port_no}           : get_(dpid)
     """
     BASE_URL = "/stats/switch"
 
@@ -61,23 +44,59 @@ class StatHandler(BaseHandler):
             getattr(self, func)(*args)
 
     def get_port_stat(self, *args):
-        self.raise_error(-1, "Failed to get port stats", reason="Not implemented")
-        return
+        ret = {}
+        try:
+            dpid = args[0]
+            version = mul.nbapi_get_switch_version_with_id(int(dpid, 16))
+            if version == 0:
+                raise Exception, 'no such switch'
+            port_no = int(args[1])
+            port_stat = mul.show_port_stats(int(dpid,16), port_no)
+
+            if port_stat:
+                ret.update({
+                    'port_no':       port_stat.port_no,
+                    'rx_packets':    port_stat.rx_packets,
+                    'tx_packets':    port_stat.tx_packets,
+                    'rx_bytes':      port_stat.rx_bytes,
+                    'tx_bytes':      port_stat.tx_bytes,
+                    'rx_dropped':    port_stat.rx_dropped,
+                    'tx_dropped':    port_stat.tx_dropped,
+                    'rx_errors':     port_stat.rx_errors,
+                    'tx_errors':     port_stat.tx_errors,
+                    'rx_frame_err':  port_stat.rx_frame_err,
+                    'rx_over_err':   port_stat.rx_over_err,
+                    'rx_crc_err':    port_stat.rx_crc_err,
+                    'collisions':    port_stat.collisions,
+                    'duration_sec':  port_stat.duration_sec,
+                    'duration_nsec': port_stat.duration_nsec
+                })
+            else:
+                raise Exception, 'No such port on switch'
+        except Exception, e:
+            ret.update({'error_message' : 'Failed to get port stat', 'reason' : str(e)})
+        finally:
+            self.finish(ret)
 
     def get_flow_stat(self, *args):
-        dpid = int(args[0], 0)
-        flow_id = str(args[1])
-        flow = None
-        try:
-            flow = FlowHolder.getInstance().get(flow_id)
-        except KeyError:
-            self.raise_error(-1, "Failed to get flow stats", reason="No such flow_id")
-	    return
+        ret = {}
+        try :
+            dpid = int(args[0], 16)
+            version = mul.nbapi_get_switch_version_with_id(dpid)#int(dpid, 16))
+            if version == 0:
+                raise Exception, 'no such switch'
+            flow_id = str(args[1])
+            flow = None
+            #flow = FlowHolder.getInstance().get(flow_id)
 
-        self.write({
-            "flow_id":      flow_id,
-            'bps':          mul.nbapi_parse_bps_to_str(flow.bps),
-            'pps':          mul.nbapi_parse_bps_to_str(flow.pps),
-            'pkt_count':    flow.packet_count,
-            'byte_count':   flow.byte_count
-        })
+            ret.update({
+                "flow_id":      flow_id,
+                'bps':          mul.nbapi_parse_bps_to_str(flow.bps),
+                'pps':          mul.nbapi_parse_bps_to_str(flow.pps),
+                'pkt_count':    flow.packet_count,
+                'byte_count':   flow.byte_count
+            })
+        except KeyError:
+            ret.update({'error_message':'Failed to get flow stats', 'reason':'No such flow_id'})
+        finally:
+            self.finish(ret)

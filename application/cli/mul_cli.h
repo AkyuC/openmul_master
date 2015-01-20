@@ -23,6 +23,7 @@
 #include "mul_common.h"
 #include "mul_vty.h"
 #include "mul_fabric_servlet.h"
+#include "makdi_servlet.h"
 
 #define CLI_TR 1
 #define CLI_MAKDI 1
@@ -31,15 +32,15 @@
 #define CLI_CONF_DIR "/etc/mul/config/"
 #define CLI_CONF_FILE "/etc/mul/config/mulcli.conf"
 
-#define CLI_TIMER_TS  (2)
+#define CLI_TIMER_TS  (3)
 #define CLI_TIMER_TUS (0)
 
 #define CLI_TIMER_INIT_TS  (5)
 #define CLI_TIMER_INIT_TUS (0)
 
-#define CLI_UNK_BUFFER_ID (0xffffffff)
+#define CLI_TIMER_CFG_SYNC_TMS (60*60*1000000LL) /* Every hour */
 
-#define cli_ha_config_cap(x,y,z) 1
+#define CLI_UNK_BUFFER_ID (0xffffffff)
 
 struct cli_common_args {
     bool flow_act;
@@ -50,7 +51,7 @@ struct cli_flow_action_parms {
     uint64_t dpid;
     void *fl;
     void *mask;
-    uint8_t flags;
+    uint64_t flags;
     struct mul_act_mdata *mdata;
     bool drop_pkt;
     uint16_t fl_prio;

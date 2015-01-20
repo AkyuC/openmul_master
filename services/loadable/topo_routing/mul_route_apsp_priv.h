@@ -25,9 +25,11 @@
 int mul_route_apsp_calc(void *hdl);
 int mul_route_apsp_recalc(void *hdl);
 GSList *mul_route_apsp_get_path(void *hdl, int src_sw, int dest_sw);
+rt_list_t *mul_route_apsp_get_path_all(void *hdl, int src_sw, int dest_sw);
 int mul_route_apsp_clean_state(void *hdl);
 int mul_route_apsp_init_state(void *hdl, bool need_port_state);
-void mul_route_apsp_add_neigh_conn(void *hdl, int sw_a, int sw_b, 
+void mul_route_apsp_add_neigh_conn(void *hdl, int sw_a, int sw_b,
+                                   uint64_t dpid_a, uint64_t dpid_b,
                                    lweight_pair_t *new_adj, bool update);
 GSList *mul_route_apsp_get_sp(void *rt_service, int src_sw, int dest_sw);
 

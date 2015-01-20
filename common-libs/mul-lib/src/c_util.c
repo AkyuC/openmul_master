@@ -404,6 +404,7 @@ c_socket_read_nonblock_loop(int fd, void *arg, c_conn_t *conn,
             curr_b.data = b->data;
             curr_b.len = get_data_len(b->data);
             curr_b.tail = b->data + curr_b.len;
+            curr_b.nofree = 1; 
 
             proc_msg(arg, &curr_b);
             cbuf_pull(b, curr_b.len);
@@ -540,6 +541,7 @@ c_socket_read_msg_nonblock_loop(int fd, void *arg, c_conn_t *conn,
         } else rd_sz = -1;
 
         if (rd_sz <= 0) {
+            cbuf_reset(b);
             conn->cbuf = b;
             break;
         }
@@ -555,7 +557,7 @@ c_socket_read_msg_nonblock_loop(int fd, void *arg, c_conn_t *conn,
             continue;
 
         proc_msg(arg, b);
-        cbuf_pull(b, rd_sz);
+        cbuf_reset(b);
     }
 
     return rd_sz;
@@ -777,6 +779,7 @@ c_socket_read_block_loop(int fd, void *arg, c_conn_t *conn,
     }
 
     tot_len = b->len;
+    conn->rx_pkts++;
     proc_msg(arg, b);
 
     return tot_len;

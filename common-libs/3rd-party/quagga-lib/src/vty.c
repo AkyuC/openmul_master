@@ -1915,7 +1915,7 @@ vty_accept (struct thread *thread)
 }
 
 #if defined(HAVE_IPV6) && !defined(NRL)
-static void
+static void __attribute__((unused))
 vty_serv_sock_addrinfo (const char *hostname, unsigned short port)
 {
   int ret;
@@ -2491,7 +2491,8 @@ vty_read_config (char *config_file,
     {
       if (! IS_DIRECTORY_SEP (config_file[0]))
         {
-          getcwd (cwd, MAXPATHLEN);
+          if (!getcwd (cwd, MAXPATHLEN))
+            return;
           tmp = XMALLOC (MTYPE_TMP, 
  			      strlen (cwd) + strlen (config_file) + 2);
           sprintf (tmp, "%s/%s", cwd, config_file);

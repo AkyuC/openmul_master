@@ -124,6 +124,7 @@ CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 DEPDIR = @DEPDIR@
 DLLTOOL = @DLLTOOL@
+DOXYGEN = @DOXYGEN@
 DSYMUTIL = @DSYMUTIL@
 DUMPBIN = @DUMPBIN@
 ECHO_C = @ECHO_C@
@@ -248,8 +249,9 @@ INCLUDES = -I. -I$(top_srcdir)/mul -I$(top_srcdir)/common/ \
 	-I$(top_srcdir)/services/loadable/topo_routing/ \
 	-I$(top_srcdir)/common-libs/3rd-party/derived-lib/include/ \
 	-I$(top_srcdir)/common-libs/3rd-party/quagga-lib/include/ \
-	-I$(top_srcdir)/common-libs/mul-lib/include/ $(am__append_3) \
-	$(am__append_5)
+	-I$(top_srcdir)/common-libs/mul-lib/include/ \
+	-I$(top_srcdir)/common-libs/util-linux/libuuid/src/ \
+	$(am__append_3) $(am__append_5)
 mull2sw_CFLAGS = -DMUL_APP_V2_MLAPI $(am__append_1)
 mull2sw_SOURCES = l2switch.c $(top_srcdir)/common/mul_app_main.c
 LD_FLAGS = @LDFLAGS@ $(am__append_2) $(am__append_4)

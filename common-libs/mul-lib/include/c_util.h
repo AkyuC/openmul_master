@@ -50,6 +50,14 @@ do { \
 #define GET_BIT_IN_32MASK(mask, bit) \
     (((*((uint32_t *)(mask) + ((bit)/32))) >> ((bit)%32)) & 0x1)
 
+#define SET_BIT_IN_64MASK(mask, bit) \
+do { \
+    *((uint64_t *)(mask) + ((bit)/64)) |= (1 << ((bit)%64)); \
+} while(0)
+
+#define GET_BIT_IN_64MASK(mask, bit) \
+    (((*((uint64_t *)(mask) + ((bit)/64))) >> ((bit)%64)) & 0x1)
+
 typedef struct c_conn_
 {
     void                    *rd_event;

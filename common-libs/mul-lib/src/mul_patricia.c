@@ -1,24 +1,7 @@
-/*
- *  mul_patricia.c: MUL patricia tree library 
- *  Copyright (C) 2014, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- */
 #include <stdlib.h> 
 #include <string.h> 
 #include "mul_patricia.h"
+
 
 /*
  * Private function used to return whether
@@ -36,7 +19,7 @@ check_bit(int i, unsigned long key)
  * Count the number of masks (and therefore entries)
  * in the Patricia trie.
  */
-static int
+static int __attribute__((unused)) 
 mul_pat_count(struct pat_tree *t, int b)
 {
     int count;
@@ -189,7 +172,7 @@ mul_pat_remove(struct pat_tree *n, struct pat_tree *head)
     struct pat_tree_mask *buf, *pm;
     int i;
 
-    if (!n || !n->pat_mask || !t)
+    if (!n || !n->pat_mask)
         return 0;
 
     /*

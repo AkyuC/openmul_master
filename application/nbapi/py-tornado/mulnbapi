@@ -1,0 +1,192 @@
+#!/usr/bin/env python
+
+# Copyright (C) 2013-2014, OpenMUL Foundation 
+# All Rights Reserved.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS,
+#    WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See
+#    the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+import logging
+import tornado.web
+import tornado.ioloop
+import tornado.httpserver
+import sys
+import daemon
+
+import ssl
+import os
+import shutil
+
+from tornado.options import define, options
+from logging.handlers import SysLogHandler
+from daemon import runner
+
+define("port", default=8181, help="run on the given port", type=int)
+define("debug", default=False)
+
+logger = logging.getLogger('nbapi:')
+logging.basicConfig(
+    format='%(asctime)s %(name)s %(levelname)s %(message)s',
+    datefmt='%Y/%m/%d %H:%M:%S',
+    level=options.debug
+)
+
+class App(tornado.web.Application):
+    def __init__(self):
+        from app.handler.base import BaseHandler
+        handlers = [
+            (r"/",BaseHandler)
+        ]
+#mul api
+        from app.handler.switch import SwitchHandler
+        from app.handler.flowtable import FlowTableHandler
+        from app.handler.topology import TopologyHandler
+        from app.handler.stats import StatHandler
+        from app.handler.grouptable import GroupTableHandler
+        from app.handler.metertable import MeterTableHandler
+        from app.handler.feature import TableFeatureHandler
+        handlers += [
+            (r"/1.0/topology", TopologyHandler),
+            (r"/1.0/topology/switch", SwitchHandler),
+            (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/neighbor", TopologyHandler),
+            (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)", SwitchHandler),
+            (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/port", SwitchHandler),
+            (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/port/([0-9]+)", SwitchHandler),
+            (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/meter", TableFeatureHandler),
+            (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/group", TableFeatureHandler),
+            (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/table/([0-9]+)", TableFeatureHandler),
+            (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/limit", SwitchHandler),
+            (r"/1.0/flowtable/(0x[0-9a-zA-Z]+)/flow", FlowTableHandler),
+            (r"/1.0/flowtable/(0x[0-9a-zA-Z]+)/flow/([0-9a-fA-F-]+)", FlowTableHandler),
+            (r"/1.0/flowtable/(0x[0-9a-zA-Z]+)/table/([0-9]+)", FlowTableHandler),
+            (r"/1.0/flowtable/(0x[0-9a-zA-Z]+)/flow/stats", FlowTableHandler),
+            (r"/1.0/grouptable/(0x[0-9a-zA-Z]+)/group", GroupTableHandler),
+            (r"/1.0/grouptable/(0x[0-9a-zA-Z]+)/group/([0-9]+)", GroupTableHandler),
+            (r"/1.0/metertable/(0x[0-9a-zA-Z]+)/meter", MeterTableHandler),
+            (r"/1.0/metertable/(0x[0-9a-zA-Z]+)/meter/([0-9]+)", MeterTableHandler),
+            (r"/1.0/stats/switch/(0x[0-9a-zA-Z]+)/flow/([0-9a-fA-F-]+)", FlowTableHandler),#StatHandler),
+            (r"/1.0/stats/switch/(0x[0-9a-zA-Z]+)/port/([0-9]+)", StatHandler)
+        ]
+#fabric api 
+        from app.handler.fabric.route import RouteHandler
+        from app.handler.fabric.host import HostHandler
+        from app.handler.fabric.network import NetworkHandler
+        from app.handler.fabric.subnet import SubnetHandler
+        from app.handler.fabric.tunnel import TunnelHandler
+        handlers += [
+            (r"/1.0/route/path", RouteHandler),
+            (r"/1.0/route/path/(0x[0-9a-zA-Z]+)/(0x[0-9a-zA-Z]+)", RouteHandler),
+            (r"/1.0/route/path/([0-9A-Fa-f]{1,3}[.]){3}[0-9A-Fa-f]{1,3}/([0-9A-Fa-f]{1,3}[.]){3}[0-9A-Fa-f]{1,3}", RouteHandler),
+            (r"/1.0/route/path/([0-9A-Fa-f]{1,2}[:]){5}[0-9A-Fa-f]{1,2}/([0-9A-Fa-f]{1,2}[:]){5}[0-9A-Fa-f]{1,2}", RouteHandler),
+            (r"/1.0/fabric/network", NetworkHandler),#
+            #(r"/1.0/fabric/network/([0-9]+)", NetworkHandler),#
+            #(r"/1.0/fabric/subnet", SubnetHandler),#
+            #(r"/1.0/fabric/subnet/([0-9]+)", SubnetHandler),#
+            (r"/1.0/fabric/host", HostHandler),
+            (r"/1.0/fabric/tenant/([0-9a-zA-Z-]+)/network/([0-9a-zA-Z-]+)/host", HostHandler)
+            #(r"/1.0/fabric/tenant/([0-9a-zA-Z-]+)/network/([0-9a-zA-Z-]+)/host/([0-9a-zA-Z.]+)", HostHandler),
+            #(r"/1.0/fabric/tenant/([0-9a-zA-Z]+)/network/([0-9a-zA-Z-]+)/tunnel", TunnelHandler),#
+            #(r"/1.0/fabric/tenant/([0-9a-zA-Z]+)/network/([0-9a-zA-Z-]+)/tunnel/([0-9]+)", TunnelHandler),#
+        ]
+#openstack api (just for openstack) # Openstack with Prism - Openstack Router 
+        from app.handler.openstack.osnetworks import OSNetworksHandler
+        from app.handler.openstack.ossubnets import OSSubnetsHandler
+        from app.handler.openstack.osports import OSPortsHandler
+        from app.handler.openstack.oshost import OSHostHandler
+        from app.handler.openstack.osrouters import OSRoutersHandler
+        handlers +=[
+            (r"/1.0/openstack/networks", OSNetworksHandler),
+            #(r"/1.0/openstack/([0-9a-zA-Z]+)/subnets", OSSubnetsHandler),#
+            #(r"/1.0/openstack/([0-9a-zA-Z]+)/subnets/([0-9a-fA-F-]+)", OSSubnetsHandler),#
+            #(r"/1.0/openstack/([0-9a-zA-Z]+)/ports", OSPortsHandler),#
+            #(r"/1.0/openstack/([0-9a-zA-Z]+)/ports/([0-9a-fA-F-]+)", OSPortsHandler),#
+            (r"/1.0/openstack/host", OSHostHandler),
+            (r"/1.0/openstack/tenant/([0-9a-zA-Z-]+)/network/([0-9a-zA-Z-]+)/host", OSHostHandler),
+            (r"/1.0/openstack/tenant/([0-9a-zA-Z-]+)/network/([0-9a-zA-Z-]+)/host", OSHostHandler),
+            (r"/1.0/openstack/routers/([0-9a-zA-Z-]+)", OSRoutersHandler),
+            (r"/1.0/openstack/routers/([0-9a-zA-Z-]+)/ports", OSRoutersHandler),
+            (r"/1.0/openstack/routers/([0-9a-zA-Z-]+)/ports/([0-9a-zA-Z-]+)", OSRoutersHandler)
+        ]
+#gui api (just for gui)
+        from app.handler.gui.dashboard import DashboardHandler
+        from app.handler.gui.regist import RegistHandler
+        handlers += [
+            (r"/1.0/dashboard", DashboardHandler),
+            (r"/1.0/dashboard/appname", DashboardHandler),
+            (r"/1.0/regist", RegistHandler),
+            (r"/1.0/regist/([0-9]+)", RegistHandler)
+        ]
+
+        tornado.web.Application.__init__(self, handlers, debug=True)
+        tornado.web.ErrorHandler = BaseHandler
+
+class Start:
+    init = 0
+    def __init__(self):
+        self.stdin_path = '/dev/null'
+        self.stdout_path = '/dev/tty'
+        self.stderr_path = '/dev/tty'
+        self.pidfile_path = '/var/run/mulapi.pid'
+        self.pidfile_timeout = 1
+
+    def run(self):
+            # Define your tasks here
+            # Anything written in python is permitted
+            # For example you can clean up your server logs every
+            # hour
+
+        try:
+            pass
+        except Exception, e:
+            logging.exception('Human friendly error message, the exception will be captured and added to the log file automaticaly')
+
+        if self.init is 0:
+            if 'https' in sys.argv:
+                http_server = tornado.httpserver.HTTPServer(App()
+                    ,protocol="https"
+                    ,ssl_options=
+                    dict(
+                    certfile="/etc/ssl/certs/server.crt",#"sub.yourdomain.com.crs",
+                    keyfile="/etc/ssl/private/server.key"
+                    )
+                )
+                logger.info("[tornado] preparing https server")
+            else :
+                http_server = tornado.httpserver.HTTPServer(App())
+                logger.info("[tornado] preparing http server")
+
+            syslog = SysLogHandler(address='/dev/log')
+            logging.getLogger().addHandler(syslog)
+            logger.info("[tornado] Starting API server on port %d", options.port)
+            http_server.listen(options.port)    
+            self.init = 1
+
+        while True:
+            tornado.ioloop.IOLoop.instance().start()
+
+
+if __name__ == "__main__":
+#test for mul nbapi regist api
+    #mul.regist_nbapi_cb("49.254.149.174:8080") #mul.regist_nbapi_cb("localhost:7171")
+    tornado.options.parse_command_line()
+    if any( ['start' in sys.argv, 'stop' in sys.argv, 'restart' in sys.argv] ):
+        app = Start()
+        app.stdin_path = '/dev/null'
+        app.stdout_path = '/dev/null'
+        app.stderr_path = '/dev/null'
+        daemon_runner = runner.DaemonRunner(app)
+        daemon_runner.do_action()
+    else:
+        app = Start()
+        app.run()

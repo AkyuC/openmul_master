@@ -85,6 +85,7 @@ mul_route_apsp_hearbeat(evutil_socket_t fd UNUSED, short event UNUSED,
  */
 void 
 mul_route_apsp_add_neigh_conn(void *hdl, int sw_a, int sw_b, 
+                              uint64_t dpid_a, uint64_t dpid_b,
                               lweight_pair_t *new_adj,
                               bool update)
 {
@@ -121,6 +122,9 @@ mul_route_apsp_add_neigh_conn(void *hdl, int sw_a, int sw_b,
                   FN, RT_MAX_ADJ_PAIRS);
         return;
     }
+
+    adj_elem->dpid_a = dpid_a;
+    adj_elem->dpid_b = dpid_b;
 
     for (pair = 0; pair < adj_elem->pairs; pair++) {
         adj = &adj_elem->adj_pairs[pair];
@@ -393,6 +397,28 @@ mul_route_apsp_get_path(void *hdl, int src_sw, int dest_sw)
 }
 
 /*
+ *  mul_route_apsp_get_path_all -
+ *  @hdl: Main module struct
+ *  @src_sw: Source switch
+ *  @dest_sw: Source switch
+ *
+ *  Retrieve a path from one switch to another  
+ *  NOTE : This only works on alias switch ids
+ */
+rt_list_t *
+mul_route_apsp_get_path_all(void *hdl, int src_sw, int dest_sw)
+{
+    tr_struct_t *tr = hdl;
+    rt_apsp_t *rt_apsp_info;
+
+    assert(tr && tr->rt.rt_priv);
+    rt_apsp_info  = RT_APSP_INFO(tr);
+
+    return mul_route_get_all(rt_apsp_info, src_sw, dest_sw);
+}
+
+
+/*
  * mul_route_apsp_clean_state -
  * @hdl: Main module struct
  *
@@ -548,6 +574,7 @@ mul_route_init(tr_struct_t *tr)
     rt_info->rt_calc = mul_route_apsp_calc; 
     rt_info->rt_recalc = mul_route_apsp_recalc; 
     rt_info->rt_get_sp = mul_route_apsp_get_path;
+    rt_info->rt_get_sp_all = mul_route_apsp_get_path_all;
     rt_info->rt_clean_state = mul_route_apsp_clean_state;
     rt_info->rt_dump_adj_matrix = mul_route_apsp_dump_adj_matrix;
 

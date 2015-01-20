@@ -85,11 +85,12 @@ libmulutil_la_LIBADD =
 am_libmulutil_la_OBJECTS = libmulutil_la-cbuf.lo \
 	libmulutil_la-c_util.lo libmulutil_la-idx_pool.lo \
 	libmulutil_la-clog.lo libmulutil_la-rlim.lo \
-	libmulutil_la-random.lo libmulutil_la-hash.lo \
-	libmulutil_la-mul_service.lo libmulutil_la-mul_of_msg.lo \
-	libmulutil_la-mul_app_infra.lo libmulutil_la-dhparams.lo \
-	libmulutil_la-fsync.lo libmulutil_la-tuntap.lo \
-	libmulutil_la-mul_patricia.lo
+	libmulutil_la-secure_io.lo libmulutil_la-random.lo \
+	libmulutil_la-hash.lo libmulutil_la-mul_service.lo \
+	libmulutil_la-mul_of_msg.lo libmulutil_la-mul_app_infra.lo \
+	libmulutil_la-dhparams.lo libmulutil_la-fsync.lo \
+	libmulutil_la-tuntap.lo libmulutil_la-mul_patricia.lo \
+	libmulutil_la-nbq.lo
 libmulutil_la_OBJECTS = $(am_libmulutil_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -148,6 +149,7 @@ CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 DEPDIR = @DEPDIR@
 DLLTOOL = @DLLTOOL@
+DOXYGEN = @DOXYGEN@
 DSYMUTIL = @DSYMUTIL@
 DUMPBIN = @DUMPBIN@
 ECHO_C = @ECHO_C@
@@ -266,28 +268,33 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-INCLUDES = -I./include -I$(top_srcdir)/common -I$(top_srcdir)/common-libs/3rd-party/quagga-lib/include
+INCLUDES = -I./include -I$(top_srcdir)/common \
+            -I$(top_srcdir)/common-libs/3rd-party/quagga-lib/include \
+            -I$(top_srcdir)/common-libs/util-linux/libuuid/src/
+
 lib_LTLIBRARIES = libmulutil.la
 libmulutil_la_CFLAGS = -DMUL_APP_V2_MLAPI $(am__append_1)
 libmulutil_la_SOURCES = \
     ./src/cbuf.c ./src/c_util.c ./src/idx_pool.c ./src/clog.c \
-    ./src/rlim.c ./src/random.c ./src/hash.c \
+    ./src/rlim.c ./src/secure_io.c ./src/random.c ./src/hash.c \
     ./src/mul_service.c ./src/mul_of_msg.c ./src/mul_app_infra.c \
-    ./src/dhparams.c ./src/fsync.c ./src/tuntap.c ./src/mul_patricia.c
+    ./src/dhparams.c ./src/fsync.c ./src/tuntap.c ./src/mul_patricia.c \
+    ./src/nbq.c
 
 pkginclude_HEADERS = \
-    ./include/atomic.h  ./include/cbuf.h  ./include/compiler.h  ./include/c_util.h  \
-    ./include/idx_pool.h  ./include/lock.h ./include/clog.h ./include/rlim.h ./include/hash.h \
-    ./include/igmp.h ./include/mul_app_infra.h  ./include/mul_app_interface.h \
-    ./include/mul_app_main.h  ./include/mul_common.h  ./include/mul_of_msg.h  \
-    ./include/mul_packet.h  ./include/mul_services.h ./include/packets.h  \
-    ./include/random.h ./include/mul_route.h \
+    ./include/atomic.h  ./include/cbuf.h  ./include/compiler.h  \
+    ./include/c_util.h  ./include/idx_pool.h  ./include/lock.h \
+    ./include/clog.h ./include/rlim.h ./include/hash.h ./include/secure_io.h \
+    ./include/igmp.h ./include/mul_app_infra.h  ./include/mul_app_interface.h\
+     ./include/mul_app_main.h  ./include/mul_common.h  \
+    ./include/mul_of_msg.h  ./include/mul_packet.h  ./include/mul_services.h \
+    ./include/packets.h  ./include/random.h ./include/mul_route.h \
     ./include/mul_route_apsp.h ./include/mul_tr_servlet.h \
     ./include/mul_servlet.h ./include/mul_fabric_servlet.h \
     ./include/openflow-131.h ./include/openflow-10.h \
     ./include/openflow-140.h \
     ./include/openflow-common.h ./include/xtoxll.h ./include/mul_vty.h \
-    ./include/fsync.h ./include/tuntap.h ./include/mul_patricia.h
+    ./include/fsync.h ./include/tuntap.h ./include/mul_patricia.h ./include/nbq.h
 
 all: all-am
 
@@ -374,8 +381,10 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libmulutil_la-mul_of_msg.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libmulutil_la-mul_patricia.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libmulutil_la-mul_service.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libmulutil_la-nbq.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libmulutil_la-random.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libmulutil_la-rlim.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libmulutil_la-secure_io.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libmulutil_la-tuntap.Plo@am__quote@
 
 .c.o:
@@ -433,6 +442,13 @@ libmulutil_la-rlim.lo: ./src/rlim.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='./src/rlim.c' object='libmulutil_la-rlim.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libmulutil_la_CFLAGS) $(CFLAGS) -c -o libmulutil_la-rlim.lo `test -f './src/rlim.c' || echo '$(srcdir)/'`./src/rlim.c
+
+libmulutil_la-secure_io.lo: ./src/secure_io.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libmulutil_la_CFLAGS) $(CFLAGS) -MT libmulutil_la-secure_io.lo -MD -MP -MF $(DEPDIR)/libmulutil_la-secure_io.Tpo -c -o libmulutil_la-secure_io.lo `test -f './src/secure_io.c' || echo '$(srcdir)/'`./src/secure_io.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/libmulutil_la-secure_io.Tpo $(DEPDIR)/libmulutil_la-secure_io.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='./src/secure_io.c' object='libmulutil_la-secure_io.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libmulutil_la_CFLAGS) $(CFLAGS) -c -o libmulutil_la-secure_io.lo `test -f './src/secure_io.c' || echo '$(srcdir)/'`./src/secure_io.c
 
 libmulutil_la-random.lo: ./src/random.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libmulutil_la_CFLAGS) $(CFLAGS) -MT libmulutil_la-random.lo -MD -MP -MF $(DEPDIR)/libmulutil_la-random.Tpo -c -o libmulutil_la-random.lo `test -f './src/random.c' || echo '$(srcdir)/'`./src/random.c
@@ -496,6 +512,13 @@ libmulutil_la-mul_patricia.lo: ./src/mul_patricia.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='./src/mul_patricia.c' object='libmulutil_la-mul_patricia.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libmulutil_la_CFLAGS) $(CFLAGS) -c -o libmulutil_la-mul_patricia.lo `test -f './src/mul_patricia.c' || echo '$(srcdir)/'`./src/mul_patricia.c
+
+libmulutil_la-nbq.lo: ./src/nbq.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libmulutil_la_CFLAGS) $(CFLAGS) -MT libmulutil_la-nbq.lo -MD -MP -MF $(DEPDIR)/libmulutil_la-nbq.Tpo -c -o libmulutil_la-nbq.lo `test -f './src/nbq.c' || echo '$(srcdir)/'`./src/nbq.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/libmulutil_la-nbq.Tpo $(DEPDIR)/libmulutil_la-nbq.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='./src/nbq.c' object='libmulutil_la-nbq.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libmulutil_la_CFLAGS) $(CFLAGS) -c -o libmulutil_la-nbq.lo `test -f './src/nbq.c' || echo '$(srcdir)/'`./src/nbq.c
 
 mostlyclean-libtool:
 	-rm -f *.lo

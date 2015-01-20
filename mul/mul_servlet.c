@@ -1,8 +1,10 @@
-/*
- *  mul_servlet.c: MUL controller service 
- *  Copyright (C) 2012, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
- * 
- * This program is free software; you can redistribute it and/or
+/**
+ *  @file mul_servlet.c
+ *  @brief Mul core service APIs 
+ *  @author Dipjyoti Saikia  <dipjyoti.saikia@gmail.com> 
+ *  @copyright Copyright (C) 2012, Dipjyoti Saikia 
+ *
+ * @license This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
@@ -15,6 +17,9 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ *
+ *
+ * @see www.openmul.org
  */
 
 #include "mul_common.h"
@@ -22,10 +27,22 @@
 
 static char print_sep[] =
             "-------------------------------------------"
-            "----------------------------------\r\n";
+            "----------------------------------------\r\n";
 
 static char print_nl[] = "\r\n";
 
+static char *ha_state[] = { "HA None",
+                            "HA Connected",
+                            "HA Master",
+                            "HA Slave",
+                            "HA Conflict",
+                            "HA Disabled" };
+
+/**
+ * @name ofp_switch_states_tostr 
+ * @brief Translates switch state to string
+ * @ingroup Fabric Application 
+ */
 static void
 ofp_switch_states_tostr(char *string, uint32_t state)
 {
@@ -70,9 +87,11 @@ check_reply_type(struct cbuf *b, uint32_t cmd_code)
 }
 
 /**
- * mul_get_switches_brief -
- *
- * Get a brief of all switches connected to mul 
+ * @name mul_get_switches_brief -
+ * @brief Get a brief of all switches connected to mul 
+ * @param [in] service Pointer to the client service
+ * 
+ * @retval struct cbuf * Pointer to the cbuf response from server
  */
 struct cbuf *
 mul_get_switches_brief(void *service)
@@ -101,9 +120,13 @@ mul_get_switches_brief(void *service)
     return b;
 }
      
-
 /**
- * mul_dump_switches_brief -
+ * @name mul_dump_switches_brief -
+ * @brief Get a brief of all switches connected to mul 
+ * @param [in] b Pointer to the cbuf response from server
+ * @param [in] free_buf Flag to denote freeing the buffer
+ *
+ * @retval char * Pointer to the ascii string result 
  */
 char *
 mul_dump_switches_brief(struct cbuf *b, bool free_buf)
@@ -150,9 +173,12 @@ out:
 }
 
 /**
- * mul_get_switch_detail -
+ * @name mul_get_switch_detail -
+ * @brief Get detail switch info connected to mul 
+ * @param [in] service Pointer to the client service
+ * @param [in] datapath_id The DPID of the switch for which detail requested 
  *
- * Get detail switch info connected to mul 
+ * @retval struct cbuf * Pointer to the buffer response
  */
 struct cbuf *
 mul_get_switch_detail(void *service, uint64_t dpid)
@@ -189,7 +215,12 @@ mul_get_switch_detail(void *service, uint64_t dpid)
  
 
 /**
- * mul_dump_switch_detail -
+ * @name mul_dump_switch_detail -
+ * @brief Get detail switch info connected to mul 
+ * @param [in] b Pointer to the cbuf response from server
+ * @param [in] free_buf Flag to denote freeing the buffer
+ *
+ * @retval char * Pointer to the ascii string result
  */
 char *
 mul_dump_switch_detail(struct cbuf *b, bool free_buf)
@@ -315,9 +346,129 @@ out_pbuf_err:
 }
 
 /**
- * mul_get_switch_features -
+ * @name mul_dump_cmd_switch_detail_config
+ */
+static int
+mul_dump_cmd_switch_detail_config(struct cbuf *b,
+                                  void (*cb_fn)(void *arg, void *pbuf),
+                                  void *arg)
+{
+    int len = 0; 
+    struct c_ofp_switch_add *osf = CBUF_DATA(b);
+    uint8_t version;
+    char *pbuf = calloc(1, MUL_SERVLET_PBUF_DFL_SZ);
+    uint32_t state;
+    uint64_t dpid;
+
+    version = c_app_switch_get_version_with_id(ntohll(osf->datapath_id));
+    if (version != OFP_VERSION && version !=  OFP_VERSION_131) {
+        c_log_err("%s:Unsupported OFP version", FN);
+        return -1;
+    }
+
+    if (!pbuf) {
+        c_log_err("%s: pbuf alloc failed", FN);
+        return -1;
+    }
+ 
+    dpid = ntohll(osf->datapath_id);
+    state = ntohll(osf->state);
+    if (state & SW_PORT_STATS_ENABLE) { 
+        len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
+                        "set of-switch 0x%llx port-stats  enable\r\n",
+                        U642ULL(dpid));
+    }
+
+    len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
+                    "set of-switch 0x%llx stats-gather flow %s"
+                    " group %s meter-conf %s\r\n",
+                    U642ULL(dpid),
+                    state & SW_BULK_FLOW_STATS ? "bulk":"single",
+                    state & SW_BULK_GRP_STATS ? "bulk":"single",
+                    state & SW_BULK_METER_CONF_STATS ? "bulk":"single");
+
+    if (ntohl(osf->rx_rlim_pps)) {
+        len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
+                    "set of-switch 0x%llx rx-rlim-enable %lu\r\n",
+                    U642ULL(dpid), U322UL(ntohl(osf->rx_rlim_pps)));    
+    }
+
+    if (ntohl(osf->tx_rlim_pps)) {
+        len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
+                    "set of-switch 0x%llx tx-rlim-enable %lu\r\n",
+                    U642ULL(dpid), U322UL(ntohl(osf->tx_rlim_pps)));    
+    }
+    
+    len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
+                    "set of-switch 0x%llx pkt-dump rx %s tx %s\r\n",
+                    U642ULL(dpid), osf->rx_dump_en ? "enable":"disable",
+                    osf->tx_dump_en ? "enable":"disable");
+                     
+    cb_fn(arg, pbuf);
+
+    if (pbuf) free(pbuf);
+
+    return 0;
+}
+
+/**
+ * @name mul_get_switch_detail_config
+ * @brief Get a switch's configuration detail likw pkt-dump, rlim etc
+ * @param [in] service Pointer to the service client
+ * @param [in] dpid Datapath-id of the requested switch
+ * @param [in] arg Argument to be passed to cb_fn
+ * @param [in] cb_fn Callback function to be called to parse response 
  *
- * Get detail switch info connected to mul 
+ * @retval int zero for success and non-zero for failure
+ */
+int
+mul_get_switch_detail_config(void *service, uint64_t dpid, void *arg,
+                             void (*cb_fn)(void *arg, void *pbuf))
+{
+    struct cbuf *b;
+    struct c_ofp_auxapp_cmd *cofp_auc;
+    struct c_ofp_req_dpid_attr *cofp_rda;
+    struct ofp_header *h;
+
+    if (!service) return -1;
+
+    b = of_prep_msg(sizeof(*cofp_auc) + sizeof(*cofp_rda),
+                    C_OFPT_AUX_CMD, 0);
+
+    cofp_auc = (void *)(b->data);
+    cofp_auc->cmd_code = htonl(C_AUX_CMD_MUL_GET_SWITCH_DETAIL);
+    cofp_rda = (void *)(cofp_auc->data);
+    cofp_rda->datapath_id = htonll(dpid);
+
+    c_service_send(service, b);
+    b = c_service_wait_response(service);
+    if (b) {
+        h = (void *)(b->data);
+        if (h->type != C_OFPT_SWITCH_ADD ||
+            ntohs(h->length) < sizeof(struct ofp_switch_features)) {
+            c_log_err("%s: Failed", FN);
+            free_cbuf(b);
+            return -1;
+        }
+        mul_dump_cmd_switch_detail_config(b, cb_fn, arg);
+        free_cbuf(b);
+    } else {
+        c_log_err("%s: No response", FN);
+    }
+
+    return 0;
+}
+
+/**
+ * @name mul_get_switch_features -
+ * @brief Get detail switch info connected to mul-core 
+ * @param [in] service Pointer to service client
+ * @param [in] dpid Datapath_id of the requested switch
+ * @param [in] table table-id if requesting  for table features
+ * @param [in] type Type of feature requested : C_AUX_CMD_MUL_SWITCH_METER_FEAT,
+ *                C_AUX_CMD_MUL_SWITCH_TABLE_FEAT, C_AUX_CMD_MUL_SWITCH_GROUP_FEAT
+ *
+ * @retval struct cbuf * Pointer to buffer returned by server
  */
 struct cbuf *
 mul_get_switch_features(void *service, uint64_t dpid, uint8_t table,
@@ -373,7 +524,12 @@ mul_get_switch_features(void *service, uint64_t dpid, uint8_t table,
 }
  
 /**
- * mul_dump_switch_table_features -
+ * @name mul_dump_switch_table_features -
+ * @brief Dump the table switch features
+ * @param [in] b Pointer to the cbuf response from server
+ * @param [in] free_buf Flag to denote freeing the buffer
+ *
+ * @retval char * Pointer to the ascii string result
  */
 char *
 mul_dump_switch_table_features(struct cbuf *b, bool free_buf)
@@ -414,7 +570,12 @@ free_out:
 }
 
 /**
- * mul_dump_switch_group_features -
+ * @name mul_dump_switch_group_features -
+ * @brief Dump a switch's group features
+ * @param [in] b Pointer to the cbuf response from server
+ * @param [in] free_buf Flag to denote freeing the buffer
+ *
+ * @retval char * Pointer to the ascii string result
  */
 char *
 mul_dump_switch_group_features(struct cbuf *b, bool free_buf)
@@ -456,7 +617,12 @@ free_out:
 }
 
 /**
- * mul_dump_switch_meter_features -
+ * @name mul_dump_switch_meter_features -
+ * @brief Dump a switch's meter features
+ * @param [in] b Pointer to the cbuf response from server previously requested
+ * @param [in] free_buf Flag to denote freeing the buffer
+ *
+ * @retval char * Pointer to the ascii string result
  */
 char *
 mul_dump_switch_meter_features(struct cbuf *b, bool free_buf)
@@ -499,7 +665,12 @@ free_out:
 }
 
 /**
- * mul_dump_port_stats -
+ * @name mul_dump_port_stats -
+ * @brief Dump a switch port's stats 
+ * @param [in] b Pointer to the cbuf response from server previously requested
+ * @param [in] free_buf Flag to denote freeing the buffer
+ *
+ * @retval char * Pointer to the ascii string result
  */
 char *
 mul_dump_port_stats(struct cbuf *b, bool free_buf)
@@ -532,6 +703,14 @@ mul_dump_port_stats(struct cbuf *b, bool free_buf)
         }
         buf = of131_port_stats_dump(cofp_pq->data, feat_len);
     }
+    else if (version == OFP_VERSION_140) {
+        if (feat_len < sizeof(struct ofp140_port_stats)) {
+            c_log_err("%s: Len error", FN);
+            goto free_out;
+        }
+        buf = of140_port_stats_dump(cofp_pq->data, feat_len);
+    }
+
     else
     {
         if (feat_len < sizeof(struct ofp_port_stats)) {
@@ -548,16 +727,20 @@ free_out:
     return buf;
 }
 
+/**
+ * @name mul_dump_single_flow -
+ * @brief Dump a single flow returned by mul-core
+ */
 static void
 mul_dump_single_flow(struct c_ofp_flow_info *cofp_fi, void *arg,
-                     void (*cb_fn)(void *arg, void *pbuf))
+                     void (*cb_fn)(void *arg, void *pbuf), bool show_res)
 {
     char     *pbuf;
     int      len = 0;
     size_t   action_len;
     uint64_t dpid = U642ULL(ntohll(cofp_fi->datapath_id));
     uint8_t  version;
-    uint64_t flags;
+    uint64_t flags = ntohll(cofp_fi->flags);;
 
     version = c_app_switch_get_version_with_id(dpid);
     if (version != OFP_VERSION && version !=  OFP_VERSION_131 &&
@@ -565,6 +748,8 @@ mul_dump_single_flow(struct c_ofp_flow_info *cofp_fi, void *arg,
         c_log_err("%s: Unable to parse flow:Unknown OFP version", FN);
         return;
     }
+
+    if (!show_res && flags & C_FL_ENT_RESIDUAL) return;
 
     action_len = ntohs(cofp_fi->header.length) - sizeof(*cofp_fi);
 
@@ -594,13 +779,13 @@ mul_dump_single_flow(struct c_ofp_flow_info *cofp_fi, void *arg,
                     "%s:%hu %s:%d ", "Prio", ntohs(cofp_fi->priority),
                     "Table", cofp_fi->flow.table_id);
 
-    flags = ntohll(cofp_fi->flags);
     len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
-                    "%s: %s %s %s %s %s", "Flags",
+                    "%s: %s %s %s %s %s %s\r\n", "Flags",
                     flags & C_FL_ENT_STATIC ? "static":"dynamic",
                     flags & C_FL_ENT_CLONE ? "clone": "no-clone",
                     flags & C_FL_ENT_NOT_INST ? "not-verified" : "verified",
                     flags & C_FL_ENT_LOCAL ? "local": "non-local", 
+                    flags & C_FL_ENT_STALE ? "stale": "clean", 
                     flags & C_FL_ENT_RESIDUAL ? "residual ":" "); 
     len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
                     "Datapath-id: 0x%llx ",
@@ -630,6 +815,99 @@ mul_dump_single_flow(struct c_ofp_flow_info *cofp_fi, void *arg,
 
 }
 
+/**
+ * @name mul_dump_single_flow_cmd
+ * @brief Dump a single flow in cli command format
+ */
+static void
+mul_dump_single_flow_cmd(struct c_ofp_flow_info *cofp_fi, void *arg,
+                         void (*cb_fn)(void *arg, void *pbuf))
+{
+    char     *pbuf, *rbuf;
+    int      len = 0;
+    size_t   action_len;
+    uint64_t dpid = U642ULL(ntohll(cofp_fi->datapath_id));
+    uint8_t  version;
+    uint64_t flags;
+
+    version = c_app_switch_get_version_with_id(dpid);
+    if (version != OFP_VERSION && version !=  OFP_VERSION_131) {
+        c_log_err("Flow parse err :Unknown OFP version");
+        return;
+    }
+
+    flags = ntohll(cofp_fi->flags);
+    if (flags & C_FL_ENT_NOT_INST ||
+        flags & C_FL_ENT_RESIDUAL) {
+        return;
+    }
+
+    action_len = ntohs(cofp_fi->header.length) - sizeof(*cofp_fi);
+
+    pbuf = calloc(1, MUL_SERVLET_PBUF_DFL_SZ);
+    if (!pbuf) return;
+
+    len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
+                    "of-flow add switch 0x%llx ",
+                    U642ULL(ntohll(cofp_fi->datapath_id)));
+
+    rbuf = of_dump_flow_generic_cmd(&cofp_fi->flow, &cofp_fi->mask);
+    if (pbuf) {
+        strncat(pbuf, rbuf, strlen(rbuf));
+        len = strnlen(pbuf, MUL_SERVLET_PBUF_DFL_SZ);
+        free(rbuf);
+    } else {
+        goto out;
+    }
+
+    if (ntohs(cofp_fi->priority)) {
+        len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
+                        "flow-priority %d\r\n", ntohs(cofp_fi->priority));
+    }
+
+    if (cofp_fi->mask.tunnel_id) {
+        len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
+                        "flow-tunnel 0x%llx\r\n",
+                        U642ULL(ntohll(cofp_fi->flow.tunnel_id)));
+    }
+
+    if (flags & C_FL_ENT_BARRIER) {
+        len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
+                        "flow-barrier-enable\r\n");
+    }
+
+    if (flags & C_FL_ENT_GSTATS) {
+        len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
+                        "flow-stats-enable\r\n");
+    }
+
+    if (version == OFP_VERSION)
+        rbuf = of10_dump_actions_cmd(cofp_fi->actions, action_len, false);
+    else if (version == OFP_VERSION_131 || version == OFP_VERSION_140)
+        rbuf = of131_dump_actions_cmd(cofp_fi->actions, action_len, false);
+    else {
+        NOT_REACHED();
+    }
+
+    if (rbuf) {
+        strncat(pbuf, rbuf, strlen(rbuf));
+        len += strnlen(pbuf, MUL_SERVLET_PBUF_DFL_SZ);
+        free(rbuf);
+    } else {
+        goto out;
+    }
+
+    cb_fn(arg, pbuf);
+
+out:
+    free(pbuf);
+    return;
+}
+
+/**
+ * @name mul_dump_single_meter
+ * @brief Dump a single meter to a buffer
+ */
 static void
 mul_dump_single_meter(c_ofp_meter_mod_t *cofp_mm, void *arg,
                       void (*cb_fn)(void *arg, void *pbuf))
@@ -754,6 +1032,10 @@ mul_dump_single_meter(c_ofp_meter_mod_t *cofp_mm, void *arg,
     return;
 }
 
+/**
+ * @name mul_dump_single_meter_cmd
+ * @brief Dump a single meter to CLI command format 
+ */
 static void
 mul_dump_single_meter_cmd(c_ofp_meter_mod_t *cofp_mm, void *arg,
                           void (*cb_fn)(void *arg, void *pbuf))
@@ -872,9 +1154,16 @@ out:
 }
 
 /**
- * mul_get_meter_info-
+ * @name mul_get_meter_info-
+ * @brief Dump all meters
+ * @param [in] service pointer to the service client
+ * @param [in] dpid datapath_id of the requested switch
+ * @param [in] dump_cmd Flag specifying whether dump needed in cli format
+ * @param [in] nbapi_cmd Flag specifying whether it is a nbapi_cmd
+ * @param [in] arg Argument to be passed to cb_fn
+ * @param [in] cb_fn Callback function to be called to parse each meter info
  *
- * Dump all meters
+ * @retval int < 0 for error, >= 0 for number of meters returned   
  */
 int
 mul_get_meter_info(void *service, uint64_t dpid,
@@ -957,6 +1246,10 @@ try_restart:
     return 0;
 }
 
+/** 
+ * @name mul_dump_single_group
+ * @brief Dump a single group to buffer
+ */
 static void
 mul_dump_single_group(c_ofp_group_mod_t *cofp_gm, void *arg,
                       void (*cb_fn)(void *arg, void *pbuf))
@@ -992,9 +1285,11 @@ mul_dump_single_group(c_ofp_group_mod_t *cofp_gm, void *arg,
     if (!pbuf) return;
 
     len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
-                    "group-id: %lu %s %s %s\r\n", U322UL(ntohl(cofp_gm->group_id)),
+                    "group-id: %lu %s %s %s %s\r\n",
+                    U322UL(ntohl(cofp_gm->group_id)),
                     type, flags & C_GRP_EXPIRED ? "(Expired)" :"",
-                    flags & C_GRP_NOT_INSTALLED ? "(Not-verfied)":""); 
+                    flags & C_GRP_NOT_INSTALLED ? "(Not-verfied)":"",
+                    flags & C_GRP_LOCAL ? "(Local)":""); 
     cb_fn(arg, pbuf);
 
     if (cofp_gm->flags & C_GRP_GSTATS) {
@@ -1150,9 +1445,16 @@ mul_dump_single_group_cmd(c_ofp_group_mod_t *cofp_gm, void *arg,
 }
 
 /**
- * mul_get_group_info -
+ * @name mul_get_group_info-
+ * @brief Dump all groups information 
+ * @param [in] service pointer to the service client
+ * @param [in] dpid datapath_id of the requested switch
+ * @param [in] dump_cmd Flag specifying whether dump needed in cli format
+ * @param [in] nbapi_cmd Flag specifying whether it is a nbapi_cmd
+ * @param [in] arg Argument to be passed to cb_fn
+ * @param [in] cb_fn Callback function to be called to parse each group info
  *
- * Dump all groups 
+ * @retval int < 0 for error, >= 0 for number of meters returned   
  */
 int
 mul_get_group_info(void *service, uint64_t dpid,
@@ -1236,12 +1538,121 @@ try_restart:
 }
 
 /**
- * mul_get_flow_info -
+ * @name mul_get_matched_group_info-
+ * @brief get a specified group's information 
+ * @param [in] service pointer to the service client
+ * @param [in] dpid datapath_id of the requested switch
+ * @param [in] group_id group_id for which info is required 
+ * @param [in] dump_cmd Flag specifying whether dump needed in cli format
+ * @param [in] nbapi_cmd Flag specifying whether it is a nbapi_cmd
+ * @param [in] arg Argument to be passed to cb_fn
+ * @param [in] cb_fn Callback function to be called to parse each meter info
  *
- * Dump all flows 
+ * @retval int < 0 for error, >= 0 for number of meters returned   
  */
 int
-mul_get_flow_info(void *service, uint64_t dpid, bool flow_self,
+mul_get_matched_group_info(void *service, uint64_t dpid, uint32_t group_id,
+                  bool dump_cmd, bool nbapi_cmd, void *arg,
+                  void (*cb_fn)(void *arg, void *pbuf))
+{
+    struct cbuf *b;
+    struct c_ofp_auxapp_cmd *cofp_auc;
+    struct c_ofp_group_info *cofp_gi;
+    c_ofp_group_mod_t *cofp_gm;
+    struct ofp_header *h;
+    int n_groups = 0;
+    struct cbuf_head bufs;
+    int retries = 0;
+
+    if (!service) return -1;
+
+    if (!cb_fn) {
+        c_log_err("%s: cb fn is null", FN);
+        return -1;
+    }
+
+    cbuf_list_head_init(&bufs);
+
+try_again:
+    b = of_prep_msg(sizeof(*cofp_auc) + sizeof(*cofp_gi),
+                    C_OFPT_AUX_CMD, 0);
+
+    cofp_auc = (void *)(b->data);
+    cofp_auc->cmd_code = htonl(C_AUX_CMD_MUL_GET_MATCHED_GROUP); 
+    cofp_gi = (void *)(cofp_auc->data);
+    cofp_gi->datapath_id = htonll(dpid);
+    cofp_gi->group_id = htonl(group_id);
+
+    c_service_send(service, b);
+    while (1) {
+        b = c_service_wait_response(service);
+        if (b) {
+            h = (void *)(b->data);
+            if (h->type  != C_OFPT_GROUP_MOD) { 
+                free_cbuf(b);
+                break;
+            }
+            cofp_gm = (void *)(b->data);
+            if (ntohs(cofp_gm->header.length) < sizeof(*cofp_gm)) {
+                free_cbuf(b);
+                goto try_restart;
+            } 
+
+            b = cbuf_realloc_headroom(b, 0, true);
+            cbuf_list_queue_tail(&bufs, b);
+            n_groups++;
+        } else {
+            goto try_restart;
+        }
+    }
+
+    while ((b = cbuf_list_dequeue(&bufs))) {
+        cofp_gm = (void *)(b->data);
+        if (!dump_cmd) {
+            if (!nbapi_cmd) {
+                mul_dump_single_group(cofp_gm, arg, cb_fn);
+            } else {
+                cb_fn(arg, cofp_gm);
+            }
+        } else {
+            mul_dump_single_group_cmd(cofp_gm, arg, cb_fn); 
+        }
+        free_cbuf(b);
+    }
+    return n_groups;
+
+try_restart:
+    cbuf_list_purge(&bufs);
+    if (retries++ >= C_SERV_RETRY_CNT) {
+        cbuf_list_purge(&bufs);
+        c_log_err("%s: Restarting serv msg", FN);
+        goto try_again;
+    }
+    c_log_err("%s: Can't restart serv msg", FN);
+    return 0;
+}
+
+
+/**
+ * @name mul_get_flow_info -
+ * @brief Get flows information from mul-core 
+ * @param [in] service pointer to the service client
+ * @param [in] dpid datapath_id of the requested switch
+ * @param [in] tbid table_id for which info is required 
+ * @param [in] flow_self bool:true in case flows from all flows are required
+ *                   or false in case only calling app's flow are required 
+ * @param [in] show_res bool:true if all residual flows are required
+ * @param [in] flow_tbid bool:true if table-wise filtering is requested 
+ * @param [in] dump_cmd Flag specifying whether dump needed in cli format
+ * @param [in] nbapi_cmd Flag specifying whether it is a nbapi_cmd
+ * @param [in] arg Argument to be passed to cb_fn
+ * @param [in] cb_fn Callback function to be called to parse each meter info
+ *
+ * @retval int < 0 for error, >= 0 for number of flows processed 
+ */
+int
+mul_get_flow_info(void *service, uint64_t dpid, uint8_t tbid,
+                  bool flow_self, bool show_res, bool flow_tbid,
                   bool dump_cmd, bool nbapi_cmd, void *arg,
                   void (*cb_fn)(void *arg, void *pbuf))
 {
@@ -1301,12 +1712,21 @@ try_again:
         cofp_fi = (void *)(b->data);
         if (!dump_cmd) {
             if (!nbapi_cmd) {
-                mul_dump_single_flow(cofp_fi, arg, cb_fn);
+                if (flow_tbid) {
+                    if(cofp_fi->flow.table_id == tbid) {
+                        mul_dump_single_flow(cofp_fi, arg, cb_fn, show_res);
+                        free_cbuf(b);
+                        continue;
+                    }
+                }
+                else {
+                    mul_dump_single_flow(cofp_fi, arg, cb_fn, show_res);
+                }
             } else {
                 cb_fn(arg, cofp_fi);
             }
         } else {
-            /* TODO */
+            mul_dump_single_flow_cmd(cofp_fi, arg, cb_fn);
         }
         free_cbuf(b);
     }
@@ -1324,6 +1744,10 @@ try_restart:
 }
 
 
+/**
+ * @name mul_dump_single_port_q
+ * @brief Dump a single port queue information 
+ */
 static void
 mul_dump_single_port_q(struct c_ofp_switch_port_query *cofp_pq, 
                        size_t prop_len UNUSED, void *arg,
@@ -1357,19 +1781,27 @@ mul_dump_single_port_q(struct c_ofp_switch_port_query *cofp_pq,
 }
 
 /**
- * mul_get_flow_info -
+ * @name mul_get_matched_flow_info -
+ * @brief Get a matching flow's information from mul-core 
+ * @param [in] service pointer to the service client
+ * @param [in] dpid datapath_id of the requested switch
+ * @param [in] dump_cmd Flag specifying whether dump needed in cli format
+ * @param [in] nbapi_cmd Flag specifying whether it is a nbapi_cmd
+ * @param [in] arg Argument to be passed to cb_fn
+ * @param [in] fl Pointer to a flow used for matching
+ * @param [in] mask Pointer to a flow mask used for matching 
+ * @param [in] cb_fn Callback function to be called to parse each meter info
  *
- * Dump matched flow for stats
+ * @retval int < 0 for error, >= 0 for number of flows processed 
  */
 int
-mul_get_matched_flow_info(void *service, uint64_t dpid, bool flow_self,
+mul_get_matched_flow_info(void *service, uint64_t dpid,
                   bool dump_cmd, bool nbapi_cmd, void *arg,
-                  struct flow *fl, struct flow *mask UNUSED,
+                  struct flow *fl, struct flow *mask , uint32_t prio,
                   void (*cb_fn)(void *arg, void *pbuf))
 {
     struct cbuf *b;
     struct c_ofp_auxapp_cmd *cofp_auc;
-    struct c_ofp_req_dpid_attr *cofp_rda;
 
     struct c_ofp_flow_info *cofp_fi;
     struct ofp_header *h;
@@ -1387,54 +1819,54 @@ mul_get_matched_flow_info(void *service, uint64_t dpid, bool flow_self,
     cbuf_list_head_init(&bufs);
 
 try_again:
-    b = of_prep_msg(sizeof(*cofp_auc) + sizeof(*cofp_rda),
+    b = of_prep_msg(sizeof(*cofp_auc) + sizeof(*cofp_fi),
                     C_OFPT_AUX_CMD, 0);
 
     cofp_auc = (void *)(b->data);
-    cofp_auc->cmd_code = flow_self ?
-                         htonl(C_AUX_CMD_MUL_GET_APP_FLOW):
-                         htonl(C_AUX_CMD_MUL_GET_ALL_FLOWS);
-    cofp_rda = (void *)(cofp_auc->data);
-    cofp_rda->datapath_id = htonll(dpid);
+    
+    cofp_auc->cmd_code = htonl(C_AUX_CMD_MUL_GET_FLOW);
+    cofp_fi = (void *)(cofp_auc->data);
+    cofp_fi->datapath_id = htonll(dpid);
+    memcpy(&cofp_fi->flow, fl, sizeof(struct flow));
+    memcpy(&cofp_fi->mask, mask, sizeof(struct flow));
+    cofp_fi->priority = htons(prio);
 
     c_service_send(service, b);
     while (1) {
         b = c_service_wait_response(service);
         if (b) {
             h = (void *)(b->data);
-            if (h->type  != OFPT_FLOW_MOD) { 
+            if (h->type  != C_OFPT_FLOW_MOD) { 
                 free_cbuf(b);
                 break;
             }
             cofp_fi = (void *)(b->data);
             if (ntohs(cofp_fi->header.length) < sizeof(*cofp_fi)) {
                 free_cbuf(b);
+                c_log_err("%s : Incorrect Length %u", FN,
+                        ntohs(cofp_fi->header.length));
                 goto try_restart;
             }
-            
-            if (!memcmp(&cofp_fi->flow, &fl, sizeof(struct flow)))
-            {  
-                b = cbuf_realloc_headroom(b, 0, true);
-                cbuf_list_queue_tail(&bufs, b);
-                n_flows++;
-                goto find;
-            }
+         
+
+            b = cbuf_realloc_headroom(b, 0, true);
+            cbuf_list_queue_tail(&bufs, b);
+            n_flows++;
         } else {
             goto try_restart;
         }
     }
 
-find :
     while ((b = cbuf_list_dequeue(&bufs))) {
         cofp_fi = (void *)(b->data);
         if (!dump_cmd) {
             if (!nbapi_cmd) {
-                mul_dump_single_flow(cofp_fi, arg, cb_fn);
+                mul_dump_single_flow(cofp_fi, arg, cb_fn, true);
             } else {
                 cb_fn(arg, cofp_fi);
             }
         } else {
-            /* TODO */
+            mul_dump_single_flow_cmd(cofp_fi, arg, cb_fn);
         }
         free_cbuf(b);
     }
@@ -1452,9 +1884,15 @@ try_restart:
 }
 
 /**
- * mul_get_port_q_info -
+ * @name mul_get_port_q_info -
+ * @brief Get a port's queue information from mul-core 
+ * @param [in] service pointer to the service client
+ * @param [in] dpid datapath_id of the requested switch
+ * @param [in] port port_id for which info is required 
+ * @param [in] arg Argument to be passed to cb_fn
+ * @param [in] cb_fn Callback function to be called to parse each meter info
  *
- * Dump all configured queues for a given switch port 
+ * @retval int < 0 for error, >= 0 for number of queues processed 
  */
 int
 mul_get_port_q_info(void *service, uint64_t dpid, uint32_t port, 
@@ -1533,9 +1971,102 @@ try_restart:
 }
 
 /**
- * mul_set_switch_pkt_rlim -
+ * mul_get_ha_state -
  *
- * Set packet processing rate-limit 
+ * Get detail switch info connected to mul 
+ */
+int
+mul_get_ha_state(void *service, uint32_t *ha_sysid, uint32_t *ha_state,
+                 uint64_t *gen_id)
+{
+    struct cbuf *b;
+    struct c_ofp_auxapp_cmd *cofp_auc;
+    c_ofp_ha_state_t *cofp_ha;
+    struct ofp_header *h;
+
+    if (!service) return -1;
+
+    b = of_prep_msg(sizeof(*cofp_auc), C_OFPT_AUX_CMD, 0);
+    cofp_auc = (void *)(b->data);
+    cofp_auc->cmd_code = htonl(C_AUX_CMD_HA_REQ_STATE);
+
+    c_service_send(service, b);
+    b = c_service_wait_response(service);
+    if (b) {
+        h = (void *)(b->data);
+        cofp_auc = (void *)h;
+        if (h->type != C_OFPT_AUX_CMD ||
+            ntohs(h->length) < (sizeof(*cofp_auc) + sizeof(*cofp_ha)) ||
+            ntohl(cofp_auc->cmd_code) != C_AUX_CMD_HA_STATE_RESP) {
+            c_log_err("%s: Failed", FN);
+            free_cbuf(b);
+            return -1;
+        }
+
+        cofp_ha = (void *)(cofp_auc->data);
+        *ha_sysid = ntohl(cofp_ha->ha_sysid);
+        *ha_state = ntohl(cofp_ha->ha_state);
+        *gen_id = ntohll(cofp_ha->gen_id);
+        free_cbuf(b);
+        return 0;
+    }
+
+    return -1;
+}
+ 
+/**
+ * @name mul_ha_enabled -
+ * @brief Get mul-core's ha enabled status
+ * @param [in] service pointer to the service client
+ *
+ * @retval bool true if HA is enabled else false 
+ */
+bool
+mul_ha_enabled(void *service)
+{
+    uint32_t ha_sysid;
+    uint32_t ha_state;
+    uint64_t gen_id;
+
+    if (!service) return false;
+
+    if (mul_get_ha_state(service, &ha_sysid, &ha_state, &gen_id)) {
+        return false;
+    }
+
+    if (ha_state == C_HA_STATE_NOHA) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * @name mul_ha_state_to_str -
+ * @brief Dump HA state to string 
+ */
+char *
+mul_ha_state_to_str(uint32_t sysid, uint32_t state)
+{
+    if (sysid == 0 && state == C_HA_STATE_NONE) {
+        return "HA Master";
+    }
+
+    assert(state <= C_HA_STATE_NOHA);
+
+    return ha_state[state];
+}
+
+/**
+ * @name mul_set_switch_pkt_rlim -
+ * @brief Set packet processing rate-limit 
+ * @param [in] service pointer to the service client
+ * @param [in] dpid datapath-id of the concerned switch
+ * @param [in] pps packets per second value for throttling
+ * @param [in] is_rx Bool:true if only Rx packet-in needs throttling else 
+ *                   applied to both rx and tx
+ *
+ * @retval int zero for no error else non-zero for error
  */
 int
 mul_set_switch_pkt_rlim(void *service, uint64_t dpid,
@@ -1571,9 +2102,15 @@ mul_set_switch_pkt_rlim(void *service, uint64_t dpid,
 }
 
 /**
- * mul_get_switch_pkt_rlim -
+ * @name mul_get_switch_pkt_rlim -
+ * @brief Get packet processing rate-limit 
+ * @param [in] service pointer to the service client
+ * @param [in] dpid datapath-id of the concerned switch
+ * @param [in] pps Pointer to packets per second value returned 
+ * @param [in] is_rx Bool:true if only Rx packet-in needs throttling else 
+ *                   applied to both rx and tx
  *
- * Get packet processing rate-limit 
+ * @retval int zero for no error else non-zero for error
  */
 int
 mul_get_switch_pkt_rlim(void *service, uint64_t dpid,
@@ -1614,13 +2151,21 @@ mul_get_switch_pkt_rlim(void *service, uint64_t dpid,
 }
 
 /**
- * mul_set_switch_pkt_dump -
+ * @name mul_set_switch_pkt_dump -
+ * @brief Set/unset Openflow protocol packet dump 
+ * @param [in] service pointer to the service client
+ * @param [in] dpid datapath-id of the concerned switch
+ * @param [in] rx_en Bool:true if packet dump in rx dir needs to be enabled 
+ * @param [in] tx_en Bool:true if packet dump in tx dir needs to be enabled 
+ * @param [in] dump_mask Message filtering Mask where each bit corresponds 
+ *                       to Openflow message type which need to be dumped  
  *
- * Set packet processing dump enable/disable 
+ * @retval int zero for no error else non-zero for error
  */
 int
 mul_set_switch_pkt_dump(void *service, uint64_t dpid,
-                        bool rx_en, bool tx_en)
+                        bool rx_en, bool tx_en,
+                        uint64_t *dump_mask)
 {
     struct cbuf *b;
     struct c_ofp_auxapp_cmd *cofp_auc;
@@ -1638,6 +2183,10 @@ mul_set_switch_pkt_dump(void *service, uint64_t dpid,
     cofp_d->datapath_id = htonll(dpid);
     cofp_d->rx_enable = rx_en ? htonl(0x1):0;
     cofp_d->tx_enable = tx_en ? htonl(0x1):0;
+    cofp_d->dump_mask[0] = htonll(dump_mask[0]);
+    cofp_d->dump_mask[1] = htonll(dump_mask[1]);
+    cofp_d->dump_mask[2] = htonll(dump_mask[2]);
+    cofp_d->dump_mask[3] = htonll(dump_mask[3]);
     
     c_service_send(service, b);
     b = c_service_wait_response(service);
@@ -1652,9 +2201,16 @@ mul_set_switch_pkt_dump(void *service, uint64_t dpid,
 }
 
 /**
- * mul_set_switch_stats_strategy -
+ * @name mul_set_switch_stats_strategy -
+ * @brief Set/unset flow stats gathering policy 
+ * @param [in] service pointer to the service client
+ * @param [in] dpid datapath-id of the concerned switch
+ * @param [in] flow_bulk_en Bool:true if single bulk flow stats request is needed 
+ * @param [in] group_bulk_en Bool:true if single bulk group stats request is needed 
+ * @param [in] meter_bulk_config_en Bool:true is single bulk meter config stats 
+ *                                  is needed
  *
- * Set bulk mode or fine grained flow stats gathering 
+ * @retval int zero for no error else non-zero for error
  */
 int
 mul_set_switch_stats_strategy(void *service, uint64_t dpid,
@@ -1692,9 +2248,13 @@ mul_set_switch_stats_strategy(void *service, uint64_t dpid,
 }
 
 /**
- * mul_set_switch_stats_mode -
+ * @name mul_set_switch_stats_mode -
+ * @brief Set/unset switch stats mode eg port stats enable 
+ * @param [in] service pointer to the service client
+ * @param [in] dpid datapath-id of the concerned switch
+ * @param [in] port_stats_en Bool:true if port stats needs to be enabled 
  *
- * Set port stats mode - enable/disable 
+ * @retval int zero for no error else non-zero for error
  */
 int
 mul_set_switch_stats_mode(void *service, uint64_t dpid, bool port_stats_en)
@@ -1730,10 +2290,17 @@ mul_set_switch_stats_mode(void *service, uint64_t dpid, bool port_stats_en)
     return ret;
 }
 
-/*
- * mul_get_switch_table_stats -
+/**
+ * @name mul_get_switch_table_stats -
+ * @brief get a switch's table stats 
+ * @param [in] service pointer to the service client
+ * @param [in] dpid datapath-id of the concerned switch
+ * @param [in] table table-id of the concerned switch
+ * @param [in] active_count Pointer to store returned active table flow count 
+ * @param [in] lookup_count  Pointer to store returned lookup_count of table
+ * @param [in] matched_count Pointer to store returned matched_count of table
  *
- * Get switch table stats 
+ * @retval int zero for no error else non-zero for error
  */
 int
 mul_get_switch_table_stats(void *service, uint64_t dpid, uint8_t table,
@@ -1779,10 +2346,14 @@ mul_get_switch_table_stats(void *service, uint64_t dpid, uint8_t table,
     return ret;
 }
 
-/*
- * mul_get_switch_port_stats -
+/**
+ * @name mul_get_switch_port_stats-
+ * @brief Get a switch port's statistics 
+ * @param [in] service pointer to the service client
+ * @param [in] dpid datapath-id of the concerned switch
+ * @param [in] port_no  port-id of the concerned switch 
  *
- * Get switch port stats 
+ * @retval struct cbuf * Pointer to buffer returned from server
  */
 struct cbuf *
 mul_get_switch_port_stats(void *service, uint64_t dpid, 
@@ -1818,10 +2389,13 @@ mul_get_switch_port_stats(void *service, uint64_t dpid,
     return b;
 }
 
-/*
- * mul_set_loop_detect -
+/**
+ * @name mul_set_loop_detect -
+ * @brief Set loop detection in mul-core 
+ * @param [in] service pointer to the service client
+ * @param [in] enable Bool:Enable or disable
  *
- * Set mul loop detection status 
+ * @retval int zero for successs and non-zero for error 
  */
 int
 mul_set_loop_detect(void *service, bool enable) 
@@ -1850,3 +2424,62 @@ mul_set_loop_detect(void *service, bool enable)
     }
     return ret;
 }
+
+/**
+ * @name mul_get_mod_uflow_info -
+ * @brief Send a flow tracer command to mul-core and grab the result
+ * @param [in] service Pointer to the client service 
+ * @param [in] dpid datapath-id of the switch 
+ * @param [in] fl pointer to struct flow
+ * @param [in] arg Argument to be passed to cb_fn
+ * @param [in] cb_fn callback function to parse the result
+ *
+ * @retval int zero for success and non-zero for failure
+ */
+int
+mul_get_mod_uflow_info(void *service, uint64_t dpid, struct flow *fl, void *arg, 
+                       void (*cb_fn)(void *arg, uint64_t datapath_id, 
+                                     uint32_t out_port, struct flow *flow))
+{
+    struct cbuf *b;
+    struct c_ofp_auxapp_cmd *cofp_auc;
+    struct c_ofp_fl_mod_info *cofp_uflow;
+    int ret = -1;
+
+    if (!service) return -1;
+
+    b = of_prep_msg(sizeof(*cofp_auc) + sizeof(*cofp_uflow),
+                    C_OFPT_AUX_CMD, 0);
+
+    cofp_auc = CBUF_DATA(b);
+    cofp_auc->cmd_code = htonl(C_AUX_CMD_MUL_MOD_UFLOW);
+    cofp_uflow = (void *)(cofp_auc->data);
+    cofp_uflow->datapath_id = htonll(dpid);
+    ofp_convert_flow_endian_hton(fl);
+    memcpy(&cofp_uflow->flow, fl, sizeof(struct flow));
+
+    c_service_send(service, b);
+    b = c_service_wait_response(service);
+    if (b) {
+        cofp_auc = CBUF_DATA(b);
+        if (cofp_auc->header.type != C_OFPT_AUX_CMD ||
+            ntohs(cofp_auc->header.length) < 
+            (sizeof(*cofp_uflow) + sizeof(*cofp_auc)) ||
+            ntohl(cofp_auc->cmd_code) != C_AUX_CMD_MUL_MOD_UFLOW) {
+            c_log_err("%s: STOP.. No Further Processing", FN);
+            free_cbuf(b);
+            return -1;
+        } 
+
+        cofp_uflow = ASSIGN_PTR(cofp_auc->data);
+        
+        cb_fn(arg, ntohll(cofp_uflow->datapath_id), 
+              ntohl(cofp_uflow->out_port), &cofp_uflow->flow);
+        
+        ret = 0;
+        free_cbuf(b);
+    }
+
+    return ret;
+}
+

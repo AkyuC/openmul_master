@@ -8,11 +8,20 @@
 #include "mul_nbapi_topology.h"
 #include "mul_nbapi_init.h"
 #include "mul_nbapi_flow.h"
+#include "mul_nbapi_meter.h"
 #include "mul_nbapi_path.h"
 #include "mul_nbapi_statistics.h"
 #include "mul_nbapi_fabric.h"
 #include "glib.h"
 #include "mul_route.h"
+#include "uuid.h"
+
+int nbapi_init(int argc, char **argv);
+
+%}
+
+%init %{
+    nbapi_worker_entry();
 %}
 
 %include "stdint.i"
@@ -28,7 +37,8 @@
 
 %include "mul_nbapi_topology.h"
 %include "mul_nbapi_flow.h"
+%include "mul_nbapi_meter.h"
+%include "mul_nbapi_fabric.h"
 %include "mul_nbapi_path.h"
 %include "mul_nbapi_statistics.h"
-%include "mul_nbapi_init.h"
-
+%include "uuid.h"

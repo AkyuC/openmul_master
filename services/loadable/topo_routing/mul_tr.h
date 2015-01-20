@@ -29,6 +29,7 @@
 #include "mul_lldp_hash.h"
 #include "mul_lldp_common.h"
 #include "mul_lldp_debug.h"
+#include "mul_loop.h"
 #include "mul_lldp_vty.h"
 #include "mul_route_priv.h"
 #include "mul_route_apsp_priv.h"

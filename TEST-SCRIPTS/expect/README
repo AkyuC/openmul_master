@@ -1,0 +1,122 @@
+This document guides how to run the test scripts to add/delete flows, meter and
+groups.
+
+1) cli-flow-add-del.sh
+
+- Usage
+        ./cli-flow-add-del.sh <DPID> <number-of-items> <Add> <Delete> [cli-port]
+        DPID             :       Datapath ID
+        number-of-items  :       Number of items to be added
+        Add              :       0 -No, 1 -Yes
+        Delete           :       0 -No, 1 -Yes
+
+    How to run a script to add 1000 flows?
+    Example : ./cli-flow-add-del.sh 0xb8ca3a62f674 1000 1 0 10000
+                OR
+              ./cli-flow-add-del.sh 0xb8ca3a62f674 1000 1 0
+
+    How to run a script to delete 1000 flows?
+    Example : ./cli-flow-add-del.sh 0xb8ca3a62f674 1000 0 1 10000
+                OR
+              ./cli-flow-add-del.sh 0xb8ca3a62f674 1000 0 1
+
+    How to run a script to add 1000 flows and then delete 1000 flows in one go?
+    Example : ./cli-flow-add-del.sh 0xb8ca3a62f674 1000 1 1 10000
+                OR
+              ./cli-flow-add-del.sh 0xb8ca3a62f674 1000 1 1
+
+
+2) cli-group-add-del.sh
+
+- Usage
+        ./cli-group-add-del.sh <DPID> <number-of-items> <add> <delete> [cli-port]
+        DPID             :       datapath id
+        number-of-items  :       number of items to be added
+        add              :       0 -no, 1 -yes
+        delete           :       0 -no, 1 -yes
+
+    How to run a script to add 1000 groups?
+    Example : ./cli-group-add-del.sh 0xb8ca3a62f674 1000 1 0 10000
+                or
+              ./cli-group-add-del.sh 0xb8ca3a62f674 1000 1 0
+
+    How to run a script to delete 1000 groups?
+    Example : ./cli-group-add-del.sh 0xb8ca3a62f674 1000 0 1 10000
+                or
+              ./cli-group-add-del.sh 0xb8ca3a62f674 1000 0 1
+
+    How to run a script to add 1000 groups and then delete 1000 groups in one go?
+    Example : ./cli-group-add-del.sh 0xb8ca3a62f674 1000 1 1 10000
+                or
+              ./cli-group-add-del.sh 0xb8ca3a62f674 1000 1 1
+
+3) cli-meter-add-del.sh
+
+- Usage
+        ./cli-meter-add-del.sh <DPID> <number-of-items> <add> <delete> [cli-port]
+        DPID             :       datapath id
+        number-of-items  :       number of items to be added
+        add              :       0 -no, 1 -yes
+        delete           :       0 -no, 1 -yes
+
+    How to run a script to add 1000 meters?
+    Example : ./cli-meter-add-del.sh 0xb8ca3a62f674 1000 1 0 10000
+                or
+              ./cli-meter-add-del.sh 0xb8ca3a62f674 1000 1 0
+
+    How to run a script to delete 1000 meters?
+    Example : ./cli-meter-add-del.sh 0xb8ca3a62f674 1000 0 1 10000
+                or
+              ./cli-meter-add-del.sh 0xb8ca3a62f674 1000 0 1
+
+    How to run a script to add 1000 meters and then delete 1000 meters in one go?
+    Example : ./cli-meter-add-del.sh 0xb8ca3a62f674 1000 1 1 10000
+                or
+              ./cli-meter-add-del.sh 0xb8ca3a62f674 1000 1 1
+
+4) cli-count-flow-meter-group.sh
+
+- Usage
+        ./cli-count-flow-meter-group.sh <DPID> <Item> [cli-port]
+        DPID             :       Datapath ID"
+        Item             :       flow|group|meter"
+
+    How to run a script to count flows?
+    Example : ./cli-count-flow-meter-group.sh 0xb8ca3a62f674 flow 10000
+                or
+              ./cli-count-flow-meter-group.sh 0xb8ca3a62f674 flow 
+
+    How to run a script to count groups?
+    Example : ./cli-count-flow-meter-group.sh 0xb8ca3a62f674 group 10000
+                or
+              ./cli-count-flow-meter-group.sh 0xb8ca3a62f674 group 
+
+    How to run a script to count meters?
+    Example : ./cli-count-flow-meter-group.sh 0xb8ca3a62f674 meter 10000
+                or
+              ./cli-count-flow-meter-group.sh 0xb8ca3a62f674 meter 
+
+ 5) cli-show-flow-meter-group.sh
+
+- Usage
+        ./cli-show-flow-meter-group.sh <DPID> <Item> [cli-port]
+        DPID             :       Datapath ID"
+        Item             :       flow|group|meter"
+
+    How to run a script to show all flows?
+    Example : ./cli-show-flow-meter-group.sh 0xb8ca3a62f674 flow 10000
+                or
+              ./cli-show-flow-meter-group.sh 0xb8ca3a62f674 flow 
+
+    How to run a script to show all groups?
+    Example : ./cli-show-flow-meter-group.sh 0xb8ca3a62f674 group 10000
+                or
+              ./cli-show-flow-meter-group.sh 0xb8ca3a62f674 group 
+
+    How to run a script to show all meters?
+    Example : ./cli-show-flow-meter-group.sh 0xb8ca3a62f674 meter 10000
+                or
+              ./cli-show-flow-meter-group.sh 0xb8ca3a62f674 meter 
+
+            
+

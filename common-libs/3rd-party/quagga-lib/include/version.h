@@ -24,15 +24,15 @@
 #ifndef _ZEBRA_VERSION_H
 #define _ZEBRA_VERSION_H
 
-#define QUAGGA_PROGNAME   "MUL-Controller"
+#define QUAGGA_PROGNAME   "OpenMUL"
 
-#define QUAGGA_VERSION     "3.3"
+#define QUAGGA_VERSION     "Concave-r1"
 
-#define ZEBRA_BUG_ADDRESS "http://www.kulcloud.net"
+#define ZEBRA_BUG_ADDRESS "http://www.openmul.org"
 
-#define QUAGGA_URL "http://www.kulcloud.net"
+#define QUAGGA_URL "http://www.openmul.org"
 
-#define QUAGGA_COPYRIGHT "Copyright (C) 2012-2014 KULCLOUD LTD"   
+#define QUAGGA_COPYRIGHT "Copyright (C) 2012-2015 OpenMUL Foundation"   
 
 pid_t pid_output (const char *);
 

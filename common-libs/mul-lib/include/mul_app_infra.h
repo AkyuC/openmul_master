@@ -68,6 +68,12 @@ struct mul_app_client_cb
                             uint32_t buffer_id,  uint8_t *raw, size_t pkt_len);
     void (*switch_error)(mul_switch_t *sw, uint16_t type, uint16_t code,
                          uint8_t *raw, size_t raw_len);
+    void (*switch_fl_mod_err)(mul_switch_t *sw, uint16_t type, uint16_t code,
+                              c_ofp_flow_mod_t *fm);
+    void (*switch_group_mod_err)(mul_switch_t *sw, uint16_t type, uint16_t code,
+                                 c_ofp_group_mod_t *gm);
+    void (*switch_meter_mod_err)(mul_switch_t *sw, uint16_t type, uint16_t code,
+                                 c_ofp_meter_mod_t *fm);
     void (*core_conn_closed)(void);
     void (*core_conn_reconn)(void);
     void (*app_ha_state)(uint32_t sysid, uint32_t ha_state);
@@ -105,6 +111,8 @@ int mul_service_send_flow_del(void *service,
                       struct flow *mask, uint32_t oport,
                       uint16_t prio, uint64_t flags,
                       uint32_t group);
+uint32_t mul_app_group_id_alloc(uint32_t id);
+uint32_t mul_app_group_id_dealloc(uint32_t id);
 int mul_service_send_group_add(void *service,
                            uint64_t dpid,
                            struct of_group_mod_params *g_parms);
@@ -127,10 +135,13 @@ mul_app_get_service_notify_ka(char *name,
                               bool retry_conn,
                               const char *server);
 void mul_app_destroy_service(void *service);
+bool mul_app_is_master(void);
 
 mul_switch_t *c_app_switch_get_with_id(uint64_t dpid);
 void c_app_traverse_all_switches(GHFunc iter_fn, void *arg);
+void __c_app_traverse_all_switches(GHFunc iter_fn, void *arg);
 uint8_t c_app_switch_get_version_with_id(uint64_t dpid);
+uint64_t c_app_switch_get_dpid_with_alias(int alias);
 void c_app_switch_put(mul_switch_t *sw);
 
 void mul_app_act_alloc(mul_act_mdata_t *mdata);
@@ -172,7 +183,7 @@ int mul_app_action_set_tp_udp_sport(mul_act_mdata_t *mdata, uint16_t port);
 int mul_app_action_set_tp_udp_dport(mul_act_mdata_t *mdata, uint16_t port);
 int mul_app_action_set_tp_tcp_sport(mul_act_mdata_t *mdata, uint16_t port);
 int mul_app_action_set_tp_tcp_dport(mul_act_mdata_t *mdata, uint16_t port);
-int mul_app_action_set_group(mul_act_mdata_t *mdata, uint16_t group);
+int mul_app_action_set_group(mul_act_mdata_t *mdata, uint32_t group);
 int mul_app_action_set_tunnel_id(mul_act_mdata_t *mdata, uint64_t tunnel);
 int mul_app_set_band_drop(mul_act_mdata_t *mdata, struct of_meter_band_parms *parms);
 int mul_app_set_band_dscp(mul_act_mdata_t *mdata, struct of_meter_band_parms *parms);

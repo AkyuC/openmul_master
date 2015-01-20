@@ -98,7 +98,8 @@ PROGRAMS = $(bin_PROGRAMS)
 am_mul_OBJECTS = mul-mul_app_interface.$(OBJEXT) mul-mul_fp.$(OBJEXT) \
 	mul-mul_main.$(OBJEXT) mul-mul_thread_core.$(OBJEXT) \
 	mul-mul_events.$(OBJEXT) mul-mul_ipc.$(OBJEXT) \
-	mul-mul_of.$(OBJEXT) mul-mul_vty.$(OBJEXT)
+	mul-mul_of.$(OBJEXT) mul-mul_vty.$(OBJEXT) \
+	mul-mul_ha.$(OBJEXT)
 mul_OBJECTS = $(am_mul_OBJECTS)
 mul_DEPENDENCIES =  \
 	$(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a \
@@ -157,6 +158,7 @@ CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 DEPDIR = @DEPDIR@
 DLLTOOL = @DLLTOOL@
+DOXYGEN = @DOXYGEN@
 DSYMUTIL = @DSYMUTIL@
 DUMPBIN = @DUMPBIN@
 ECHO_C = @ECHO_C@
@@ -282,13 +284,14 @@ INCLUDES = -I. -I$(top_srcdir) -I$(top_srcdir)/common/ \
 	-I$(top_srcdir)/services/loadable/topo_routing/ \
 	-I$(top_srcdir)/common-libs/3rd-party/derived-lib/include/ \
 	-I$(top_srcdir)/common-libs/3rd-party/quagga-lib/include/ \
-	-I$(top_srcdir)/common-libs/mul-lib/include/ $(am__append_2) \
-	$(am__append_4)
+	-I$(top_srcdir)/common-libs/mul-lib/include/ \
+	-I$(top_srcdir)/common-libs/util-linux/libuuid/src/ \
+	$(am__append_2) $(am__append_4)
 libmul_la_SOURCES = \
             mul_servlet.c
 
 mul_SOURCES = mul_app_interface.c mul_fp.c mul_main.c mul_thread_core.c \
-              mul_events.c mul_ipc.c mul_of.c mul_vty.c
+              mul_events.c mul_ipc.c mul_of.c mul_vty.c mul_ha.c
 
 LD_FLAGS = @LDFLAGS@ $(am__append_1) $(am__append_3)
 C_FLAGS = @CFLAGS@
@@ -296,7 +299,7 @@ mul_CFLAGS = $(C_FLAGS) $(am__append_5)
 mul_LDADD = $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a \
 	-lcrypto -lssl $(am__append_6)
 mul_LDFLAGS = $(LD_FLAGS) -lpthread -lglib-2.0 -levent
-noinst_HEADERS = mul_events.h mul.h mul_of.h mul_priv.h mul_thread.h mul_fp.h
+noinst_HEADERS = mul_events.h mul.h mul_of.h mul_priv.h mul_thread.h mul_ha.h mul_fp.h
 all: all-am
 
 .SUFFIXES:
@@ -420,6 +423,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_app_interface.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_events.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_fp.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_ha.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_ipc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_main.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mul-mul_of.Po@am__quote@
@@ -559,6 +563,20 @@ mul-mul_vty.obj: mul_vty.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_vty.c' object='mul-mul_vty.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_vty.obj `if test -f 'mul_vty.c'; then $(CYGPATH_W) 'mul_vty.c'; else $(CYGPATH_W) '$(srcdir)/mul_vty.c'; fi`
+
+mul-mul_ha.o: mul_ha.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_ha.o -MD -MP -MF $(DEPDIR)/mul-mul_ha.Tpo -c -o mul-mul_ha.o `test -f 'mul_ha.c' || echo '$(srcdir)/'`mul_ha.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_ha.Tpo $(DEPDIR)/mul-mul_ha.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_ha.c' object='mul-mul_ha.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_ha.o `test -f 'mul_ha.c' || echo '$(srcdir)/'`mul_ha.c
+
+mul-mul_ha.obj: mul_ha.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -MT mul-mul_ha.obj -MD -MP -MF $(DEPDIR)/mul-mul_ha.Tpo -c -o mul-mul_ha.obj `if test -f 'mul_ha.c'; then $(CYGPATH_W) 'mul_ha.c'; else $(CYGPATH_W) '$(srcdir)/mul_ha.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mul-mul_ha.Tpo $(DEPDIR)/mul-mul_ha.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_ha.c' object='mul-mul_ha.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mul_CFLAGS) $(CFLAGS) -c -o mul-mul_ha.obj `if test -f 'mul_ha.c'; then $(CYGPATH_W) 'mul_ha.c'; else $(CYGPATH_W) '$(srcdir)/mul_ha.c'; fi`
 
 mostlyclean-libtool:
 	-rm -f *.lo

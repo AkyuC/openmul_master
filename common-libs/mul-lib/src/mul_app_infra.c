@@ -1,8 +1,10 @@
-/*
- *  mul_app_infra.c: MUL application infrastructre 
- *  Copyright (C) 2012, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
- * 
- * This program is free software; you can redistribute it and/or
+/**
+ *  @file mul_app_infra.c
+ *  @brief Mul application infrastructure
+ *  @author Dipjyoti Saikia  <dipjyoti.saikia@gmail.com>
+ *  @copyright Copyright (C) 2013, Dipjyoti Saikia
+ *
+ * @license This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
@@ -15,7 +17,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ *
+ *
+ * @see www.openmul.org
  */
+
 #include "mul_common.h"
 #include "mul_app_main.h"
 #include "mul_app_infra.h"
@@ -28,6 +34,7 @@ extern struct c_app_service c_app_service_tbl[MUL_MAX_SERVICE_NUM];
 int c_app_switch_add(c_app_hdl_t *hdl, c_ofp_switch_add_t *cofp_sa);
 void c_app_switch_del(c_app_hdl_t *hdl, c_ofp_switch_delete_t *cofp_sa);
 void c_switch_port_status(c_app_hdl_t *hdl, c_ofp_port_status_t *ofp_psts);
+void c_switch_err_msg(c_app_hdl_t *hdl UNUSED, c_ofp_error_msg_t *ofp_err);
 void c_app_packet_in(c_app_hdl_t *hdl, c_ofp_packet_in_t *ofp_pin);
 void c_controller_reconn(c_app_hdl_t *hdl);
 void c_app_notify_ha_event(c_app_hdl_t *hdl, uint32_t ha_sysid, uint32_t ha_state);
@@ -36,10 +43,10 @@ void c_app_vendor_msg(c_app_hdl_t *hdl UNUSED, c_ofp_vendor_msg_t *ofp_vm);
 void c_app_tr_status(c_app_hdl_t *hdl UNUSED, c_ofp_tr_status_mod_t *ofp_trsm);
 int c_app_infra_init(c_app_hdl_t *hdl);
 void c_app_infra_vty_init(void *hdl);
-static void __c_app_traverse_all_switches(GHFunc iter_fn, void *arg);
 static void c_app_traverse_switch_ports(mul_switch_t *sw,
                                         GFunc iter_fn, void *arg);
 
+/* Openflow 1.0 Constructors */
 static struct c_ofp_ctors of10_ctors = {
     .act_output = of_make_action_output,
     .act_set_vid = of_make_action_set_vid,
@@ -56,6 +63,7 @@ static struct c_ofp_ctors of10_ctors = {
     .act_set_tp_tcp_sport = of_make_action_set_tp_tcp_sport,
 };
 
+/* Openflow 1.3.1 Constructors */
 static struct c_ofp_ctors of131_ctors = {
     .group_validate = of131_group_validate_parms,
     .group_add = of131_prep_group_add_msg,
@@ -100,6 +108,7 @@ static struct c_ofp_ctors of131_ctors = {
     .multi_table_support = of131_supports_multi_tables
 };
 
+/* Openflow 1.4 Constructors */
 static struct c_ofp_ctors of140_ctors = {
     .group_validate = of131_group_validate_parms,
     .group_add = of131_prep_group_add_msg,
@@ -144,6 +153,11 @@ static struct c_ofp_ctors of140_ctors = {
     .multi_table_support = of131_supports_multi_tables
 };
 
+
+/**
+ * @name c_app_write_event_sched 
+ * @brief Schedule a write event
+ */
 static void
 c_app_write_event_sched(void *conn_arg)
 {
@@ -151,6 +165,10 @@ c_app_write_event_sched(void *conn_arg)
     event_add((struct event *)(conn->wr_event), NULL);
 }
 
+/**
+ * @name mul_app_command_handler 
+ * @brief Sends a command containing cbuf to mul-core
+ */
 int
 mul_app_command_handler(void *app_name UNUSED, void *b)
 {
@@ -159,6 +177,11 @@ mul_app_command_handler(void *app_name UNUSED, void *b)
     return 0;
 }
 
+/**
+ * @name c_app_port_slist_ent_free 
+ * @brief Free the port list and call
+ *        the switch_priv_port_free if necessary  
+ */
 static void
 c_app_port_slist_ent_free(void *arg)
 {
@@ -172,12 +195,25 @@ c_app_port_slist_ent_free(void *arg)
     free(arg);
 }
 
+/**
+ * @name c_app_switch_get
+ * @brief Increment the app switch's reference count 
+ */
 static inline void
 c_app_switch_get(mul_switch_t *sw)
 {
     atomic_inc(&sw->ref, 1);
 }
 
+/**
+ * @name c_app_switch_get_with_id 
+ * @brief Given a datapath-id, find the switch
+ * @param [in] dpid the datapath-id
+ * 
+ * @retval mul_switch_t * the pointer to app switch struct 
+ *
+ * The switch if found has its reference count incremented
+ */
 mul_switch_t * 
 c_app_switch_get_with_id(uint64_t dpid)
 {
@@ -197,6 +233,10 @@ c_app_switch_get_with_id(uint64_t dpid)
     return sw;
 }
 
+/**
+ * @name __c_app_switch_get_with_id
+ * @brief No lock version of c_app_switch_get_with_id
+ */
 static mul_switch_t * 
 __c_app_switch_get_with_id(uint64_t dpid)
 {
@@ -211,6 +251,10 @@ __c_app_switch_get_with_id(uint64_t dpid)
     return sw;
 }
 
+/**
+ * @name c_switch_free
+ * @brief Free the app infra switch and call switch_priv_free if needed`;
+ */
 static void
 c_switch_free(mul_switch_t *sw)
 {
@@ -222,6 +266,15 @@ c_switch_free(mul_switch_t *sw)
     free(sw);
 }
 
+/**
+ * @name c_app_switch_put
+ * @brief Deref a switch's reference 
+ * @param [in] sw Pointer to mul_switch_t 
+ *
+ * @retval void Nothing
+ * 
+ * If ref count drops  to 0, free all memory used by the switch
+ */
 void
 c_app_switch_put(mul_switch_t *sw)
 {
@@ -235,12 +288,23 @@ c_app_switch_put(mul_switch_t *sw)
     }
 }
 
+/**
+ * @name c_app_sw_free
+ * @brief Wrapper over c_app_switch_put
+ */
 static void
 c_app_sw_free(void *arg)
 {
     c_app_switch_put((mul_switch_t *)arg);
 }
 
+/**
+ * @name c_app_switch_get_version_with_id 
+ * @brief Given a datapath-id returns OF version  
+ * @param [in] dpid datapath-id of the switch
+ *
+ * @retval uint8_t Openflow version, 0 if no such switch
+ */
 uint8_t
 c_app_switch_get_version_with_id(uint64_t dpid)
 {
@@ -261,6 +325,61 @@ c_app_switch_get_version_with_id(uint64_t dpid)
     return ver;
 }
 
+/**
+ * @name c_app_alias_finder 
+ * @brief Finds a alias-id match in the switch list 
+ */
+static bool
+c_app_alias_finder(void *key UNUSED,
+                   void *value,
+                   void *u_arg)
+{
+    mul_switch_t *sw = value;
+    int alias = *(int *)u_arg;
+
+    if (sw->alias_id == alias) return true;
+
+    return false;
+}
+
+/**
+ * @name c_app_switch_get_dpid_with_alias
+ * @brief Given a switch alias-id, find the datapath-id 
+ * @param [in] alias the alias-id
+ * 
+ * @retval uint64_t the switch dpid, 0 if no such switch 
+ */
+uint64_t
+c_app_switch_get_dpid_with_alias(int alias)
+{
+    mul_switch_t *sw = NULL;
+    uint64_t dpid;
+    int lock = 0;
+
+    lock = c_rd_trylock(&hdl->infra_lock);
+    if (!(sw = g_hash_table_find(hdl->switches, 
+                                 (GHRFunc)c_app_alias_finder,
+                                 &alias))) {
+        if (!lock) c_rd_unlock(&hdl->infra_lock);
+        return 0;
+    }
+
+    dpid = sw->dpid;
+    if (!lock) c_rd_unlock(&hdl->infra_lock);
+
+    return dpid;
+}
+
+/**
+ * @name c_app_traverse_all_switches
+ * @brief Traverse through the switch list  
+ * @param iter_fn Function to be invoked for each switch
+ * @param arg Argument to be passed to iter_fn
+ * 
+ * @retval void Nothing 
+ * 
+ * Holds appropriate locks before traversal
+ */
 void
 c_app_traverse_all_switches(GHFunc iter_fn, void *arg)
 {
@@ -275,7 +394,18 @@ c_app_traverse_all_switches(GHFunc iter_fn, void *arg)
     return;
 }
 
-static void UNUSED
+/**
+ * @name __c_app_traverse_all_switches
+ * @brief Traverse through the switch list  
+ * @param iter_fn Function to be invoked for each switch
+ * @param arg Argument to be passed to iter_fn
+ * 
+ * @retval void Nothing 
+ * 
+ * Does not hold appropriate locks before traversal. User needs
+ * to hold locks necessary
+ */
+void
 __c_app_traverse_all_switches(GHFunc iter_fn, void *arg)
 {
     if (hdl->switches) {
@@ -285,6 +415,10 @@ __c_app_traverse_all_switches(GHFunc iter_fn, void *arg)
     return;
 }
 
+/** 
+ * @name c_app_traverse_switch_ports
+ * @brief Traverse all ports of a switch
+ */
 static void
 c_app_traverse_switch_ports(mul_switch_t *sw, 
                             GFunc iter_fn, void *arg)
@@ -349,6 +483,10 @@ __mul_app_switch_port_del(mul_switch_t *sw, mul_port_t *port)
     sw->port_list = g_slist_remove(sw->port_list, port);
 }
 
+/** 
+ * @name  c_app_switch_add
+ * @brief Adds a switch to the app infrastructure
+ */
 int
 c_app_switch_add(c_app_hdl_t *hdl, c_ofp_switch_add_t *cofp_sa)
 {
@@ -405,6 +543,10 @@ c_app_switch_add(c_app_hdl_t *hdl, c_ofp_switch_add_t *cofp_sa)
     return 0;
 }
 
+/** 
+ * @name mul_app_swports_del_notify 
+ * @brief Send notification for switch port delete to app 
+ */
 static void 
 mul_app_swports_del_notify(void *port_arg, void *uarg UNUSED)
 {
@@ -415,6 +557,10 @@ mul_app_swports_del_notify(void *port_arg, void *uarg UNUSED)
     }
 }
 
+/** 
+ * @name c_app_switch_del 
+ * @brief Delete a switch from app infra 
+ */
 void
 c_app_switch_del(c_app_hdl_t *hdl, c_ofp_switch_delete_t *cofp_sa)
 {
@@ -442,6 +588,10 @@ c_app_switch_del(c_app_hdl_t *hdl, c_ofp_switch_delete_t *cofp_sa)
     c_wr_unlock(&hdl->infra_lock);
 }
 
+/** 
+ * @name c_switch_port_status 
+ * @brief Port status updatation 
+ */
 void
 c_switch_port_status(c_app_hdl_t *hdl UNUSED,
                      c_ofp_port_status_t *ofp_psts)
@@ -526,6 +676,10 @@ c_switch_port_status(c_app_hdl_t *hdl UNUSED,
     c_app_switch_put(sw);
 }
 
+/** 
+ * @name c_switch_port_status 
+ * @brief Packet-in handler and notification generation for app
+ */
 void
 c_app_packet_in(c_app_hdl_t *hdl UNUSED, c_ofp_packet_in_t *ofp_pin)
 {
@@ -551,6 +705,117 @@ c_app_packet_in(c_app_hdl_t *hdl UNUSED, c_ofp_packet_in_t *ofp_pin)
     c_app_switch_put(sw);
 }
 
+/** 
+ * @name c_switch_err_msg
+ * @brief Error message handler and notification generation for app
+ */
+void
+c_switch_err_msg(c_app_hdl_t *hdl UNUSED, c_ofp_error_msg_t *ofp_err)
+{
+    mul_switch_t *sw;
+    struct ofp_header *hdr;
+    uint16_t len = ntohs(ofp_err->header.length);
+
+    if (len < sizeof(*ofp_err))
+        return;
+
+    if (len < sizeof(*ofp_err)+sizeof(ofp_err->header))
+        return; 
+
+    hdr = ASSIGN_PTR(ofp_err->data);
+
+    switch (hdr->type) {
+    case C_OFPT_FLOW_MOD: {
+        c_ofp_flow_mod_t *cofp_fm;
+        char *str;
+
+        if (len < sizeof(*ofp_err)+sizeof(*cofp_fm)) 
+            return;
+
+        cofp_fm = ASSIGN_PTR(ofp_err->data);
+
+        if (!(sw = c_app_switch_get_with_id(ntohll(cofp_fm->datapath_id)))) {
+            /* FIXME : Ratelimit this */
+            c_log_err("[infra] |switch-err| switch not found");
+            return;
+        }
+
+        str = of_dump_flow_generic(&cofp_fm->flow, &cofp_fm->mask);
+        if (str) {
+            c_log_err("%s: flow mod fail %s", FN, str);
+            free(str);
+        }
+
+        if (app_cbs && app_cbs->switch_fl_mod_err)
+            app_cbs->switch_fl_mod_err(sw,
+                                       ntohs(ofp_err->type),
+                                       ntohs(ofp_err->code),
+                                       cofp_fm);
+        break;
+
+    }
+    case C_OFPT_GROUP_MOD: {
+        c_ofp_group_mod_t *cofp_gm;
+
+        if (len < sizeof(*ofp_err)+sizeof(*cofp_gm)) 
+            return;
+
+        cofp_gm = ASSIGN_PTR(ofp_err->data);
+
+        if (!(sw = c_app_switch_get_with_id(ntohll(cofp_gm->datapath_id)))) {
+            /* FIXME : Ratelimit this */
+            c_log_err("[infra] |switch-err| switch not found");
+            return;
+        }
+
+        c_log_err("%s: group |%lu| mod fail",
+                  FN, U322UL(ntohl(cofp_gm->group_id)));
+
+        if (app_cbs && app_cbs->switch_group_mod_err)
+            app_cbs->switch_group_mod_err(sw,
+                                       ntohs(ofp_err->type),
+                                       ntohs(ofp_err->code),
+                                       cofp_gm);
+        
+        break;
+
+    }
+    case C_OFPT_METER_MOD: {
+        c_ofp_meter_mod_t *cofp_mm;
+
+        if (len < sizeof(*ofp_err)+sizeof(*cofp_mm)) 
+            return;
+
+        cofp_mm = ASSIGN_PTR(ofp_err->data);
+
+        if (!(sw = c_app_switch_get_with_id(ntohll(cofp_mm->datapath_id)))) {
+            /* FIXME : Ratelimit this */
+            c_log_err("[infra] |switch-err| switch not found");
+            return;
+        }
+
+        c_log_err("%s: meter |%lu| mod fail",
+                  FN, U322UL(ntohl(cofp_mm->meter_id)));
+
+        if (app_cbs && app_cbs->switch_meter_mod_err)
+            app_cbs->switch_meter_mod_err(sw,
+                                       ntohs(ofp_err->type),
+                                       ntohs(ofp_err->code),
+                                       cofp_mm);
+        
+        break;
+
+    }
+    default:
+        break; 
+    }
+
+}
+
+/** 
+ * @name c_app_vendor_msg
+ * @brief Vendor message handler and notification generation for app
+ */
 void
 c_app_vendor_msg(c_app_hdl_t *hdl UNUSED, c_ofp_vendor_msg_t *ofp_vm)
 {
@@ -571,6 +836,10 @@ c_app_vendor_msg(c_app_hdl_t *hdl UNUSED, c_ofp_vendor_msg_t *ofp_vm)
     }
 }
 
+/** 
+ * @name c_app_tr_status
+ * @brief Topology status update and notification generation for app
+ */
 void
 c_app_tr_status(c_app_hdl_t *hdl UNUSED, c_ofp_tr_status_mod_t *ofp_trsm)
 {
@@ -579,6 +848,12 @@ c_app_tr_status(c_app_hdl_t *hdl UNUSED, c_ofp_tr_status_mod_t *ofp_trsm)
     }
 }
 
+/** 
+ * @name c_app_switch_del_notify
+ * @brief Switch delete notification generation for app
+ *
+ * It also triggers deletion of switch ports 
+ */
 static void
 c_app_switch_del_notify(void *key UNUSED, void *sw_arg, void *uarg UNUSED)
 {
@@ -589,6 +864,10 @@ c_app_switch_del_notify(void *key UNUSED, void *sw_arg, void *uarg UNUSED)
     }
 }
 
+/** 
+ * @name c_controller_disconn
+ * @brief Controller connection disconnect notification generation for app
+ */
 void
 c_controller_disconn(c_app_hdl_t *hdl)
 {
@@ -599,6 +878,10 @@ c_controller_disconn(c_app_hdl_t *hdl)
     }
 }
 
+/** 
+ * @name c_controller_reconn
+ * @brief Controller connection re-connect notification generation for app
+ */
 void
 c_controller_reconn(c_app_hdl_t *hdl UNUSED)
 {
@@ -607,6 +890,10 @@ c_controller_reconn(c_app_hdl_t *hdl UNUSED)
     }
 }
 
+/** 
+ * @name c_app_notify_ha_event
+ * @brief Notify HA events to app
+ */
 void
 c_app_notify_ha_event(c_app_hdl_t *hdl UNUSED, uint32_t ha_sysid, uint32_t ha_state)
 {
@@ -615,6 +902,10 @@ c_app_notify_ha_event(c_app_hdl_t *hdl UNUSED, uint32_t ha_sysid, uint32_t ha_st
     }
 }
 
+/** 
+ * @name c_app_infra_init
+ * @brief Notify HA events to app
+ */
 int
 c_app_infra_init(c_app_hdl_t *app_hdl)
 {
@@ -633,6 +924,21 @@ mul_app_free_buf(void *b UNUSED)
     return;
 }
 
+/** 
+ * @name _common_reg_app
+ * @brief Register a app to controller core 
+ * @param  [in] app_arg Application context (unused)
+ * @param [in] app_name Application name
+ * @app_flags [in] Flags for registration
+ * @ev_mask [in] Events required
+ * @n_dpid [in] No. of dpids for filtering (if any) 
+ * @dpid_list [in] List of dpids for filtering (if any) 
+ * @ev_cb [in] Event callback for processing raw controller generated events 
+ * @client_app_cbs [in] Set of Callback functions to be called per event.
+ *                      This prevents each app to parse messages by its own
+ *
+ * @retval int 0 for sucess and non-0  for failure
+ */
 static int
 _commom_reg_app(void *app_arg UNUSED, char *app_name, uint32_t app_flags,
                 uint32_t ev_mask, uint32_t n_dpid, uint64_t *dpid_list,
@@ -643,13 +949,15 @@ _commom_reg_app(void *app_arg UNUSED, char *app_name, uint32_t app_flags,
     struct cbuf *b;
     c_ofp_register_app_t *reg_app;
     int idx = 0;
-
-#ifdef APP_HA
+    uint32_t app_cookie = 0;
     struct c_app_service *serv;
     size_t serv_sz = sizeof(c_app_service_tbl)/sizeof(c_app_service_tbl[0]);
+
     for (; idx < serv_sz; idx++) {
         serv = &c_app_service_tbl[idx];
         if (!strncmp(serv->app_name, app_name, MAX_SERV_NAME_LEN-1)) {
+            app_cookie = serv->app_cookie;
+#ifdef APP_HA
             if (hdl->ha_server) {
                 if (hdl->ha_service) {
                     mul_service_destroy(hdl->ha_service);
@@ -662,9 +970,9 @@ _commom_reg_app(void *app_arg UNUSED, char *app_name, uint32_t app_flags,
                 assert(hdl->ha_service);
                 hdl->peer_mini_state = C_HA_STATE_CONNECTED;
             }
+#endif
         }
     }
-#endif
 
     b = of_prep_msg(sizeof(struct c_ofp_register_app) +
                     (n_dpid * sizeof(uint64_t)), C_OFPT_REG_APP, 0);
@@ -674,6 +982,8 @@ _commom_reg_app(void *app_arg UNUSED, char *app_name, uint32_t app_flags,
     reg_app->app_flags = htonl(app_flags);
     reg_app->ev_mask = htonl(ev_mask);
     reg_app->dpid = htonl(n_dpid);
+    reg_app->app_cookie = htonl(app_cookie);
+    hdl->app_cookie = app_cookie;
 
     p_dpid = (void *)(reg_app+1);
     for (idx = 0; idx < n_dpid; idx++) {
@@ -694,6 +1004,19 @@ _commom_reg_app(void *app_arg UNUSED, char *app_name, uint32_t app_flags,
     return 0;
 }
 
+/** 
+ * @name mul_register_app 
+ * @brief Register a app to controller core (Front end api)
+ * @param  [in] app_arg Application context
+ * @param [in] app_name Application name
+ * @app_flags [in] Flags for registration
+ * @ev_mask [in] Events required
+ * @n_dpid [in] No. of dpids for filtering (if any) 
+ * @dpid_list [in] List of dpids for filtering (if any) 
+ * @ev_cb [in] Event callback for processing raw controller generated events 
+ *
+ * @retval int 0 for sucess and non-0  for failure
+ */ 
 int
 mul_register_app(void *app_arg, char *app_name, uint32_t app_flags,
                  uint32_t ev_mask, uint32_t n_dpid, uint64_t *dpid_list,
@@ -704,6 +1027,21 @@ mul_register_app(void *app_arg, char *app_name, uint32_t app_flags,
 }
 
 #ifdef MUL_APP_V2_MLAPI
+/** 
+ * @name mul_register_app_cb 
+ * @brief Register a app to controller core 
+ * @param  [in] app_arg Application context (unused)
+ * @param [in] app_name Application name
+ * @app_flags [in] Flags for registration
+ * @ev_mask [in] Events required
+ * @n_dpid [in] No. of dpids for filtering (if any) 
+ * @dpid_list [in] List of dpids for filtering (if any) 
+ * @ev_cb [in] Event callback for processing raw controller generated events 
+ * @client_app_cbs [in] Set of Callback functions to be called per event.
+ *                      This prevents each app to parse messages by its own
+ *
+ * @retval int 0 for sucess and non-0  for failure
+ */
 int
 mul_register_app_cb(void *app_arg, char *app_name, uint32_t app_flags,
         uint32_t ev_mask, uint32_t n_dpid, uint64_t *dpid_list,
@@ -753,6 +1091,14 @@ mul_register_app_cb(void *app_arg, char *app_name, uint32_t app_flags,
 }
 #endif
 
+
+/** 
+ * @name mul_unregister_app
+ * @brief Un-register a app to controller core 
+ * @param [in] app_name Application name
+ *
+ * @retval int 0 for sucess and non-0  for failure
+ */
 int
 mul_unregister_app(char *app_name)
 {
@@ -767,6 +1113,16 @@ mul_unregister_app(char *app_name)
     return 0;
 }
 
+/** 
+ * @name mul_app_send_pkt_out
+ * @brief Send packet out message via controller core 
+ * @param [in] arg Application argument (unused) 
+ * @param [in] dpid Datapath-id from where packet needs to be sent 
+ * @param [in] parms_arg Packet-out arguments in struct of_pkt_out_params *
+ *                       Caller to free the arguments
+ *
+ * @retval void Nothing 
+ */
 void
 mul_app_send_pkt_out(void *arg UNUSED, uint64_t dpid, void *parms_arg)
 {
@@ -798,6 +1154,10 @@ mul_app_send_pkt_out(void *arg UNUSED, uint64_t dpid, void *parms_arg)
     return;
 }
 
+/** 
+ * @name mul_app_prep_flow_add 
+ * @brief Prepare a flow add message
+ */
 static struct cbuf *
 mul_app_prep_flow_add(uint64_t dpid, struct flow *fl, struct flow *mask,
                       uint32_t buffer_id, void *actions, size_t action_len,
@@ -829,6 +1189,7 @@ mul_app_prep_flow_add(uint64_t dpid, struct flow *fl, struct flow *mask,
     cofp_fm->htimeo = htons(htimeo);
     cofp_fm->buffer_id = htonl(buffer_id);
     cofp_fm->oport = OF_NO_PORT;
+    cofp_fm->cookie = htonl(hdl->app_cookie);
 
     act = ASSIGN_PTR(cofp_fm->actions);
     memcpy(act, actions, action_len);
@@ -836,6 +1197,28 @@ mul_app_prep_flow_add(uint64_t dpid, struct flow *fl, struct flow *mask,
     return b;
 }
 
+
+/** 
+ * @name mul_app_send_flow_add
+ * @brief Send a flow add message to controller 
+ * @param [in] app_name Application name (unused) 
+ * @param [in] sw_arg Switch argument (unused) 
+ * @param [in] dpid Datapath-id of the concerned switch
+ * @param [in] fl Flow match in struct flow *
+ * @param [in] mask Flow mask in struct flow *
+ * @param [in] buffer_id Buffer-id associated with this flow (as per OF spec) 
+ * @param [in] actions Pointer to the buffer containing actions 
+ * @param [in] action_len Action length 
+ * @param [in] itimeo Idle timeout (as per OF Spec)
+ * @param [in] htimeo Hard timeout (as per OF Spec) 
+ * @param [in] prio Flow priority 
+ * @param [in] flags Internal controller flow flags
+ *
+ * @retval int 0 for success non 0 for failure 
+ *
+ * This instructs the controller core to install a flow via main controller connection.
+ * This flow will be deleted whenver application dies or unregisters itself 
+ */
 int
 mul_app_send_flow_add(void *app_name UNUSED, void *sw_arg UNUSED,
                       uint64_t dpid, struct flow *fl, struct flow *mask,
@@ -852,6 +1235,40 @@ mul_app_send_flow_add(void *app_name UNUSED, void *sw_arg UNUSED,
     return 0;
 }
 
+/** 
+ * @name mul_app_send_flow_add
+ * @brief Send a flow add message to controller 
+ * @param [in] service Pointer to the client service created beforehand 
+ * @param [in] dpid Datapath-id of the concerned switch
+ * @param [in] fl Flow match in struct flow *
+ * @param [in] mask Flow mask in struct flow *
+ * @param [in] buffer_id Buffer-id associated with this flow (as per OF spec) 
+ * @param [in] actions Pointer to the buffer containing actions 
+ * @param [in] action_len Action length 
+ * @param [in] itimeo Idle timeout (as per OF Spec)
+ * @param [in] htimeo Hard timeout (as per OF Spec) 
+ * @param [in] prio Flow priority 
+ * @param [in] flags Internal controller flow flags.Can be a mask of the following:
+ *             C_FL_ENT_STATIC A static flow  
+ *             C_FL_ENT_CLONE  A cloned flow 
+ *             C_FL_ENT_LOCAL  A Local flow for app delivery not installed in switch
+ *             C_FL_ENT_NOCACHE Push the flow to the switch without keeping in local DB
+ *             C_FL_ENT_NOT_INST Flow was not installed
+ *             C_FL_ENT_NOSYNC Whether flow needs resyncing after HA event
+ *             C_FL_ENT_GSTATS Gather stats flor this flow 
+ *             C_FL_ENT_SWALIAS Flow add to happen via switch alias-id than dpid 
+ *             C_FL_ENT_BARRIER Send accompanying barrier message with flow mod 
+ *             C_FL_ENT_RESIDUAL Flow is residual flow read from switch (no app owner)
+ *             C_FL_ENT_STALE Flow is stale 
+ *             C_FL_NO_ACK Dont wait for ACK after flow add
+ *             C_FL_ENT_CTRL_LOCAL Flow is meant for local controller delivery
+ *             C_FL_ENT_TBL_PHYS Table-id in flow should not be translated
+ *
+ * @retval int 0 for success non 0 for failure 
+ *
+ * This instructs the controller core to install a flow via service connection.
+ * This flow will not be deleted whenever application dies or unregisters itself 
+ */
 int
 mul_service_send_flow_add(void *service,
                           uint64_t dpid, struct flow *fl, struct flow *mask,
@@ -868,6 +1285,10 @@ mul_service_send_flow_add(void *service,
     return 0;
 }
 
+/**
+ * @name mul_app_prep_flow_del
+ * @brief Prepare a flow delete mlapi message 
+ */
 static struct cbuf *
 mul_app_prep_flow_del(uint64_t dpid, struct flow *fl,
                       struct flow *mask, uint32_t oport,
@@ -900,6 +1321,37 @@ mul_app_prep_flow_del(uint64_t dpid, struct flow *fl,
     return b;
 }
 
+/** 
+ * @name mul_app_send_flow_del
+ * @brief Send a flow del message to controller 
+ * @param [in] app_name Name of application (unused) 
+ * @param [in] sw_arg Switch argument (Unused)
+ * @param [in] dpid Datapath-id of the concerned switch
+ * @param [in] fl Flow match in struct flow *
+ * @param [in] mask Flow mask in struct flow *
+ * @param [in] oport Match a Output port for flow del (as per OF Spec)
+ * @param [in] prio Flow priority 
+ * @param [in] flags Internal controller flow flags.Can be a mask of the following:
+ *             C_FL_ENT_STATIC A static flow  
+ *             C_FL_ENT_CLONE  A cloned flow 
+ *             C_FL_ENT_LOCAL  A Local flow for app delivery not installed in switch
+ *             C_FL_ENT_NOCACHE Push the flow to the switch without keeping in local DB
+ *             C_FL_ENT_NOT_INST Flow was not installed
+ *             C_FL_ENT_NOSYNC Whether flow needs resyncing after HA event
+ *             C_FL_ENT_GSTATS Gather stats flor this flow 
+ *             C_FL_ENT_SWALIAS Flow add to happen via switch alias-id than dpid 
+ *             C_FL_ENT_BARRIER Send accompanying barrier message with flow mod 
+ *             C_FL_ENT_RESIDUAL Flow is residual flow read from switch (no app owner)
+ *             C_FL_ENT_STALE Flow is stale 
+ *             C_FL_NO_ACK Dont wait for ACK after flow add
+ *             C_FL_ENT_CTRL_LOCAL Flow is meant for local controller delivery
+ *             C_FL_ENT_TBL_PHYS Table-id in flow should not be translated
+ * @param [in] ogroup Match a Output group for flow del (as per OF Spec)
+ *
+ * @retval int 0 for success non 0 for failure 
+ *
+ * This instructs the controller core to delete a flow via main core connection.
+ */
 int
 mul_app_send_flow_del(void *app_name UNUSED, void *sw_arg UNUSED,
                       uint64_t dpid, struct flow *fl,
@@ -914,6 +1366,36 @@ mul_app_send_flow_del(void *app_name UNUSED, void *sw_arg UNUSED,
     return 0;
 }
 
+/** 
+ * @name mul_service_send_flow_del
+ * @brief Send a flow del message to controller 
+ * @param [in] service Pointer to the client service handle
+ * @param [in] dpid Datapath-id of the concerned switch
+ * @param [in] fl Flow match in struct flow *
+ * @param [in] mask Flow mask in struct flow *
+ * @param [in] oport Match a Output port for flow del (as per OF Spec)
+ * @param [in] prio Flow priority 
+ * @param [in] flags Internal controller flow flags.Can be a mask of the following:
+ *             C_FL_ENT_STATIC A static flow  
+ *             C_FL_ENT_CLONE  A cloned flow 
+ *             C_FL_ENT_LOCAL  A Local flow for app delivery not installed in switch
+ *             C_FL_ENT_NOCACHE Push the flow to the switch without keeping in local DB
+ *             C_FL_ENT_NOT_INST Flow was not installed
+ *             C_FL_ENT_NOSYNC Whether flow needs resyncing after HA event
+ *             C_FL_ENT_GSTATS Gather stats flor this flow 
+ *             C_FL_ENT_SWALIAS Flow add to happen via switch alias-id than dpid 
+ *             C_FL_ENT_BARRIER Send accompanying barrier message with flow mod 
+ *             C_FL_ENT_RESIDUAL Flow is residual flow read from switch (no app owner)
+ *             C_FL_ENT_STALE Flow is stale 
+ *             C_FL_NO_ACK Dont wait for ACK after flow add
+ *             C_FL_ENT_CTRL_LOCAL Flow is meant for local controller delivery
+ *             C_FL_ENT_TBL_PHYS Table-id in flow should not be translated
+ * @param [in] ogroup Match a Output group for flow del (as per OF Spec)
+ *
+ * @retval int 0 for success non 0 for failure 
+ *
+ * This instructs the controller core to delete a flow via controller service connection
+ */
 int
 mul_service_send_flow_del(void *service,
                       uint64_t dpid, struct flow *fl,
@@ -928,6 +1410,10 @@ mul_service_send_flow_del(void *service,
     return 0;
 }
 
+/**
+ * @name mul_app_prep_meter_add
+ * @brief Prepare a meter add mlapi message 
+ */
 static struct cbuf *
 mul_app_prep_meter_add(uint64_t dpid, struct of_meter_mod_params *m_parms)
 {
@@ -968,6 +1454,10 @@ mul_app_prep_meter_add(uint64_t dpid, struct of_meter_mod_params *m_parms)
     return b;
 }
 
+/**
+ * @name mul_app_prep_meter_del
+ * @brief Prepare a meter delete mlapi message 
+ */
 static struct cbuf *
 mul_app_prep_meter_del(uint64_t dpid, struct of_meter_mod_params *m_parms)
 {
@@ -988,6 +1478,10 @@ mul_app_prep_meter_del(uint64_t dpid, struct of_meter_mod_params *m_parms)
     return b;
 }
 
+/**
+ * @name mul_app_prep_port_mod
+ * @brief Prepare a port mod mlapi message
+ */
 static struct cbuf *
 mul_app_prep_port_mod(uint64_t dpid, struct of_port_mod_params *pm_parms)
 {
@@ -1004,6 +1498,10 @@ mul_app_prep_port_mod(uint64_t dpid, struct of_port_mod_params *pm_parms)
     return b;
 }
 
+/**
+ * @name mul_app_prep_async_config
+ * @brief Prepare a async config mlapi message
+ */
 static struct cbuf *
 mul_app_prep_async_config(uint64_t dpid, 
                        struct of_async_config_params *async_config_params)
@@ -1042,6 +1540,10 @@ mul_app_prep_async_config(uint64_t dpid,
     return b;
 }
 
+/**
+ * @name mul_app_prep_loop_status
+ * @brief Prepare a loop convergence mlapi status message
+ */
 static struct cbuf *
 mul_app_prep_loop_status(uint64_t status) 
 {
@@ -1064,6 +1566,10 @@ mul_app_prep_loop_status(uint64_t status)
     return b;
 }
 
+/**
+ * @name mul_app_prep_tr_status
+ * @brief Prepare a Topology status mlapi message 
+ */
 static struct cbuf *
 mul_app_prep_tr_status(uint64_t status) 
 {
@@ -1085,6 +1591,39 @@ mul_app_prep_tr_status(uint64_t status)
     
     return b;
 }
+
+/**
+ * @name mul_app_group_id_alloc
+ * @brief Make a app specific group-id 
+ * @param [in] id Plain group-id 
+ *
+ * @retval uint32_t translated app group-id
+ * The input id's initial 16-bit is valid
+ */
+uint32_t
+mul_app_group_id_alloc(uint32_t id)
+{
+    return (((hdl->app_cookie & 0xffff) << 16) |
+            (id & 0xffff));
+}
+
+/**
+ * @name mul_app_group_id_dealloc
+ * @brief Return a plain group-id from app group-id
+ * @param [in] id App group-id 
+ *
+ * @retval uint32_t translated plain group-id
+ */
+uint32_t
+mul_app_group_id_dealloc(uint32_t id)
+{
+    return (id & 0xffff);
+}
+
+/**
+ * @name mul_app_prep_group_add
+ * @brief Prepares a group add mlapi message
+ */
 static struct cbuf *
 mul_app_prep_group_add(uint64_t dpid, struct of_group_mod_params *g_parms)
 {
@@ -1129,6 +1668,10 @@ mul_app_prep_group_add(uint64_t dpid, struct of_group_mod_params *g_parms)
     return b;
 }
 
+/**
+ * @name mul_app_prep_group_del
+ * @brief Prepares a group delete mlapi message
+ */
 static struct cbuf *
 mul_app_prep_group_del(uint64_t dpid, struct of_group_mod_params *g_parms)
 {
@@ -1150,6 +1693,17 @@ mul_app_prep_group_del(uint64_t dpid, struct of_group_mod_params *g_parms)
     return b;
 }
 
+/**
+ * @name mul_service_send_group_add
+ * @brief Send a group add mlapi to controller service
+ * @param [in] service Pointer to the controller client service handle
+ * @param [in] dpid Datapath-id of the switch
+ * @param [in] g_parms Group modification parameters 
+ * 
+ * @retval int 0 for success and non 0 for failure
+ * 
+ * This instructs the controller to add a group via a service connection
+ */
 int
 mul_service_send_group_add(void *service,
                            uint64_t dpid, struct of_group_mod_params *g_parms)
@@ -1162,6 +1716,17 @@ mul_service_send_group_add(void *service,
     return 0;
 }
 
+/**
+ * @name mul_service_send_group_del
+ * @brief Send a group del mlapi to controller service
+ * @param [in] service Pointer to the controller client service handle
+ * @param [in] dpid Datapath-id of the switch
+ * @param [in] g_parms Group modification parameters 
+ * 
+ * @retval int 0 for success and non 0 for failure
+ * 
+ * This instructs the controller to delete a group via a service connection
+ */
 int
 mul_service_send_group_del(void *service,
                            uint64_t dpid, struct of_group_mod_params *g_parms)
@@ -1174,6 +1739,17 @@ mul_service_send_group_del(void *service,
     return 0;
 }
 
+/**
+ * @name mul_service_send_meter_add
+ * @brief Send a meter add mlapi to controller service
+ * @param [in] service Pointer to the controller client service handle
+ * @param [in] dpid Datapath-id of the switch
+ * @param [in] m_parms Meter modification parameters 
+ * 
+ * @retval int 0 for success and non 0 for failure
+ * 
+ * This instructs the controller to add a meter via a service connection
+ */
 int
 mul_service_send_meter_add(void *service,
                            uint64_t dpid, struct of_meter_mod_params *m_parms)
@@ -1186,6 +1762,17 @@ mul_service_send_meter_add(void *service,
     return 0;
 }
 
+/**
+ * @name mul_service_send_meter_del
+ * @brief Send a meter del mlapi to controller service
+ * @param [in] service Pointer to the controller client service handle
+ * @param [in] dpid Datapath-id of the switch
+ * @param [in] m_parms Meter modification parameters 
+ * 
+ * @retval int 0 for success and non 0 for failure
+ * 
+ * This instructs the controller to delete a meter via a service connection
+ */
 int
 mul_service_send_meter_del(void *service,
                            uint64_t dpid, struct of_meter_mod_params *m_parms)
@@ -1198,6 +1785,17 @@ mul_service_send_meter_del(void *service,
     return 0;
 }
 
+/**
+ * @name mul_service_send_port_mod
+ * @brief Send a port prop mod mlapi message 
+ * @param [in] service Pointer to the controller client service handle
+ * @param [in] dpid Datapath-id of the switch
+ * @param [in] pm_parms Port modification parameters 
+ * 
+ * @retval int 0 for success and non 0 for failure
+ * 
+ * This instructs the controller to modify a port via service connection
+ */
 int
 mul_service_send_port_mod(void *service,
                            uint64_t dpid, struct of_port_mod_params *pm_parms)
@@ -1210,6 +1808,16 @@ mul_service_send_port_mod(void *service,
     return 0;
 }
 
+/**
+ * @name mul_app_send_port_mod
+ * @brief Send a port prop mod mlapi message 
+ * @param [in] dpid Datapath-id of the switch
+ * @param [in] pm_parms Port modification parameters 
+ * 
+ * @retval int 0 for success and non 0 for failure
+ * 
+ * This instructs the controller to modify a port via default controller channel 
+ */
 int
 mul_app_send_port_mod(uint64_t dpid, struct of_port_mod_params *pm_parms)
 {
@@ -1218,6 +1826,15 @@ mul_app_send_port_mod(uint64_t dpid, struct of_port_mod_params *pm_parms)
     return mul_app_command_handler(NULL, b);
 }
 
+/**
+ * @name mul_service_send_async_config
+ * @brief Send async config mlapi message to controller
+ * @param [in] service Pointer to the controller client service handle
+ * @param [in] dpid Datapath-id of the switch
+ * @param [in] ac_parms Async config modification parameters 
+ * 
+ * @retval int 0 for success and non 0 for failure
+ */
 int
 mul_service_send_async_config(void *service, uint64_t dpid,
                               struct of_async_config_params *ac_parms)
@@ -1230,6 +1847,13 @@ mul_service_send_async_config(void *service, uint64_t dpid,
     return 0;
 }
 
+/**
+ * @name mul_app_send_loop_status 
+ * @brief Send loop detection status to controller 
+ * @param [in] status Status of the loop detection
+ * 
+ * @retval int 0 for success and non 0 for failure
+ */
 int
 mul_app_send_loop_status(uint64_t status)
 {
@@ -1239,6 +1863,13 @@ mul_app_send_loop_status(uint64_t status)
     return mul_app_command_handler(NULL, b);
 }
 
+/**
+ * @name mul_app_send_tr_status 
+ * @brief Send topo convergence status to controller 
+ * @param [in] status Status of the loop detection
+ * 
+ * @retval int 0 for success and non 0 for failure
+ */
 int
 mul_app_send_tr_status(uint64_t status)
 {
@@ -1248,6 +1879,10 @@ mul_app_send_tr_status(uint64_t status)
     return mul_app_command_handler(NULL, b);
 }
 
+/**
+ * @name mul_prep_send_vendor_msg 
+ * @brief  Prepare a vendor message send mlapi message
+ */
 static struct cbuf *
 mul_prep_send_vendor_msg(uint64_t dpid, uint32_t vendor_id, void *arg, uint16_t len)
 {
@@ -1267,6 +1902,16 @@ mul_prep_send_vendor_msg(uint64_t dpid, uint32_t vendor_id, void *arg, uint16_t 
 
 }
 
+/**
+ * @name mul_send_vendor_msg 
+ * @brief  Send a vendor message mlapi message
+ * @param [in] dpid Datapath-id of the switch
+ * @param [in] vendor_id Vendor specific-id 
+ * @param [in] arg  Argument pointing to vendor message buffer
+ * @param [in] arg_len  Length of vendor message buffer
+ * 
+ * @retval int 0 for success and non 0 for failure
+ */
 int
 mul_send_vendor_msg(uint64_t dpid, uint32_t vendor_id, void *arg, uint16_t arg_len)
 {
@@ -1277,12 +1922,27 @@ mul_send_vendor_msg(uint64_t dpid, uint32_t vendor_id, void *arg, uint16_t arg_l
     return 0;
 }
 
+/**
+ * @name mul_app_act_alloc
+ * @brief Allocate a action metadata strcture 
+ * @param [in] mdata Main meta-data structure 
+ *
+ * @retval void Nothing
+ */
 void
 mul_app_act_alloc(mul_act_mdata_t *mdata)
 {
     return of_mact_alloc(mdata);
 }
 
+/**
+ * @name mul_app_act_set_ctors 
+ * @brief Associate a switch with action metadata for constructor init 
+ * @param [in] mdata Pointer to action meta-data structure 
+ * @param [in] dpid  Datapath-id
+ *
+ * @retval int 0 for success and no 0 for failure
+ */
 int
 mul_app_act_set_ctors(mul_act_mdata_t *mdata, uint64_t dpid)
 {
@@ -1305,24 +1965,52 @@ mul_app_act_set_ctors(mul_act_mdata_t *mdata, uint64_t dpid)
     return 0;
 }
 
+/**
+ * @name mul_app_act_free
+ * @brief Deallocate an action metadata structure 
+ * @param [in] mdata Main meta-data structure 
+ *
+ * @retval void Nothing
+ */
 void
 mul_app_act_free(mul_act_mdata_t *mdata)
 {
     return of_mact_free(mdata);
 }
 
+/**
+ * @name mul_app_act_buf_room
+ * @brief Query the size remaining in action meta data buffer 
+ * @param [in] mdata Main meta-data structure 
+ *
+ * @retval size_t Size of remaining buffer length
+ */
 size_t
 mul_app_act_buf_room(mul_act_mdata_t *mdata)
 {
     return of_mact_buf_room(mdata);
 }
 
+/**
+ * @name mul_app_act_len
+ * @brief Query the size used in action meta data buffer 
+ * @param [in] mdata Main meta-data structure 
+ *
+ * @retval size_t Size of used buffer length
+ */
 size_t
 mul_app_act_len(mul_act_mdata_t *mdata)
 {
     return of_mact_len(mdata);
 }
 
+/**
+ * @name mul_app_set_inst_write 
+ * @brief Mark beginning of instruction write actions 
+ * @param [in] mdata Pointer to meta-data structure 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_set_inst_write(mul_act_mdata_t *mdata)
 {
@@ -1336,6 +2024,13 @@ mul_app_set_inst_write(mul_act_mdata_t *mdata)
     }
 }
 
+/**
+ * @name mul_app_set_inst_apply
+ * @brief Mark beginning of instruction apply actions 
+ * @param [in] mdata Pointer to meta-data structure 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_set_inst_apply(mul_act_mdata_t *mdata)
 {
@@ -1349,6 +2044,14 @@ mul_app_set_inst_apply(mul_act_mdata_t *mdata)
     }
 }
 
+/**
+ * @name mul_app_inst_goto
+ * @brief Constructor for instruction goto
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] table Table-id for goto
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_inst_goto(mul_act_mdata_t *mdata, uint8_t table)
 {
@@ -1366,6 +2069,14 @@ mul_app_inst_goto(mul_act_mdata_t *mdata, uint8_t table)
     return 0;
 }
 
+/**
+ * @name mul_app_inst_meter
+ * @brief Constructor for instruction meter
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] meter meter-id for meter instruction 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_inst_meter(mul_act_mdata_t *mdata, uint32_t meter)
 {
@@ -1383,6 +2094,15 @@ mul_app_inst_meter(mul_act_mdata_t *mdata, uint32_t meter)
     return 0;
 }
 
+/**
+ * @name mul_app_inst_wr_meta
+ * @brief Constructor for instruction metadat 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] metadata metadata for metadata instruction 
+ * @param [in] metadata_mask metadata mask for metadata instruction 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_inst_wr_meta(mul_act_mdata_t *mdata, uint64_t metadata,
                      uint64_t metadata_mask)
@@ -1401,7 +2121,14 @@ mul_app_inst_wr_meta(mul_act_mdata_t *mdata, uint64_t metadata,
     return 0;
 }
 
-
+/**
+ * @name mul_app_action_output 
+ * @brief Constructor for action output 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] oport Output port
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_output(mul_act_mdata_t *mdata, uint32_t oport)
 {
@@ -1414,6 +2141,14 @@ mul_app_action_output(mul_act_mdata_t *mdata, uint32_t oport)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_queue
+ * @brief Constructor for action set queue
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] queue Set queue-id
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_queue(mul_act_mdata_t *mdata, uint32_t queue)
 {
@@ -1428,6 +2163,14 @@ mul_app_action_set_queue(mul_act_mdata_t *mdata, uint32_t queue)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_vid
+ * @brief Constructor for action set vlan-id 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] vid Set vlan-id
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_vid(mul_act_mdata_t *mdata, uint16_t vid)
 {
@@ -1439,6 +2182,13 @@ mul_app_action_set_vid(mul_act_mdata_t *mdata, uint16_t vid)
     return -1;
 }
 
+/**
+ * @name mul_app_action_strip_vlan
+ * @brief Constructor for action strip vlan-id 
+ * @param [in] mdata Pointer to meta-data structure 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_strip_vlan(mul_act_mdata_t *mdata)
 {
@@ -1450,6 +2200,14 @@ mul_app_action_strip_vlan(mul_act_mdata_t *mdata)
     return -1; 
 }
 
+/**
+ * @name mul_app_action_set_dmac
+ * @brief Constructor for action set destination mac 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] dmac Destination mac array 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_dmac(mul_act_mdata_t *mdata, uint8_t *dmac)
 {
@@ -1461,6 +2219,14 @@ mul_app_action_set_dmac(mul_act_mdata_t *mdata, uint8_t *dmac)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_smac
+ * @brief Constructor for action set source mac 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] dmac source mac array 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_smac(mul_act_mdata_t *mdata, uint8_t *smac)
 {
@@ -1472,6 +2238,14 @@ mul_app_action_set_smac(mul_act_mdata_t *mdata, uint8_t *smac)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_eth_type
+ * @brief Constructor for action set ether-type
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] eth_type Ethernet type
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_eth_type(mul_act_mdata_t *mdata, uint16_t eth_type)
 {
@@ -1485,6 +2259,14 @@ mul_app_action_set_eth_type(mul_act_mdata_t *mdata, uint16_t eth_type)
     return -1;
 }
 
+/**
+ * @name mul_app_action_push_hdr
+ * @brief Constructor for action push header
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] eth_type Ethernet type for push-header
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_push_hdr(mul_act_mdata_t *mdata, uint16_t eth_type)
 {
@@ -1496,6 +2278,14 @@ mul_app_action_push_hdr(mul_act_mdata_t *mdata, uint16_t eth_type)
     return -1;
 }
 
+/**
+ * @name mul_app_action_strip_mpls
+ * @brief Constructor for action strip mpls
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] eth_type Inner Ethernet type 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_strip_mpls(mul_act_mdata_t *mdata, uint16_t eth_type)
 {
@@ -1509,6 +2299,14 @@ mul_app_action_strip_mpls(mul_act_mdata_t *mdata, uint16_t eth_type)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_mpls_ttl
+ * @brief Constructor for action set mpls ttl
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] ttl time to live value 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_mpls_ttl(mul_act_mdata_t *mdata, uint8_t ttl)
 {
@@ -1522,6 +2320,14 @@ mul_app_action_set_mpls_ttl(mul_act_mdata_t *mdata, uint8_t ttl)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_mpls_label
+ * @brief Constructor for action set mpls label
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] label label value
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_mpls_label(mul_act_mdata_t *mdata, uint32_t label)
 {
@@ -1535,6 +2341,14 @@ mul_app_action_set_mpls_label(mul_act_mdata_t *mdata, uint32_t label)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_mpls_tc
+ * @brief Constructor for action set mpls tc
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] tc tc value
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_mpls_tc(mul_act_mdata_t *mdata, uint8_t tc)
 {
@@ -1548,6 +2362,14 @@ mul_app_action_set_mpls_tc(mul_act_mdata_t *mdata, uint8_t tc)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_mpls_bos
+ * @brief Constructor for action set mpls bos 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] bos bos value ( 0 or 1)
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_mpls_bos(mul_act_mdata_t *mdata, uint8_t bos)
 {
@@ -1561,6 +2383,13 @@ mul_app_action_set_mpls_bos(mul_act_mdata_t *mdata, uint8_t bos)
     return -1;
 }
 
+/**
+ * @name mul_app_action_dec_mpls_ttl
+ * @brief Constructor for action decrement mpls ttl 
+ * @param [in] mdata Pointer to meta-data structure 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_dec_mpls_ttl(mul_act_mdata_t *mdata)
 {
@@ -1574,6 +2403,14 @@ mul_app_action_dec_mpls_ttl(mul_act_mdata_t *mdata)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_nw_ttl
+ * @brief Constructor for action set network ttl 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] ttl  ttl value
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_nw_ttl(mul_act_mdata_t *mdata, uint8_t ttl)
 {
@@ -1587,6 +2424,13 @@ mul_app_action_set_nw_ttl(mul_act_mdata_t *mdata, uint8_t ttl)
     return -1;
 }
 
+/**
+ * @name mul_app_action_dec_nw_ttl
+ * @brief Constructor for action decrement network ttl 
+ * @param [in] mdata Pointer to meta-data structure 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_dec_nw_ttl(mul_act_mdata_t *mdata)
 {
@@ -1600,6 +2444,14 @@ mul_app_action_dec_nw_ttl(mul_act_mdata_t *mdata)
     return -1;
 }
 
+/**
+ * @name mul_app_action_cp_ttl
+ * @brief Constructor for action decrement network ttl 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] in Bool (true if copy ttl in, false for copy ttl out)
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_cp_ttl(mul_act_mdata_t *mdata, bool in)
 {
@@ -1614,6 +2466,13 @@ mul_app_action_cp_ttl(mul_act_mdata_t *mdata, bool in)
     return -1;
 }
 
+/**
+ * @name mul_app_action_strip_pbb
+ * @brief Constructor for action  strip PBB header
+ * @param [in] mdata Pointer to meta-data structure 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_strip_pbb(mul_act_mdata_t *mdata)
 {
@@ -1627,6 +2486,14 @@ mul_app_action_strip_pbb(mul_act_mdata_t *mdata)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_vlan_pcp
+ * @brief Constructor for action set vlan pcp
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] vlan_pcp vlan pcp value
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_vlan_pcp(mul_act_mdata_t *mdata, uint8_t vlan_pcp)
 {
@@ -1638,6 +2505,14 @@ mul_app_action_set_vlan_pcp(mul_act_mdata_t *mdata, uint8_t vlan_pcp)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_nw_saddr
+ * @brief Constructor for action set IP source address
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] nw_saddr Source IP address 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_nw_saddr(mul_act_mdata_t *mdata, uint32_t nw_saddr) 
 {
@@ -1649,6 +2524,14 @@ mul_app_action_set_nw_saddr(mul_act_mdata_t *mdata, uint32_t nw_saddr)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_nw_daddr
+ * @brief Constructor for action set IP destination address
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] nw_daddr Destination IP address 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_nw_daddr(mul_act_mdata_t *mdata, uint32_t nw_daddr) 
 {
@@ -1660,6 +2543,14 @@ mul_app_action_set_nw_daddr(mul_act_mdata_t *mdata, uint32_t nw_daddr)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_nw_saddr6
+ * @brief Constructor for action set IPv6 source address
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] nw_saddr Source IPv6 address 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_nw_saddr6(mul_act_mdata_t *mdata, uint8_t *nw_saddr) 
 {
@@ -1671,6 +2562,14 @@ mul_app_action_set_nw_saddr6(mul_act_mdata_t *mdata, uint8_t *nw_saddr)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_nw_daddr6
+ * @brief Constructor for action set IPv6 destination address
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] nw_daddr Destination IPv6 address 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_nw_daddr6(mul_act_mdata_t *mdata, uint8_t *nw_daddr) 
 {
@@ -1682,6 +2581,14 @@ mul_app_action_set_nw_daddr6(mul_act_mdata_t *mdata, uint8_t *nw_daddr)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_nw_tos
+ * @brief Constructor for action set network ToS
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] tos Set network TOS
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_nw_tos(mul_act_mdata_t *mdata, uint8_t tos) 
 {
@@ -1693,6 +2600,14 @@ mul_app_action_set_nw_tos(mul_act_mdata_t *mdata, uint8_t tos)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_tp_udp_sport
+ * @brief Constructor for action set udp L4 source port 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] sport source port
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_tp_udp_sport(mul_act_mdata_t *mdata, uint16_t sport)
 {
@@ -1704,6 +2619,14 @@ mul_app_action_set_tp_udp_sport(mul_act_mdata_t *mdata, uint16_t sport)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_tp_udp_dport
+ * @brief Constructor for action set udp L4 destination port 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] dport destination port
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_tp_udp_dport(mul_act_mdata_t *mdata, uint16_t dport)
 {
@@ -1715,6 +2638,14 @@ mul_app_action_set_tp_udp_dport(mul_act_mdata_t *mdata, uint16_t dport)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_tp_tcp_sport
+ * @brief Constructor for action set tcp L4 source port 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] sport source port
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_tp_tcp_sport(mul_act_mdata_t *mdata, uint16_t sport)
 {
@@ -1726,6 +2657,14 @@ mul_app_action_set_tp_tcp_sport(mul_act_mdata_t *mdata, uint16_t sport)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_tp_tcp_dport
+ * @brief Constructor for action set tcp L4 destination port 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] dport destination port
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_tp_tcp_dport(mul_act_mdata_t *mdata, uint16_t dport)
 {
@@ -1737,8 +2676,16 @@ mul_app_action_set_tp_tcp_dport(mul_act_mdata_t *mdata, uint16_t dport)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_group
+ * @brief Constructor for action set group 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] group group-id
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
-mul_app_action_set_group(mul_act_mdata_t *mdata, uint16_t group)
+mul_app_action_set_group(mul_act_mdata_t *mdata, uint32_t group)
 {
     struct c_ofp_ctors *ctors = mdata->ofp_ctors;
 
@@ -1748,6 +2695,14 @@ mul_app_action_set_group(mul_act_mdata_t *mdata, uint16_t group)
     return -1;
 }
 
+/**
+ * @name mul_app_action_set_tunnel_id
+ * @brief Constructor for action set tunnel-id
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] tunnel tunnel-id
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_action_set_tunnel_id(mul_act_mdata_t *mdata, uint64_t tunnel)
 {
@@ -1759,6 +2714,14 @@ mul_app_action_set_tunnel_id(mul_act_mdata_t *mdata, uint64_t tunnel)
     return -1;
 }
 
+/**
+ * @name mul_app_set_band_drop
+ * @brief Constructor for preparing a drop meter band 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] parms Pointer to meter band parms 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_set_band_drop(mul_act_mdata_t *mdata, struct of_meter_band_parms *parms)
 {
@@ -1773,6 +2736,14 @@ mul_app_set_band_drop(mul_act_mdata_t *mdata, struct of_meter_band_parms *parms)
     return 0;
 }
 
+/**
+ * @name mul_app_set_band_dscp
+ * @brief Constructor for preparing a dscp meter band 
+ * @param [in] mdata Pointer to meta-data structure 
+ * @param [in] parms Pointer to meter band parms 
+ *
+ * @retval int 0 for success and non 0 for error 
+ */
 int
 mul_app_set_band_dscp(mul_act_mdata_t *mdata, struct of_meter_band_parms *parms)
 {
@@ -1788,6 +2759,10 @@ mul_app_set_band_dscp(mul_act_mdata_t *mdata, struct of_meter_band_parms *parms)
     return 0;
 }
 
+/**
+ * @name mul_app_core_conn_available
+ * @brief Checks if default core controller connection is available
+ */
 bool
 mul_app_core_conn_available(void)
 {

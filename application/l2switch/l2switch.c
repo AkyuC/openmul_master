@@ -127,7 +127,7 @@ l2sw_add(mul_switch_t *sw)
                                               g_int_equal,
                                               NULL,
                                               l2_mfdb_ent_free);
-    assert(l2sw->l2fdb_htbl);
+    assert(l2sw->l2mfdb_htbl);
 
 
 #ifndef CONFIG_L2SW_FDB_CACHE
@@ -178,7 +178,7 @@ l2sw_install_dfl_flows(uint64_t dpid)
     memset(&fl, 0, sizeof(fl));
     of_mask_set_dc_all(&mask);
     mul_app_send_flow_add(L2SW_APP_NAME, NULL, dpid, &fl, &mask,
-                          L2SW_UNK_BUFFER_ID, NULL, 0, 0, 0, C_FL_PRIO_DFL, 
+                          L2SW_UNK_BUFFER_ID, NULL, 0, 0, 0, C_FL_PRIO_LDFL, 
                           C_FL_ENT_LOCAL);
     
     /* Default flow to be added in switch so that switch sends all 
@@ -197,7 +197,8 @@ l2sw_install_dfl_flows(uint64_t dpid)
                           &mask, 0xffffffff,
                           mdata.act_base, mul_app_act_len(&mdata),
                           0, 0,
-                          C_FL_PRIO_EXM, C_FL_ENT_NOCACHE);
+                          C_FL_PRIO_EXM,
+                          C_FL_ENT_GSTATS | C_FL_ENT_CTRL_LOCAL);
 
     mul_app_act_free(&mdata);
 }
@@ -240,7 +241,7 @@ l2sw_mod_flow(l2sw_t *l2sw, l2fdb_ent_t *fdb,
         mul_app_act_free(&mdata);
     } else {
         mul_app_send_flow_del(L2SW_APP_NAME, NULL, l2sw->swid, &fl,
-                              &mask, OFPP_NONE, C_FL_PRIO_DFL,
+                              &mask, 0, C_FL_PRIO_DFL,
                               C_FL_ENT_NOCACHE, OFPG_ANY);
     }
 

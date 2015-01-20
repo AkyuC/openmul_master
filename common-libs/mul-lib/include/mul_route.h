@@ -30,8 +30,8 @@
 
 struct lweight_pair_
 {
-    uint16_t la;
-    uint16_t lb;
+    uint16_t la;  /* Port-id from a to b */
+    uint16_t lb;  /* Port-id from b to a */
 #define NEIGH_DFL_WEIGHT (100)
     int weight;
 #define NEIGH_FL_ONLINK 0x1
@@ -44,6 +44,8 @@ typedef struct lweight_pair_ lweight_pair_t;
 
 struct rt_adj_elem_
 {
+    uint64_t dpid_a;
+    uint64_t dpid_b;
     uint32_t pairs;
 #define RT_MAX_ADJ_PAIRS (4)
     lweight_pair_t adj_pairs[RT_MAX_ADJ_PAIRS];
@@ -52,6 +54,7 @@ typedef struct rt_adj_elem_ rt_adj_elem_t;
 
 struct rt_path_elem_
 {
+    uint64_t sw_dpid;
     int sw_alias;
 #define RT_PELEM_FIRST_HOP 0x1
 #define RT_PELEM_LAST_HOP 0x2
@@ -71,6 +74,7 @@ typedef struct rt_transit_elem_ rt_transit_elem_t;
 
 struct rt_list
 {
+    uint32_t skip;
     GSList *route;
     struct rt_list *next;
 };
@@ -78,10 +82,12 @@ typedef struct rt_list rt_list_t;
 
 void mul_route_path_traverse(GSList *iroute, GFunc iter_fn, void *arg);
 void mul_destroy_route(GSList *route);
+void mul_route_list_free(rt_list_t *path_head, bool free_route);
 size_t mul_route_get_nodes(void *rt_service);
 GSList *mul_route_get(void *rt_service, int src_sw, int dest_sw);
 GSList *mul_route_get_mp(void *rt_service, int src_sw, int dest_sw, void *u_arg,
                          size_t (*mp_select)(void *u_arg, size_t max_routes));
+rt_list_t *mul_route_get_all(void *rt_service, int src_sw, int dest_sw);
 void mul_route_init_block_meta(void *rt_info, void *blk);
 void *mul_route_service_get(void);
 void mul_route_service_destroy(void *rt_service);

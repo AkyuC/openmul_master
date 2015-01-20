@@ -26,13 +26,21 @@
 
 #define FAB_DFL_PBUF_SZ (4096) 
 
-int mul_fabric_host_mod(void *service, uint64_t dpid, struct flow *fl, bool add);
-int mul_fabric_show_hosts(void *service, bool active, bool dump_cmd,
+int mul_fabric_host_mod(void *service, uint64_t dpid, struct flow *fl, 
+        uint8_t *tenant_id, uint8_t *network_id, bool add);
+int mul_fabric_show_hosts(void *service, bool active, bool dump_cmd, bool nbapi,
                            void *arg, void (*cb_fn)(void *arg, void *pbuf));
-void mul_fabric_show_routes(void *service,
+int mul_fabric_show_routes(void *service,
                        void *arg,
+		       bool call_cb,
                        void (*show_src_host)(void *arg, char *pbuf),
                        void (*show_dst_host)(void *arg, char *pbuf),
                        void (*show_route_links)(void *arg, char *pbuf));
-
+int mul_fabric_show_tenant_nw(void *service, void *arg, void (*cb_fn)(void *arg, void *pbuf));
+int mul_fabric_port_tnid_mod(void *service, uint64_t dpid, uint32_t port,
+        uint8_t *tenant_id,  uint8_t *network_id, bool add);
+int mul_fabric_port_tnid_show(void *service, bool dump, void *arg, void (*cb_fn)(void *arg, void *pbuf));
+int mul_fabric_show_host_routes(void *service, void *arg,
+                                struct flow *fl, uint8_t *tenant_id, uint8_t *network_id,
+                                void (*cb_fn)(void *arg, char *pbuf));
 #endif

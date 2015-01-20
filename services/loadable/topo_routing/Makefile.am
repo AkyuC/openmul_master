@@ -13,7 +13,8 @@ LIBEVENT_INCLUDE = @LIBEVENT_INCLUDE@
 INCLUDES = -I. -I$(top_srcdir)/mul -I$(top_srcdir)/common/ \
            -I$(top_srcdir)/common-libs/3rd-party/derived-lib/include/ \
            -I$(top_srcdir)/common-libs/3rd-party/quagga-lib/include/ \
-           -I$(top_srcdir)/common-libs/mul-lib/include/
+           -I$(top_srcdir)/common-libs/mul-lib/include/ \
+           -I$(top_srcdir)/common-libs/util-linux/libuuid/src/
 
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 
@@ -30,7 +31,7 @@ libmultr_la_SOURCES = \
 multr_SOURCES = mul_lldp.c mul_lldp_vty.c mul_lldp_hash.c \
                 mul_lldp_common.c mul_lldp_debug.c \
                 mul_route_apsp.c mul_route_vty.c \
-                mul_tr.c \
+                mul_tr.c mul_loop.c \
                $(top_srcdir)/common/mul_app_main.c
 
 LD_FLAGS= @LDFLAGS@ 
@@ -56,4 +57,4 @@ endif
 
 multr_LDFLAGS = $(LD_FLAGS) -lpthread -lglib-2.0 -levent -lcrypt -lrt
 
-noinst_HEADERS = mul_lldp_pkt.h mul_lldp_vty.h mul_lldp_hash.h mul_lldp_common.h mul_lldp_debug.h mul_tr.h mul_tr_common.h
+noinst_HEADERS = mul_lldp_pkt.h mul_lldp_vty.h mul_lldp_hash.h mul_lldp_common.h mul_lldp_debug.h mul_tr.h mul_tr_common.h mul_loop.h

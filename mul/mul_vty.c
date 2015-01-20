@@ -1,6 +1,6 @@
 /*
  *  mul_vty.c: MUL vty implementation 
- *  Copyright (C) 2012, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
+ *  Copyright (C) 2012-2015, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -340,7 +340,7 @@ DEFUN (of_flow_reset,
         return CMD_WARNING;
     }
 
-    __of_send_flow_del_direct(sw, &flow, &mask, OFPP_NONE,
+    __of_send_flow_del_direct(sw, &flow, &mask, 0,
                               false, C_FL_PRIO_DFL, OFPG_ANY);
 
     c_switch_flow_tbl_reset(sw);
@@ -348,6 +348,122 @@ DEFUN (of_flow_reset,
 
     vty_out(vty, "All Flows reset\r\n");
 
+    return CMD_SUCCESS;
+}
+
+DEFUN (c_show_ha_state,
+       c_show_ha_state_cmd,
+       "show controller ha-state", 
+       SHOW_STR
+       "Controller Info\n"
+       "HA State\n")
+{
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    vty_out(vty, "[MY] system-id 0x%x system-state 0x%x\r\n",
+            ctrl_hdl.ha_sysid, ctrl_hdl.ha_state); 
+
+    vty_out(vty, "[PEER] system-id 0x%x system-state 0x%x\r\n",
+            ctrl_hdl.ha_peer_sysid, ctrl_hdl.ha_peer_state); 
+
+    vty_out(vty, "generation-id 0x%llx\r\n", U642ULL(ctrl_hdl.gen_id)); 
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+    return CMD_SUCCESS;
+}
+
+DEFUN (c_send_current_role_get,
+       c_send_current_role_get_cmd,
+       "send-get-controller-role dpid X", 
+       "Get current controller role from switch\n"
+       "Switch datapath\n"
+       "Enter the value in 0xXXXX format\n")
+{
+    uint32_t    role = 0;
+    uint64_t    dpid = 0;
+    c_switch_t *sw = NULL;
+    struct cbuf *b = NULL;
+
+    dpid = strtoull(argv[0], NULL, 16);
+    sw = c_switch_get(&ctrl_hdl, dpid);
+    if (!sw) {
+        vty_out(vty, "get current role fail : No such switch\r\n");
+        return CMD_WARNING;
+    }
+
+    role = OFPCR_ROLE_NOCHANGE;
+
+    if (sw->ofp_ctors && sw->ofp_ctors->role_request) {
+        b = sw->ofp_ctors->role_request(role, ctrl_hdl.gen_id);
+        if (sw->tx_dump_en && sw->ofp_ctors->dump_of_msg) {
+            sw->ofp_ctors->dump_of_msg(b, true, sw->dump_mask, sw->DPID);
+        }
+        c_thread_tx(&sw->conn, b, false);
+    }
+
+    c_switch_put(sw);
+
+    return CMD_SUCCESS;
+}
+
+DEFUN (c_send_flow_mod,
+       c_send_flow_mod_cmd,
+       "send-dummy-flow-mod dpid X", 
+       "Send a dummy flow mod to a switch (Only for testing)\n"
+       "Switch datapath\n"
+       "Enter the value in 0xXXXX format\n")
+{
+    uint64_t    dpid = 0;
+    c_switch_t *sw = NULL;
+    struct cbuf *b = NULL;
+    struct flow flow, mask;
+    mul_act_mdata_t mdata;
+
+    dpid = strtoull(argv[0], NULL, 16);
+    sw = c_switch_get(&ctrl_hdl, dpid);
+    if (!sw) {
+        vty_out(vty, "No such switch\r\n");
+        return CMD_WARNING;
+    }
+
+    memset(&flow, 0, sizeof(flow));
+    of_mask_set_dc_all(&mask);
+
+    if (c_switch_of_master_check(&ctrl_hdl)) {
+        vty_out(vty, "Command available in HA slave only for testing\r\n");
+        return CMD_WARNING;
+    }
+
+    /* Try to end a dummy flow */
+    flow.table_id = 1;
+    mask.table_id = 0xff;
+
+    of_mact_alloc(&mdata);
+    if (sw->ofp_ctors->act_output) {
+        sw->ofp_ctors->act_output(&mdata, 0); /* 0 -> Send to controller */
+    }
+
+    if (sw->ofp_ctors && sw->ofp_ctors->flow_add) {
+        b = sw->ofp_ctors->flow_add(&flow, &mask,
+                                OFP_NO_BUFFER, mdata.act_base,
+                                of_mact_len(&mdata), 0, 0, C_FL_PRIO_DFL,
+                                0, false);
+        if (sw->tx_dump_en && sw->ofp_ctors->dump_of_msg) {
+            sw->ofp_ctors->dump_of_msg(b, true, sw->dump_mask, sw->DPID);
+        }
+        c_thread_tx(&sw->conn, b, false);
+    }
+
+    c_switch_put(sw);
+    of_mact_free(&mdata);
+    
     return CMD_SUCCESS;
 }
 
@@ -399,7 +515,7 @@ DEFUN (c_send_pkt,
         for (counter = 0; counter < num_pkt; counter++) {
             b = sw->ofp_ctors->pkt_out(&parms);
             if (sw->tx_dump_en && sw->ofp_ctors->dump_of_msg) {
-                sw->ofp_ctors->dump_of_msg(b, true, sw->DPID);
+                sw->ofp_ctors->dump_of_msg(b, true, sw->dump_mask, sw->DPID);
             }
             c_thread_tx(&sw->conn, b, false);
         }
@@ -515,9 +631,12 @@ modvty__initcalls(void *arg)
 static void
 mul_vty_init(void)
 {
+
+    install_element(ENABLE_NODE, &c_show_ha_state_cmd);
     install_element(ENABLE_NODE, &show_of_switch_cmd);
     install_element(ENABLE_NODE, &show_of_switch_detail_cmd);
     install_element(CONFIG_NODE, &c_send_pkt_cmd);
+    install_element(CONFIG_NODE, &c_send_current_role_get_cmd);
     install_element(CONFIG_NODE, &of_flow_reset_cmd);
     install_element(CONFIG_NODE, &c_set_log_cmd);
     install_element(CONFIG_NODE, &c_set_aging_cmd);

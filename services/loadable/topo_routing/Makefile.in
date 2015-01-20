@@ -99,7 +99,8 @@ am_multr_OBJECTS = multr-mul_lldp.$(OBJEXT) \
 	multr-mul_lldp_vty.$(OBJEXT) multr-mul_lldp_hash.$(OBJEXT) \
 	multr-mul_lldp_common.$(OBJEXT) multr-mul_lldp_debug.$(OBJEXT) \
 	multr-mul_route_apsp.$(OBJEXT) multr-mul_route_vty.$(OBJEXT) \
-	multr-mul_tr.$(OBJEXT) multr-mul_app_main.$(OBJEXT)
+	multr-mul_tr.$(OBJEXT) multr-mul_loop.$(OBJEXT) \
+	multr-mul_app_main.$(OBJEXT)
 multr_OBJECTS = $(am_multr_OBJECTS)
 multr_DEPENDENCIES =  \
 	$(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a \
@@ -159,6 +160,7 @@ CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 DEPDIR = @DEPDIR@
 DLLTOOL = @DLLTOOL@
+DOXYGEN = @DOXYGEN@
 DSYMUTIL = @DSYMUTIL@
 DUMPBIN = @DUMPBIN@
 ECHO_C = @ECHO_C@
@@ -283,8 +285,9 @@ lib_LTLIBRARIES = libmultr.la
 INCLUDES = -I. -I$(top_srcdir)/mul -I$(top_srcdir)/common/ \
 	-I$(top_srcdir)/common-libs/3rd-party/derived-lib/include/ \
 	-I$(top_srcdir)/common-libs/3rd-party/quagga-lib/include/ \
-	-I$(top_srcdir)/common-libs/mul-lib/include/ $(am__append_3) \
-	$(am__append_5)
+	-I$(top_srcdir)/common-libs/mul-lib/include/ \
+	-I$(top_srcdir)/common-libs/util-linux/libuuid/src/ \
+	$(am__append_3) $(am__append_5)
 multr_CFLAGS = -DMUL_APP_V2_MLAPI $(am__append_1)
 libmultr_la_SOURCES = \
         mul_route_servlet.c mul_tr_servlet.c
@@ -292,7 +295,7 @@ libmultr_la_SOURCES = \
 multr_SOURCES = mul_lldp.c mul_lldp_vty.c mul_lldp_hash.c \
                 mul_lldp_common.c mul_lldp_debug.c \
                 mul_route_apsp.c mul_route_vty.c \
-                mul_tr.c \
+                mul_tr.c mul_loop.c \
                $(top_srcdir)/common/mul_app_main.c
 
 LD_FLAGS = @LDFLAGS@ $(am__append_2) $(am__append_4)
@@ -300,7 +303,7 @@ multr_LDADD = $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a \
 	$(top_srcdir)/services/loadable/topo_routing/.libs/libmultr.a \
 	-lcrypto -lssl $(am__append_6)
 multr_LDFLAGS = $(LD_FLAGS) -lpthread -lglib-2.0 -levent -lcrypt -lrt
-noinst_HEADERS = mul_lldp_pkt.h mul_lldp_vty.h mul_lldp_hash.h mul_lldp_common.h mul_lldp_debug.h mul_tr.h mul_tr_common.h
+noinst_HEADERS = mul_lldp_pkt.h mul_lldp_vty.h mul_lldp_hash.h mul_lldp_common.h mul_lldp_debug.h mul_tr.h mul_tr_common.h mul_loop.h
 all: all-am
 
 .SUFFIXES:
@@ -429,6 +432,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/multr-mul_lldp_debug.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/multr-mul_lldp_hash.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/multr-mul_lldp_vty.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/multr-mul_loop.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/multr-mul_route_apsp.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/multr-mul_route_vty.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/multr-mul_tr.Po@am__quote@
@@ -565,6 +569,20 @@ multr-mul_tr.obj: mul_tr.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_tr.c' object='multr-mul_tr.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(multr_CFLAGS) $(CFLAGS) -c -o multr-mul_tr.obj `if test -f 'mul_tr.c'; then $(CYGPATH_W) 'mul_tr.c'; else $(CYGPATH_W) '$(srcdir)/mul_tr.c'; fi`
+
+multr-mul_loop.o: mul_loop.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(multr_CFLAGS) $(CFLAGS) -MT multr-mul_loop.o -MD -MP -MF $(DEPDIR)/multr-mul_loop.Tpo -c -o multr-mul_loop.o `test -f 'mul_loop.c' || echo '$(srcdir)/'`mul_loop.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/multr-mul_loop.Tpo $(DEPDIR)/multr-mul_loop.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_loop.c' object='multr-mul_loop.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(multr_CFLAGS) $(CFLAGS) -c -o multr-mul_loop.o `test -f 'mul_loop.c' || echo '$(srcdir)/'`mul_loop.c
+
+multr-mul_loop.obj: mul_loop.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(multr_CFLAGS) $(CFLAGS) -MT multr-mul_loop.obj -MD -MP -MF $(DEPDIR)/multr-mul_loop.Tpo -c -o multr-mul_loop.obj `if test -f 'mul_loop.c'; then $(CYGPATH_W) 'mul_loop.c'; else $(CYGPATH_W) '$(srcdir)/mul_loop.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/multr-mul_loop.Tpo $(DEPDIR)/multr-mul_loop.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='mul_loop.c' object='multr-mul_loop.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(multr_CFLAGS) $(CFLAGS) -c -o multr-mul_loop.obj `if test -f 'mul_loop.c'; then $(CYGPATH_W) 'mul_loop.c'; else $(CYGPATH_W) '$(srcdir)/mul_loop.c'; fi`
 
 multr-mul_app_main.o: $(top_srcdir)/common/mul_app_main.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(multr_CFLAGS) $(CFLAGS) -MT multr-mul_app_main.o -MD -MP -MF $(DEPDIR)/multr-mul_app_main.Tpo -c -o multr-mul_app_main.o `test -f '$(top_srcdir)/common/mul_app_main.c' || echo '$(srcdir)/'`$(top_srcdir)/common/mul_app_main.c

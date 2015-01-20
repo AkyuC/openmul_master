@@ -1,23 +1,37 @@
 
-SUBDIRS = common-libs/mul-lib \
+SUBDIRS = \
+          docs \
+          common-libs/mul-lib/ \
+          common-libs/util-linux/libuuid \
           common-libs/3rd-party/quagga-lib \
-          services/loadable/topo_routing \
           mul \
-          application/hello \
+          services/loadable/topo_routing \
+          services/loadable/conx \
           application/l2switch \
+		  application/makdi \
           application/fabric \
           application/cli \
-          application/nbapi/c-swig
+          application/prism/agent/ \
+          application/prism/app/ \
+          application/nbapi/c-swig\
+          application/drone
 
-DIST_SUBDIRS = common-libs/mul-lib \
+DIST_SUBDIRS = \
+               docs \
+               common-libs/mul-lib/ \
                common-libs/3rd-party/quagga-lib \
-               services/loadable/topo_routing/ \
+               common-libs/util-linux/libuuid \
                mul \
+               services/loadable/topo_routing/ \
+               services/loadable/conx/ \
                application/l2switch \
-               application/hello \
+		  	   application/makdi \
                application/fabric \
                application/cli \
-               application/nbapi/c-swig
+               application/prism/agent/ \
+               application/prism/app/ \
+               application/nbapi/c-swig\
+               application/drone
 
 EXTRA_DIST = aclocal.m4
 

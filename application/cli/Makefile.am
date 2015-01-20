@@ -12,9 +12,11 @@ LIBEVENT_INCLUDE = @LIBEVENT_INCLUDE@
 INCLUDES = -I. -I$(top_srcdir)/common/ -I$(top_srcdir)/mul/ \
            -I$(top_srcdir)/services/loadable/topo_routing/ \
            -I$(top_srcdir)/application/fabric/ \
+           -I$(top_srcdir)/application/makdi/ \
            -I$(top_srcdir)/common-libs/3rd-party/derived-lib/include/ \
            -I$(top_srcdir)/common-libs/3rd-party/quagga-lib/include/ \
-           -I$(top_srcdir)/common-libs/mul-lib/include/
+           -I$(top_srcdir)/common-libs/mul-lib/include/ \
+           -I$(top_srcdir)/common-libs/util-linux/libuuid/src/
 
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 
@@ -41,8 +43,10 @@ endif
 mulcli_LDADD = \
                 $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a  \
                 $(top_srcdir)/application/fabric/.libs/libfab.a \
+                $(top_srcdir)/application/makdi/.libs/libmakdi.a \
                 $(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a -lrt \
                 $(top_srcdir)/mul/./.libs/libmul.a \
+                $(top_srcdir)/common-libs/util-linux/libuuid/.libs/libuuid.a \
                 -lcrypto -lssl -lglib-2.0
 
 if HAVE_MUL_VTY

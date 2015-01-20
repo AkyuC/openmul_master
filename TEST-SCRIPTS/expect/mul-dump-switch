@@ -1,0 +1,54 @@
+#!/usr/bin/expect -f
+
+# Copyright (C) 2013-2014, OpenMUL Foundation
+# All Rights Reserved.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS,
+#    WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See
+#    the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+
+log_user 0
+set dpid [lrange $argv 0 0]
+set remote_port [lrange $argv 1 1]
+if { [llength $argv] < 1 || [llength $argv] > 2} {
+    send_user "\nUsage : $argv0 <DPID> \[cli-port(optional)\]\r\n"
+    send_user "DPID  : Datapath ID\r\n"
+    exit 1
+}
+
+if { [llength $argv] == 1} {
+    set remote_port 10000
+}
+
+# Open a telnet session to a remote server, and wait for a username prompt.
+spawn telnet localhost $remote_port
+set timeout 60 
+expect ">"
+send "enable\r"
+expect "#"
+send "show of-switch $dpid general-features\r"
+log_user 1
+while {1} {
+  expect {
+ 
+    "*-"                        {send "\r\n"}
+    "*-*- "                     {send "\r\n"}
+    " *-*-More*-*- "            {send "\r\n"}
+    "  "                        {send "\r\n"}
+    "#"                         { break} 
+  }
+}
+send "exit\r"
+expect "#"
+expect eof

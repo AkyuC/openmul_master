@@ -20,63 +20,95 @@
 #include "mul_common.h"
 #include "mul_nbapi_common.h"
 #include "mul_nbapi_path.h"
+#include "mul_nbapi_endian.h"
 
- nbapi_path_elem_list_t get_simple_path(int src_sw_alias, 
-									uint16_t src_port_no, 
-									int dest_sw_alias, 
-									uint16_t dest_port_no) {
- 	nbapi_path_elem_list_t ret_list;
- 	ret_list.array = NULL;
- 	ret_list.length = 0;
+static void
+nbapi_route_path_dump(rt_path_elem_t* rt_elem, nbapi_path_elem_list_t *list)
+{
+    rt_path_elem_t* rt_arg;
+    rt_arg = calloc(1, sizeof(*rt_elem));
+    memcpy(rt_arg, rt_elem, sizeof(*rt_elem));
+    //rt_arg->sw_dpid = ntohll(rt_arg->sw_dpid);
+    rt_arg->in_port = rt_arg->link.la;
+    list->length++;
+    list->array = g_slist_prepend(list->array, rt_arg);
+}
 
- 	c_rd_lock(&nbapi_app_data->lock);
- 	if (!nbapi_app_data->route_service) {
- 		c_rd_unlock(&nbapi_app_data->lock);
- 		return ret_list;
- 	}
+nbapi_path_elem_list_t get_simple_path( int src_sw_alias, int dest_sw_alias){
+    nbapi_path_elem_list_t list;
+    int i = 0;
+    GSList * route = NULL;
+    list.length = 0;
+    list.array = NULL;
 
- 	if (nbapi_app_data->route_service) {
- 		GSList *route = mul_route_get(nbapi_app_data->route_service, src_sw_alias, dest_sw_alias);
+    c_rd_lock(&nbapi_app_data->lock);
+    if( !nbapi_app_data->route_service) {
+	c_rd_unlock(&nbapi_app_data->lock);
+	return list;
+    }
 
- 		c_rd_unlock(&nbapi_app_data->lock);
- 		if (route) {
- 			GSList *index = route;
- 			uint16_t ingress_port_no = src_port_no;
-			ret_list.length = g_slist_length(route);
+    route = mul_route_get(nbapi_app_data->route_service, src_sw_alias, dest_sw_alias);
+    c_rd_unlock(&nbapi_app_data->lock);
 
- 			while (index) {
- 				rt_path_elem_t *route_entry = index->data;
- 				nbapi_path_elem_t *path_entry = calloc(sizeof(*path_entry),1);
- 				if ( !path_entry ) {
- 					c_log_err("%s: failed to alloc nbapi_path_elem", FN);
- 					g_slist_free_full(ret_list.array, free);
- 					mul_destroy_route(route);
- 					ret_list.array = NULL;
- 					ret_list.length = 0;
- 					return ret_list;
- 				}
- 				c_log_debug("%s: switch %u la %hu lb %hu", 
- 								FN, route_entry->sw_alias, 
- 								route_entry->link.la, route_entry->link.lb);
+    if (!route){
+	return list;
+    }
 
-				path_entry->switch_alias = route_entry->sw_alias;
-				path_entry->ingress_port_no = ingress_port_no;
+    for (; route ; i++){
+	rt_path_elem_t * rt_elem = route->data;
+	nbapi_route_path_dump(rt_elem, &list);
+	route = route->next;
+    }
 
- 				if (route_entry->flags == RT_PELEM_LAST_HOP) {
- 					path_entry->egress_port_no = dest_port_no;
- 				}
- 				else {
- 					path_entry->egress_port_no = route_entry->link.la;
- 					ingress_port_no = route_entry->link.lb;
- 				}
- 				ret_list.array = g_slist_prepend(ret_list.array, path_entry);
+    list.length = i;
+    list.array = g_slist_reverse(list.array);
+    mul_destroy_route(route);
 
- 				index = index->next;
- 			}
- 			ret_list.length = g_slist_length(ret_list.array);
- 			ret_list.array = g_slist_reverse(ret_list.array);
- 			mul_destroy_route(route);
- 		}
- 	}
- 	return ret_list;
- }
+    return list;
+}
+
+nbapi_port_neigh_list_t get_switch_neighbor_all(uint64_t datapath_id) {
+    nbapi_port_neigh_list_t list;
+    struct cbuf *b;
+
+    list.array = NULL;
+    list.length = 0;
+
+    c_rd_lock(&nbapi_app_data->lock);
+    if (!nbapi_app_data->tr_service) {
+        c_rd_unlock(&nbapi_app_data->lock);
+        return list;
+    }
+    b = mul_neigh_get(nbapi_app_data->tr_service, datapath_id);
+
+    c_rd_unlock(&nbapi_app_data->lock);
+
+    if (b) {
+        c_ofp_auxapp_cmd_t *cofp_auc = (void *)(b->data);
+        c_ofp_switch_neigh_t *neigh = (void *)(cofp_auc->data);
+        int i, num_ports = (ntohs(cofp_auc->header.length) - (sizeof(c_ofp_switch_neigh_t)
+                + sizeof(c_ofp_auxapp_cmd_t)))/ sizeof(struct c_ofp_port_neigh);
+
+        struct c_ofp_port_neigh *port = (void *) (neigh->data);
+        for (i = 0; i < num_ports; i++, port++) {
+            struct c_ofp_port_neigh *copy = calloc(1, sizeof(*port));
+            if (!copy) {
+                g_slist_free_full(list.array, free);
+                list.array = NULL;
+                list.length = 0;
+                return list;
+            }
+
+            memcpy(copy, port, sizeof(*port));
+            ntoh_c_ofp_port_neigh(copy);
+            list.array = g_slist_prepend(list.array, copy);
+        }
+        free_cbuf(b);
+        list.array = g_slist_reverse(list.array);
+        list.length = num_ports;
+    }
+    return list;
+
+}
+
+

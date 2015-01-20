@@ -67,7 +67,8 @@ getsockopt_so_sendbuf (const int sock)
 }
 
 static void *
-getsockopt_cmsg_data (struct msghdr *msgh, int level, int type)
+getsockopt_cmsg_data (struct msghdr *msgh, int level,
+                      int type __attribute__((unused)))
 {
   struct cmsghdr *cmsg;
   void *ptr = NULL;
@@ -506,7 +507,9 @@ sockopt_iphdrincl_swab_systoh (struct ip *iph)
 }
 
 int
-sockopt_tcp_signature (int sock, union sockunion *su, const char *password)
+sockopt_tcp_signature (int sock __attribute__((unused)),
+                       union sockunion *su __attribute__((unused)),
+                       const char *password __attribute__((unused)))
 {
 #if defined(HAVE_TCP_MD5_LINUX24) && defined(GNU_LINUX)
   /* Support for the old Linux 2.4 TCP-MD5 patch, taken from Hasso Tepper's

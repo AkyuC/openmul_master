@@ -19,7 +19,9 @@
 #ifndef __MUL_FABRIC_H__
 #define __MUL_FABRIC_H__
 
-#define CONFIG_HAVE_PROXY_ARP 1
+/* #define FAB_USE_CONX 1 */
+
+#define FAB_STR_SZ 32
 
 #define FAB_UNK_BUFFER_ID (0xffffffff)
 
@@ -52,9 +54,25 @@ struct fab_tenant_net
 {
     uint32_t    tn_id;
     c_atomic_t  ref;
+    uuid_t      tenant_id;
+    uuid_t      network_id;
     GSList      *host_list;
 };
 typedef struct fab_tenant_net fab_tenant_net_t;
+struct fab_pt_hkey
+{
+    uint64_t datapath_id;
+    uint32_t port;
+};
+typedef struct fab_pt_hkey fab_pt_hkey_t;
+
+struct fab_port_tnid
+{
+    fab_pt_hkey_t	pt_hkey;
+    uuid_t 	tenant_id;
+    uuid_t 	network_id;
+};
+typedef struct fab_port_tnid fab_port_tnid_t;
 
 struct fab_host
 {
@@ -67,6 +85,8 @@ struct fab_host
     bool             dead;
     bool             no_scan;
     bool             dfl_gw;
+    uuid_t           tenant_id;
+    uuid_t           network_id;
 };
 typedef struct fab_host fab_host_t;
 
@@ -129,6 +149,7 @@ struct fab_struct {
     GHashTable    *host_htbl;
     GHashTable    *inact_host_htbl;
     GHashTable    *tenant_net_htbl;
+    GHashTable	  *port_tnid_htbl;
     GHashTable    *switch_htbl;
     void          **sw_list;
     struct event  *fab_timer_event;
@@ -141,10 +162,17 @@ struct fab_struct {
     GSList        *rt_pending_list;
 
 	uint32_t	  ha_state;
+#define FAB_HOST_TRACKER_ENABLED    0x01
+#define FAB_PROXY_ARP_ENABLED       0x02
+    uint8_t       fab_learning;
 
     mul_service_t *fab_cli_service; /* Fabric cli Service */
     mul_service_t *route_service;   /* Routing Service Instance */
     mul_service_t *fab_cli_client;  /* Fabric cli service client */
+#ifdef FAB_USE_CONX
+    mul_service_t *fab_conx_service;   /* Service to communcate with
+                                            Conx application */
+#endif
 };
 typedef struct fab_struct fab_struct_t;
 
@@ -156,7 +184,8 @@ void fab_host_put(fab_host_t *host);
 void fab_host_put_locked(fab_host_t *host);
 unsigned int fab_host_hash_func(const void *key);
 int fab_host_equal_func(const void *key1, const void *key2);
-int fab_host_delete(fab_struct_t *fab_ctx, struct flow *fl, bool locked,
+int fab_host_delete(fab_struct_t *fab_ctx, struct flow *fl, 
+                 uint8_t *tenant_id, uint8_t *network_id, bool locked,
                     bool deactivate, bool ha_sync); 
 int fab_host_delete_inactive(fab_struct_t *fab_ctx, fab_host_t *lkup_host,
                     bool locked);
@@ -165,16 +194,18 @@ void __fab_activate_all_hosts_on_switch(fab_struct_t *fab_ctx, uint64_t dpid);
 void fab_activate_all_hosts_on_switch_port(fab_struct_t *fab_ctx, uint64_t dpid,
                                         uint16_t port);
 int fab_host_add(fab_struct_t *fab_ctx, uint64_t dpid, struct flow *fl,
+                 uint8_t *tenant_id, uint8_t *network_id,
                  bool always_add);
 int __fab_host_add(fab_struct_t *fab_ctx, uint64_t dpid, struct flow *fl,
-                   bool always_add);
+                   uint8_t *tenant_id, uint8_t *network_id, bool always_add);
 int fab_host_add_inactive(fab_struct_t *fab_ctx, fab_host_t *host, bool locked);
 void fab_learn_host(void *opq UNUSED, fab_struct_t *fab_ctx,
                     c_ofp_packet_in_t *pin);
-void __fab_tenant_nw_delete(void *data);
-void fab_tenant_nw_delete(fab_tenant_net_t *tenant);
+void __fab_loop_all_tenant_nw(fab_struct_t *fab_ctx, GHFunc iter_fn, void *arg);
+void fab_loop_all_tenant_nw(fab_struct_t *fab_ctx, GHFunc iter_fn, void *arg);
 int fab_tenant_nw_equal_func(const void *key1, const void *key2);
 unsigned int fab_tenant_nw_hash_func(const void *key);
+unsigned int fab_tenant_nw_uuid_hash_func(const void *key);
 void __fab_tenant_nw_loop_all_hosts(fab_tenant_net_t *tenant, GFunc iter_fn,
                                     void *u_data);
 void fab_loop_all_hosts(fab_struct_t *fab_ctx, GHFunc iter_fn, void *arg);
@@ -183,6 +214,22 @@ void fab_loop_all_inactive_hosts(fab_struct_t *fab_ctx, GHFunc iter_fn, void *ar
 void __fab_loop_all_inactive_hosts(fab_struct_t *fab_ctx, GHFunc iter_fn, void *arg);
 void __fab_loop_all_hosts(fab_struct_t *fab_ctx, GHFunc iter_fn, void *arg);
 
+unsigned int fab_port_tnid_hash_func(const void *key);
+int fab_port_tnid_equal_func(const void *key1, const void *key2);
+void __fab_loop_all_port_tnids(fab_struct_t * fab_ctx, GHFunc iter_fn, void *arg);
+void fab_loop_all_port_tnids(fab_struct_t * fab_ctx, GHFunc iter_fn, void *arg);
+int __fab_port_tnid_add(fab_struct_t *fab_ctx, uint8_t *tenant_id, uint8_t *network_id,
+                  uint64_t datapath_id, uint32_t port);
+int fab_port_tnid_add(fab_struct_t *fab_ctx, uint8_t *tenant_id, uint8_t *network_id,
+                uint64_t datapath_id, uint32_t port);
+int __fab_port_tnid_delete(fab_struct_t *fab_ctx, uint8_t *_tenant_id, uint8_t *_network_id,
+                        uint64_t datpath_id, uint32_t port);
+int fab_port_tnid_delete(fab_struct_t *fab_ctx, uint8_t *tenant_id, uint8_t *network_id,
+                   uint64_t datapath_id, uint32_t port);
+fab_port_tnid_t * __fab_port_get_tnid(fab_struct_t *fab_ctx, uint64_t datapath_id, uint32_t port);
+fab_port_tnid_t *  fab_port_get_tnid(fab_struct_t *fab_ctx, uint64_t datapath_id, uint32_t port);
+void fab_find_host_route(fab_struct_t *fab_ctx, struct flow *fl, uint8_t *tenant_id, uint8_t *network_id,
+                GFunc iter_fn, void* arg);
 
 GSList *fab_route_get(void *rt_service, int src_sw, int dst_sw,
                       fab_route_t *froute);
@@ -202,11 +249,15 @@ void __fab_del_pending_routes_tofro_host(fab_struct_t *fab_ctx, fab_host_t *host
 
 void fab_add_arp_tap_per_switch(void *opq, uint64_t dpid);
 void fab_add_dhcp_tap_per_switch(void *opq, uint64_t dpid);
-void fab_arp_rcv(void *opq, fab_struct_t *fab_ctx UNUSED, 
+void fab_add_all_flows_per_switch(uint64_t dpid);
+void fab_arp_rcv(void *opq, fab_struct_t *fab_ctx, 
             struct flow *fl, uint32_t in_port, uint8_t *raw, uint64_t dpid);
 void fab_dhcp_rcv(void *opq UNUSED, fab_struct_t *fab_ctx UNUSED, struct flow *fl,
              uint32_t in_port, uint8_t *raw, size_t pkt_len, uint64_t dpid);
 
+void fab_host_tracker(void *opq, fab_struct_t *fab_ctx,
+            struct flow *fl, uint32_t in_port, uint8_t *raw, 
+            uint64_t datapath_id, size_t pkt_len, uint32_t buffer_id); 
 void fab_port_host_dead_marker(void *p_arg, void *v_arg UNUSED, void *arg UNUSED);
 unsigned int fab_dpid_hash_func(const void *p);
 int fab_dpid_eq_func(const void *p1, const void *p2);
@@ -230,6 +281,8 @@ int fab_switch_add(fab_struct_t *ctx, uint64_t dpid, int alias);
 int fab_switches_init(fab_struct_t *fab_ctx);
 void fab_switches_reset(fab_struct_t *ctx);
 void fabric_service_send_host_info(void *host, void *v_arg, void *iter_arg); 
+void fabric_service_send_tenant_nw(void *tenant, void *v_arg, void *fab_service);
+void fabric_service_send_port_tnid(void *port_tnid, void *v_arg, void *fab_service);
 
 void fabric_vty_init(void *arg);
 

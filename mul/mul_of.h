@@ -29,10 +29,12 @@
 #define FL_NEED_HW_SYNC(parms) (((parms)->flags & C_FL_ENT_NOSYNC) || \
                                 (parms)->flags & C_FL_ENT_CLONE) ||   \
                                 (parms)->flags & C_FL_ENT_RESIDUAL ||   \
-                                ((parms)->flags & C_FL_ENT_LOCAL) ? false : true;
+                                ((parms)->flags & C_FL_ENT_LOCAL) ||  \
+                                !c_switch_of_master_check(&ctrl_hdl) ? false : true;
 
 #define FL_EXM_NEED_HW_SYNC(parms) ((parms)->flags & C_FL_ENT_NOSYNC || \
-                                    (parms)->flags & C_FL_ENT_LOCAL) ? false : true;
+                                    (parms)->flags & C_FL_ENT_LOCAL) || \
+                                    !c_switch_of_master_check(&ctrl_hdl) ? false : true;
 
 void            c_per_sw_topo_change_notify(void *k, void *v UNUSED, void *arg);
 void            c_topo_loop_change_notify(bool loop_chg, uint64_t new_state,
@@ -42,9 +44,13 @@ bool            of_switch_port_validate_cb(void *sw, uint32_t port);
 bool            of_switch_port_valid(c_switch_t *sw, struct flow *fl,
                                      struct flow *mask);
 bool            of_switch_table_valid(c_switch_t *sw, uint8_t table);
+uint8_t         of_switch_get_v2p_tbl(void *sw_arg, uint8_t vtable);
 void            c_sw_port_hton(struct c_sw_port *dst, struct c_sw_port *src);
 int             of_validate_actions_strict(c_switch_t *sw, void *actions,
                                            size_t action_len);
+bool            of_ha_keepalive(void *service);
+void            of_ha_proc(c_switch_t *sw, struct cbuf *b);
+void            __of_ha_proc(c_switch_t *sw, struct cbuf *b, bool use_cbuf);
 void            of_send_features_request(c_switch_t *sw);
 void            of_send_set_config(c_switch_t *sw, uint16_t flags, uint16_t miss_len);
 void            of_send_echo_request(c_switch_t *sw);
@@ -71,11 +77,14 @@ int             c_switch_flow_add(c_switch_t *sw,
                                   struct of_flow_mod_params *parms); 
 int             c_switch_flow_del(c_switch_t *sw,
                                   struct of_flow_mod_params *parms);
+void            c_switch_flow_ha_sync(void *arg, c_fl_entry_t *ent);
 void            c_per_switch_flow_resync_hw(void *k, void *v, void *arg);
 void            c_flow_resync_hw_all(ctrl_hdl_t *c_hdl);
+void            c_switch_group_ha_sync(void *arg, c_switch_group_t *grp);
 int             c_switch_group_add(c_switch_t *sw, struct of_group_mod_params *gp_parms);
 int             c_switch_group_del(c_switch_t *sw, struct of_group_mod_params *gp_parms);
 void            __c_per_switch_del_group_with_owner(c_switch_t *sw, void *app);
+void            c_switch_meter_ha_sync(void *arg, c_switch_meter_t *grp);
 int             c_switch_meter_add(c_switch_t *sw, struct of_meter_mod_params *m_parms);
 int             c_switch_meter_del(c_switch_t *sw, struct of_meter_mod_params *m_parms);
 void            __c_per_switch_del_meter_with_owner(c_switch_t *sw, void *app);
@@ -121,6 +130,7 @@ int             of_send_port_q_get_conf(c_switch_t *sw, uint32_t port_no);
 int             __of_send_port_q_get_conf(c_switch_t *sw, uint32_t port_no);
 void            __of_send_clear_all_groups(c_switch_t *sw);
 void            __of_send_clear_all_meters(c_switch_t *sw);
+void            __of_send_cp_meter(c_switch_t *sw, uint32_t meter);
 void            __of_send_role_request(c_switch_t *sw);
 int             __of_send_vendor_msg(c_switch_t *sw,
                                      struct of_vendor_params *vp);
@@ -176,4 +186,8 @@ void            c_switch_async_config(c_switch_t *sw,
 struct cbuf *   c_of_prep_switch_table_stats(c_switch_t *sw, uint8_t table_id);
 struct cbuf *   c_of_prep_port_stats(c_switch_t *sw, uint32_t port_no);
 int c_switch_port_mod(c_switch_t *sw, struct of_port_mod_params *pm_parms);
+
+inline c_fl_entry_t * c_do_flow_lookup(c_switch_t *sw, struct flow *fl, bool residual);
+
+void            of140_send_pkt_out_inline(void *arg, struct of_pkt_out_params *parms);
 #endif

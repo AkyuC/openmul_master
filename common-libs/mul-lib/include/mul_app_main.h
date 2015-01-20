@@ -23,12 +23,13 @@
 #define C_APP_PATH_LEN 64
 #define C_APP_VTY_COMMON_PATH "/var/run/app_"
 #define C_APP_PID_COMMON_PATH "/var/run/mul_app"
+#define C_APP_LOG_COMMON_PATH "/var/log/"
 #define C_APP_FILENAME_SZ   32
 #define MAX_NUMBER_DPID     50
 #define DPID_CHAR_SZ        32
-
 struct c_app_service {
    char app_name[MAX_SERV_NAME_LEN];
+   uint32_t app_cookie;
    char service_name[MAX_SERV_NAME_LEN];
    uint16_t  port;
    void * (*service_priv_init)(void);

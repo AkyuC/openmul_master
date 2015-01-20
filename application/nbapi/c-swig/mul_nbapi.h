@@ -22,6 +22,10 @@
 #include "mul_common.h"
 #include "mul_nbapi_common.h"
 
+#ifdef HAVE_INET_PTON
+#undef HAVE_INET_PTON
+#endif
+void init_mul_nbapi(void);
 nbapi_struct_t *nbapi_app_data;
 
 #endif

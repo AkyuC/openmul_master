@@ -108,6 +108,13 @@ rt_apsp_get_pair(rt_apsp_t *rt_apsp_info, int node_a, int node_b)
     return pair;
 }
 
+static inline uint64_t 
+rt_apsp_get_src_dp(rt_apsp_t *rt_apsp_info, int node_a, int node_b)
+{
+    rt_adj_elem_t *adj_elem = RT_APSP_ADJ_ELEM(rt_apsp_info, node_a, node_b);
+    return adj_elem->dpid_a;
+}
+
 static inline bool
 rt_apsp_converged(rt_apsp_t *rt_apsp_info)
 {

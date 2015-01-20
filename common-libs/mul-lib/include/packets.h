@@ -67,6 +67,14 @@ static inline void eth_addr_from_uint64(uint64_t x, uint8_t ea[ETH_ADDR_LEN])
     ea[4] = x >> 8;
     ea[5] = x;
 }
+static inline bool ipv4_is_multicast(uint32_t addr)
+{
+    return (addr & htonl(0xf0000000)) == htonl(0xe0000000);
+}
+static inline bool ipv4_is_zero(uint32_t addr)
+{
+    return addr == 0x0;
+}
 #if 0
 static inline void eth_addr_random(uint8_t ea[ETH_ADDR_LEN])
 {

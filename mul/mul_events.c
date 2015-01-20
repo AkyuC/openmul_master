@@ -1,6 +1,6 @@
 /*
  *  mul_events.c: MUL event handling 
- *  Copyright (C) 2012, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
+ *  Copyright (C) 2012-2014, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
  *                      
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,6 +24,9 @@ void c_worker_do_switch_del(struct c_worker_ctx *c_wrk_ctx, c_switch_t *sw);
 void c_worker_do_app_del(struct c_app_ctx *c_app_ctx, c_app_info_t *app);
 void c_worker_do_switch_zap(struct c_worker_ctx *c_wrk_ctx, c_switch_t *sw);
 
+static void c_switch_ha_add(c_switch_t *sw, bool slave);
+static void c_switch_ha_del(c_switch_t *sw);
+static void c_switch_ha_state_machine(c_switch_t *sw);
 static void c_switch_events_add(c_switch_t *sw);
 
 int
@@ -77,6 +80,36 @@ c_write_event_sched(void *conn_arg)
 }
 
 static void
+c_per_virt_sw_timer(c_switch_t *sw, time_t ctime)
+{
+    time_t                time_diff;
+
+    if (sw->switch_state & SW_DEAD) {
+        c_log_warn("[SWITCH] marked dead");
+        time_diff = ctime - sw->last_refresh_time;
+        if (time_diff > C_SWITCH_ECHO_TIMEO) {
+            return c_worker_do_switch_zap(sw->ctx, sw);
+        }
+
+        return;
+    } else if (sw->switch_state & SW_REINIT ||
+               sw->switch_state & SW_REINIT_VIRT) {
+        c_log_warn("[SWITCH] marked for reinit");
+        c_conn_destroy(&sw->conn);
+        c_conn_assign_fd(&sw->conn, sw->reinit_fd);
+        sw->reinit_fd = 0;
+        c_switch_events_add(sw);
+        if (sw->switch_state & SW_REINIT) {
+            sw->ha_state = SW_HA_NONE;
+            c_per_switch_flow_resync_hw(sw, NULL, NULL);
+            /* FIXME : Meter and group */
+        }
+        sw->switch_state &= ~(SW_REINIT | SW_REINIT_VIRT);
+        return;
+    }
+}
+
+static void
 c_per_sw_timer(void *arg_sw, void *arg_time)
 {
     c_switch_t          *sw     = arg_sw;
@@ -93,6 +126,10 @@ c_per_sw_timer(void *arg_sw, void *arg_time)
                     U642ULL(sw->tx_pkt_out_dropped));
         sw->tx_pkt_out_dropped = 0;
         sw->rx_pkt_in_dropped = 0;
+    }
+
+    if (c_switch_is_virtual(sw)) {
+        return c_per_virt_sw_timer(sw, ctime);
     }
 
     /* This condition can occur when 1) Switch was previously marked
@@ -121,6 +158,7 @@ c_per_sw_timer(void *arg_sw, void *arg_time)
         return;
     }
 
+    c_switch_ha_state_machine(sw);
 
     time_diff = ctime - sw->last_refresh_time;
     if (time_diff > C_SWITCH_IDLE_TIMEO) {
@@ -139,6 +177,17 @@ c_per_sw_timer(void *arg_sw, void *arg_time)
         c_switch_try_publish(sw, false);
     }
 
+    if (sw->switch_state & SW_HA_SYNCD_REQ &&
+        c_switch_needs_state_sync(&ctrl_hdl) &&
+        sw->last_sync_req) {
+        time_t sync_diff = ctime - sw->last_sync_req;
+        if (sync_diff  > C_SWITCH_HA_SYNC_TIMEO) {
+            c_log_debug("|HA| Re-sync |0x%llx|", U642ULL(sw->DPID));
+            c_ha_req_switch_state(sw->DPID);
+            sw->last_sync_req = ctime;
+        } 
+    }
+
     if (1) {
         time_diff = ctime - sw->last_sample_time;
         if (time_diff > C_SWITCH_STAT_TIMEO) {
@@ -153,6 +202,12 @@ c_per_sw_timer(void *arg_sw, void *arg_time)
             }
             sw->last_fp_aging_time = time(NULL);
         }
+    }
+
+    if (!c_switch_of_master_check(&ctrl_hdl)) {
+        sw->last_refresh_time = time(NULL);
+        c_thread_sg_tx_sync(&sw->conn);
+        return;
     }
 
     time_diff = ctime - sw->last_refresh_time;
@@ -179,7 +234,42 @@ c_per_worker_timer_event(evutil_socket_t fd UNUSED, short event UNUSED,
 
     evtimer_add(w_ctx->worker_timer_event, &tv);
 }
- 
+
+void
+c_per_app_worker_timer_event(evutil_socket_t fd UNUSED, short event UNUSED, 
+                         void *arg)
+{
+    struct c_app_ctx    *app_ctx  = arg;
+    struct timeval      tv        = { C_PER_APP_WORKER_TIMEO, 0 };
+    int                 i = 0;
+    struct c_work_q     *wq;
+
+    for (i = 0; i < ctrl_hdl.n_threads; i++) {
+        wq = &app_ctx->work_qs[i];
+        if (!wq->wq_conn.dead) continue;
+        while ((wq->wq_conn.fd = c_client_socket_create("127.0.0.1",
+                                             C_APP_WQ_LISTEN_PORT + i)) < 0) {
+            c_log_err("%s: Unable to create conn to workq for thread(%d)",
+                      FN, i);
+            continue;
+        }
+        wq->wq_conn.rd_event = event_new(app_ctx->cmn_ctx.base,
+                                     wq->wq_conn.fd,
+                                     EV_READ|EV_PERSIST,
+                                     c_app_workq_fb_thread_read, &wq->wq_conn);
+        wq->wq_conn.wr_event = event_new(app_ctx->cmn_ctx.base,
+                                     wq->wq_conn.fd,
+                                     EV_WRITE, //|EV_PERSIST,
+                                     c_thread_write_event, &wq->wq_conn);
+        event_add(C_EVENT(wq->wq_conn.rd_event), NULL);
+        c_log_info("[WORKQ] App(%d)->worker(%d) fd (%d) down->up",
+                   app_ctx->thread_idx, i, wq->wq_conn.fd);
+
+    }
+
+    evtimer_add(app_ctx->app_main_timer_event, &tv);
+}
+
 void
 c_worker_ipc_read(evutil_socket_t fd, short event UNUSED, void *arg)
 {
@@ -382,6 +472,149 @@ c_switch_thread_read(evutil_socket_t fd, short events UNUSED, void *arg)
     return;
 }
 
+#ifdef C_VIRT_CON_HA
+
+static void
+c_switch_recv_blackhole(void *sw_arg UNUSED, struct cbuf *b UNUSED)
+{
+    c_log_err("[SWITCH] RX blackhole");
+}
+
+static void
+c_switch_ha_state_machine(c_switch_t *sw)
+{
+    struct cbuf *b;
+
+    if (!c_ha_master(sw->c_hdl)) {
+        return;
+    }
+
+    switch (sw->ha_state) {
+    case SW_HA_NONE:
+        c_switch_ha_add(sw, false);
+        break;
+    case SW_HA_CONNECTED:
+        if (sw->switch_state & SW_REGISTERED) {
+            assert(sw->ofp_priv_procs->mk_ofp_features);
+            b = sw->ofp_priv_procs->mk_ofp_features(sw);
+            __of_ha_proc(sw, b, true);
+            c_switch_rlim_sync(sw);
+            c_flow_traverse_tbl_all(sw, NULL, c_switch_flow_ha_sync);
+            c_switch_group_traverse_all(sw, sw, c_switch_group_ha_sync);
+            c_switch_group_traverse_all(sw, sw, c_switch_meter_ha_sync);
+            sw->ha_state = SW_HA_SYNCED;
+            c_rd_unlock(&sw->lock);
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+static void 
+c_switch_ha_thread_read(evutil_socket_t fd, short events UNUSED, void *arg)
+{
+    c_switch_t          *sw = arg;
+    int                 ret;
+
+    ret = c_switch_read_nonblock_loop(fd, sw, &sw->ha_conn, OFC_RCV_BUF_SZ,
+                                      c_switch_recv_blackhole);
+    if (c_recvd_sock_dead(ret)) {
+        perror("[I/O] |HA-conn|");
+        c_switch_ha_del(sw);
+    } 
+
+    return;
+}
+
+static void
+c_switch_ha_add(c_switch_t *sw, bool slave)
+{
+    struct c_cmn_ctx *cmn_ctx = sw->ctx;
+    ctrl_hdl_t *ctrl          = cmn_ctx->c_hdl;
+
+    if (slave) {
+        sw->ha_state = SW_HA_VIRT;
+        c_log_info("[SWITCH] virt added");
+        return;
+    }
+
+    if (!c_ha_master(sw->c_hdl)) {
+        c_log_err("[SWITCH] Not master");
+        c_conn_mark_dead(&sw->ha_conn);
+        return;
+    }
+
+    sw->ha_conn.fd = c_client_socket_create(ctrl->c_peer,
+                                            MUL_CORE_HA_SERVICE_PORT);
+    if (sw->ha_conn.fd > 0 ) {
+        sw->ha_conn.rd_event = event_new(cmn_ctx->base,
+                                     sw->ha_conn.fd,
+                                     EV_READ|EV_PERSIST,
+                                     c_switch_ha_thread_read, sw);
+        sw->ha_conn.wr_event = event_new(cmn_ctx->base,
+                                     sw->ha_conn.fd,
+                                     EV_WRITE, //|EV_PERSIST,
+                                     c_thread_write_event, &sw->ha_conn);
+        event_add(C_EVENT(sw->ha_conn.rd_event), NULL);
+        sw->ha_state = SW_HA_CONNECTED;
+        c_conn_prep(&sw->ha_conn);
+        c_log_info("[SWITCH] HA connected");
+    } else {
+        c_conn_mark_dead(&sw->ha_conn);
+    }
+}
+
+static void
+c_switch_ha_del(c_switch_t *sw)
+{
+    if (sw->ha_state == SW_HA_VIRT) {
+        return;
+    }
+
+    c_conn_destroy(&sw->ha_conn);
+    sw->ha_state = SW_HA_NONE;
+}
+
+#else
+
+static void
+c_switch_ha_state_machine(c_switch_t *sw UNUSED)
+{
+    return;
+}
+
+static void
+c_switch_ha_add(c_switch_t *sw UNUSED, bool slave UNUSED)
+{
+    return;
+}
+
+static void
+c_switch_ha_del(c_switch_t *sw UNUSED)
+{
+    return;
+}
+#endif
+
+static void
+c_workq_thread_read(evutil_socket_t fd, short events UNUSED, void *arg)
+{
+    int                 ret;
+    struct c_work_q     *wq = arg;
+
+    ret = c_socket_read_nonblock_loop(fd, wq, &wq->wq_conn, OFC_RCV_BUF_SZ,
+                                      (conn_proc_t)__mul_app_workq_handler, 
+                                      of_get_data_len, of_hdr_valid, 
+                                      sizeof(struct ofp_header));
+    if (c_recvd_sock_dead(ret)) {
+        c_log_err("[WQ] conn dead");
+        c_conn_destroy(&wq->wq_conn);
+    } 
+
+    return;
+}
+
 static void
 c_app_thread_read(evutil_socket_t fd, short events UNUSED, void *arg)
 {
@@ -409,6 +642,10 @@ c_worker_do_app_del(struct c_app_ctx *c_app_ctx,
 {
     c_per_thread_dat_t  *t_data = &c_app_ctx->thread_data;
 
+    /* FIXME: Can we can survive app conn reset ?? */
+    //if (errno == ECONNRESET) 
+    //    return;
+
     c_conn_destroy(&app->app_conn);
     t_data->app_list = g_slist_remove(t_data->app_list, app);
 
@@ -425,6 +662,7 @@ c_worker_do_switch_zap(struct c_worker_ctx *c_wrk_ctx,
     c_per_thread_dat_t  *t_data = &c_wrk_ctx->thread_data;
 
     t_data->sw_list = g_slist_remove(t_data->sw_list, sw);
+    c_switch_ha_del(sw);
     c_switch_del(sw);
     c_switch_put(sw);
 }
@@ -434,7 +672,12 @@ c_worker_do_switch_del(struct c_worker_ctx *c_wrk_ctx,
                        c_switch_t *sw)
 {
     c_conn_destroy(&sw->conn);
-    c_worker_do_switch_zap(c_wrk_ctx, sw);
+
+    if (!c_switch_is_virtual(sw)) {
+        c_worker_do_switch_zap(c_wrk_ctx, sw);
+    } else {
+        c_switch_mark_sticky_del(sw);
+    }
 }
 
 static int
@@ -493,6 +736,18 @@ c_worker_do_switch_add(void *ctx_arg, void *msg_arg)
         return -1;
     }
 
+
+#ifdef C_VIRT_CON_HA
+    /* Prevent switch connection to slave controller node 
+     * if running in active-standy mode
+     */
+    if (c_ha_slave(c_wrk_ctx->cmn_ctx.c_hdl) && !msg->ha_conn) {
+        c_log_err("[SWITCH] Denied connect to slave"); 
+        close(msg->new_conn_fd);
+        return -1;
+    } 
+#endif
+
     c_log_debug("[SWITCH] Pinned to thread |%u|", (unsigned)c_wrk_ctx->thread_idx);
 
     new_switch = c_switch_alloc(c_wrk_ctx);
@@ -518,6 +773,7 @@ c_worker_do_switch_add(void *ctx_arg, void *msg_arg)
 
     c_conn_assign_fd(&new_switch->conn, msg->new_conn_fd);
     c_switch_events_add(new_switch);
+    c_switch_ha_add(new_switch, msg->ha_conn);
 
     of_send_hello(new_switch);
 
@@ -575,14 +831,17 @@ c_new_conn_to_thread(struct c_main_ctx *m_ctx, int new_conn_fd,
         }
         break;
     case C_EVENT_NEW_HA_CONN:
-        free(ipc_hdr);
-        c_log_err("ipc type not implemented");
-        return -1;
+        thread_idx = c_get_new_switch_worker(m_ctx);
+        ipc_wr_fd  = c_tid_to_ipc_wr_fd(m_ctx, thread_idx);
+        ipc_t_msg->ha_conn = 1;
+        ipc_t_msg->ha_conn_valid = 1;
+        break;
     }
 
     return c_send_unicast_ipc_msg(ipc_wr_fd, ipc_hdr); 
 }
 
+extern int c_sock_set_sndbuf (int fd, size_t size);
 
 static int
 c_common_accept(evutil_socket_t listener)
@@ -605,6 +864,41 @@ c_common_accept(evutil_socket_t listener)
 }
 
 void
+c_app_wq_accept(evutil_socket_t listener, short event UNUSED, void *arg)
+{
+    struct c_worker_ctx   *w_ctx = arg;
+    int                 fd = 0;
+    int                 i = 0;
+    struct c_work_q     *wq;
+
+    if ((fd = c_common_accept(listener)) < 0)  {
+        return;
+    }
+
+    for (i = 0; i < ctrl_hdl.n_appthreads; i++) {
+        wq = &w_ctx->work_qs[i];
+
+        if (wq->wq_conn.fd > 0)  continue; 
+
+        c_conn_assign_fd(&wq->wq_conn, fd);
+
+        wq->wq_conn.rd_event = event_new(w_ctx->cmn_ctx.base,
+                                         fd,
+                                         EV_READ|EV_PERSIST,
+                                         c_workq_thread_read, wq);
+        event_add(C_EVENT(wq->wq_conn.rd_event), NULL);
+        c_log_info("[WORKQ] worker(%d)<-app new-conn",
+                   w_ctx->thread_idx);
+        break;
+    }
+
+    if (i >= ctrl_hdl.n_appthreads) {
+        c_log_err("Can't map incoming workq conn to worker");
+        assert(0);
+    }
+}
+
+void
 c_accept(evutil_socket_t listener, short event UNUSED, void *arg)
 {
     struct c_main_ctx   *m_ctx = arg;
@@ -621,6 +915,18 @@ c_accept(evutil_socket_t listener, short event UNUSED, void *arg)
     c_new_conn_to_thread(m_ctx, fd, C_EVENT_NEW_SW_CONN, false);
 }
 
+void
+c_ha_accept(evutil_socket_t listener, short event UNUSED, void *arg)
+{
+    struct c_main_ctx   *m_ctx = arg;
+    int                 fd = 0;
+
+    if ((fd = c_common_accept(listener)) < 0)  {
+        return;
+    }
+
+    c_new_conn_to_thread(m_ctx, fd, C_EVENT_NEW_HA_CONN, false);
+}
 
 void
 c_app_accept(evutil_socket_t listener, short event UNUSED, void *arg)

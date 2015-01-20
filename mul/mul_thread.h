@@ -19,6 +19,9 @@
 #ifndef __MUL_THREAD_H__
 #define __MUL_THREAD_H__
 
+#define C_MAX_THREADS 8 
+#define C_MAX_APP_THREADS 4 
+ 
 struct c_main_ctx;
 
 typedef enum thread_state
@@ -35,6 +38,11 @@ typedef struct c_per_thread_dat_
         GSList          *app_list;	
     };
 }c_per_thread_dat_t;
+
+struct c_work_q {
+    c_conn_t            wq_conn;
+    struct nbq          q;
+};
 
 struct c_cmn_ctx
 {
@@ -59,6 +67,7 @@ struct c_app_ctx
     struct c_cmn_ctx    cmn_ctx;
     int                 thread_idx;
     c_conn_t            main_wrk_conn;
+    struct c_work_q     work_qs[C_MAX_THREADS];
     struct event        *app_main_timer_event;
     c_per_thread_dat_t  thread_data;
 };
@@ -71,15 +80,15 @@ struct c_worker_ctx
     c_conn_t            main_wrk_conn;
     struct event        *worker_timer_event;
 	
+    struct event        *c_app_accept_event;
+    struct c_work_q     work_qs[C_MAX_APP_THREADS];
     c_per_thread_dat_t	thread_data;
 };
 
 struct c_main_ctx
 {
     struct c_cmn_ctx    cmn_ctx;
-#define C_MAX_THREADS  16
     int                 nthreads;
-#define C_MAX_APP_THREADS 4 
     int                 n_appthreads;
     int                 switch_lb_hint; 
     int                 app_lb_hint; 
@@ -88,10 +97,15 @@ struct c_main_ctx
     struct c_app_ctx    **app_pool;
 
     struct event        *c_accept_event;
+    struct event        *c_ha_accept_event;
     struct event        *c_app_accept_event;
     struct event        *c_app_aux_accept_event;
     struct event        *main_timer_event;
 
+#ifdef HAVE_MUL_LICENSE
+    EVP_CIPHER_CTX      en;
+    EVP_CIPHER_CTX      de;
+#endif
 };
 
 
@@ -141,6 +155,7 @@ struct c_ipc_thread_msg
 {
     DEF_STRUCT_VALID_PAIR(int, new_conn_fd);
     DEF_STRUCT_VALID_PAIR(int, aux_conn);
+    DEF_STRUCT_VALID_PAIR(int, ha_conn);
 };
 
 #define MIN_IPC_THREAD_MSG_SZ (sizeof(struct c_ipc_hdr) + \

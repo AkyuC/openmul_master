@@ -25,9 +25,11 @@
 #define C_LISTEN_PORT               6653
 #define C_APP_LISTEN_PORT           7744 
 #define C_APP_AUX_LISTEN_PORT       7745 
+#define C_APP_WQ_LISTEN_PORT        7766
 #define C_IPC_PATH                  "/var/run/cipc_x"
 #define C_IPC_APP_PATH              "/var/run/cipc_app_x"
 #define C_PER_WORKER_TIMEO          1
+#define C_PER_APP_WORKER_TIMEO      1
 #define C_MAIN_THREAD_BOOT_TIMEO    5 
 #define C_MAIN_THREAD_TIMEO         10
 #define C_SSL_BUSY_ACCEPT_RETRIES   5000
@@ -45,6 +47,8 @@
 
 #define C_OPT_NO_TABLES             (3)
 #define C_MAX_Q_PROP_LEN            (2048)
+
+#define C_CP_METER_ID               (0)
 
 #define C_VTY_PORT                  7000
 #define C_PID_PATH                  "/var/run/mul.pid"
@@ -80,7 +84,10 @@
 
 #define C_GEN_ID_STORE              "/etc/mul/genid"
 
-#define MUL_FLOW_DEBUG              1
+#define C_MAX_CP_PKTIN_RATE         5000
+#define C_MAX_CP_PKTIN_BURST_SIZE   50
+
+#define MUL_FLOW_DEBUG 1
 
 typedef enum port_state {
     P_DISABLED = 1 << 0,
@@ -134,6 +141,7 @@ typedef struct ctrl_hdl_ {
 
     struct c_cmn_ctx *main_ctx;
     struct c_cmn_ctx **worker_ctx_list;
+    struct c_cmn_ctx **app_ctx_list;
 
     void *vty_master;
     c_rw_lock_t *ssl_thread_locks;
@@ -164,8 +172,11 @@ typedef struct ctrl_hdl_ {
     time_t last_ha_hearbeat;
 
     uint16_t c_port;    
+    uint8_t h_of_ver;
     bool aging_off;
     bool loop_en;
+    bool bench_en;
+    bool no_strict_of;
     volatile uint64_t loop_status;
     volatile uint64_t tr_status;
 } ctrl_hdl_t;
@@ -193,6 +204,7 @@ typedef struct c_app_info_
 #define C_APP_FP_L2 (0x01)
     uint32_t priv_flags;
     uint32_t n_dpid;
+    uint32_t app_cookie;
     GHashTable *dpid_hlist;
     void (*ev_cb)(void *app_arg, void *pkt_arg);
     char app_name[C_MAX_APP_STRLEN];
@@ -291,7 +303,8 @@ typedef struct c_fl_entry_hdr_
     uint16_t i_timeo;
 #define C_FL_HARD_DFL_TIMEO (900)
     uint16_t h_timeo;
-    uint32_t cookie;
+    uint32_t xid;
+    uint64_t cookie;
 }c_fl_entry_hdr_t;
 
 #define FL_INSTALLED fl_hdr.installed
@@ -304,6 +317,7 @@ typedef struct c_fl_entry_hdr_
 #define FL_ITIMEO fl_hdr.i_timeo
 #define FL_HTIMEO fl_hdr.h_timeo
 #define FL_COOKIE fl_hdr.cookie
+#define FL_XID fl_hdr.xid
 
 typedef struct c_fl_entry_stats_
 {
@@ -343,6 +357,9 @@ typedef struct c_fl_entry_
     GSList *groups;
     GSList *meters;
 
+#define C_FL_STALE_TIMEO (17)
+    time_t stale_time;
+
     c_fl_entry_stats_t fl_stats;
 }c_fl_entry_t;
 
@@ -353,6 +370,7 @@ typedef struct c_flow_tbl_
 #define C_TBL_UNK  (2)
     uint8_t c_fl_tbl_type;
     uint8_t hw_tbl_active; /* +ve: Active, 0: Inactive */ 
+    uint8_t v_tbl; /* Virtual Table Id */
     uint32_t sw_active_entries;
     uint32_t hw_active_count;
     uint64_t hw_lookup_count;
@@ -386,6 +404,8 @@ struct c_switch_group
 #define C_GRP_STAT_TIMEO  (4)
     time_t last_scan;
     time_t last_seen;
+#define C_GRP_STALE_TIMEO (20) 
+    time_t stale_time;
 
 #define C_GRP_EXP_TIMEO (10)
     time_t last_expired;
@@ -419,6 +439,8 @@ struct c_switch_meter
 #define C_METER_STAT_TIMEO (3)
     time_t last_scan;
     time_t last_seen;
+#define C_METER_STALE_TIMEO (20)
+    time_t stale_time;
 
 #define C_METER_EXP_TIMEO (10)
     time_t last_expired;
@@ -454,6 +476,7 @@ struct c_switch
     void *app_flow_tbl;   
     c_flow_tbl_t exm_flow_tbl;
     c_flow_tbl_t rule_flow_tbls[C_MAX_RULE_FLOW_TBLS];
+    uint8_t xphys_map_tbl[C_MAX_RULE_FLOW_TBLS];
     GHashTable *fl_cookies;                 /* Flow index hash */
     uint32_t fl_idx_cookie;                 /* Flow cookie generation hint */
     GSList *app_list;                       /* App list interested in switch */
@@ -496,6 +519,8 @@ struct c_switch
     uint32_t capabilities;                  /* Switch capabilites */
     uint32_t n_ports;                       /* Number of active ports */
 
+    uint32_t cp_meter_id;                   /* Meter-id used to meter CP connection */
+
 #define SW_HA_NONE  (0)
 #define SW_HA_CONNECTED (1)
 #define SW_HA_SYNCED (2)
@@ -512,6 +537,7 @@ struct c_switch
     uint64_t rx_pkt_in_dropped;             /* Rx packet-ins rate-limited */
     uint64_t tx_pkt_out_dropped;            /* TX packet-out rate-limited */  
 
+    uint64_t dump_mask[4];                  /* Mask of dump-able messages */
     bool tx_dump_en;                        /* RX OFP dump parser on-off */
     bool rx_dump_en;                        /* TX OFP dump parser on-off */
 
@@ -618,6 +644,45 @@ c_ha_slave(ctrl_hdl_t *hdl)
     return hdl->ha_state == C_HA_STATE_SLAVE ? true: false;
 }
 
+
+#ifdef C_VIRT_CON_HA
+static inline bool
+c_switch_is_virtual(c_switch_t *sw)
+{
+    return sw->ha_state == SW_HA_VIRT ? true : false;
+}
+
+static inline bool
+c_switch_of_master_check(ctrl_hdl_t *hdl)
+{   
+    return true;
+}
+
+static inline bool
+c_switch_needs_state_sync(ctrl_hdl_t *hdl)
+{
+    return false;
+}
+#else
+static inline bool
+c_switch_is_virtual(c_switch_t *sw UNUSED)
+{
+    return false;
+}
+
+static inline bool
+c_switch_of_master_check(ctrl_hdl_t *hdl)
+{
+    return hdl->ha_state == C_HA_STATE_SLAVE ? false: true;  
+}
+
+static inline bool
+c_switch_needs_state_sync(ctrl_hdl_t *hdl)
+{
+    return hdl->ha_state == C_HA_STATE_SLAVE ? true : false;
+}
+#endif
+
 void    c_l2fdb_show(c_switch_t *sw, void *arg,
              void (*show_fn)(void *arg, c_fl_entry_t *ent));
 int     c_l2_lrn_fwd(c_switch_t *sw, struct cbuf *b, void *opi, size_t pkt_len, 
@@ -640,8 +705,13 @@ bool    c_app_hdr_valid(void *h_arg);
 int     c_builtin_app_start(void *arg);
 void    c_signal_app_event(c_switch_t *sw, void *b, c_app_event_t event,
                            void *app_arg, void *priv, bool locked);
+int     __mul_app_workq_handler(void *wq_arg, struct cbuf *b);
+void    c_app_workq_fb_thread_read(evutil_socket_t fd, short events, void *arg);
 int     __mul_app_command_handler(void *app_arg, struct cbuf *b);
 void    c_aux_app_init(void *app_arg);
+
+c_fl_entry_t *c_do_rule_lookup_with_detail(c_switch_t *sw, struct flow *fl,
+                             struct flow *mask, uint16_t prio);
 
 static inline void 
 c_app_ref(void *app_arg)

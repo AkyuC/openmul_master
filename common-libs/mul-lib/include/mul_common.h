@@ -47,6 +47,7 @@
 #include "packets.h"
 #include "clog.h"
 #include "rlim.h"
+#include "nbq.h"
 #include "dhparams.h"
 #include "secure_io.h"
 #include "glib.h"

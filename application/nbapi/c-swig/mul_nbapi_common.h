@@ -22,6 +22,10 @@
 
 #include "mul_common.h"
 #include "mul_fabric_servlet.h"
+#include "makdi_servlet.h"
+#include "mul_servlet.h"
+#include "mul_tr_servlet.h"
+#include "mul_route.h"
 
 #define NBAPI_APP_NAME "mul-nbapi"
 #define NBAPI_SERVICE_NAME MUL_APP_NAME
@@ -33,14 +37,17 @@ typedef struct {
     c_rw_lock_t   lock;
     void          *base;
     struct event  *nbapi_timer_event;
-    mul_service_t *mul_service;       /* Traffic-Routing Service Instance */
-    mul_service_t *route_service;     /* Route Service Instance */
-    mul_service_t *fab_service;       /* Fabric Service Instance */
-    mul_service_t *tr_service;        /* Traffic-Routing Service Instance */
-    mul_service_t *makdi_service;     /* iChain Service Instance */
+    mul_service_t *mul_service; /* Traffic-Routing Service Instance */
+    mul_service_t *route_service; /* Route Service Instance */
+    mul_service_t *fab_service; /* Fabric Service Instance */
+    mul_service_t *tr_service; /* Traffic-Routing Service Instance */
+    mul_service_t *makdi_service; /* Traffic-Routing Service Instance */
 } nbapi_struct_t;
 
 extern nbapi_struct_t *nbapi_app_data;
+extern struct mul_app_client_cb nbapi_app_cbs;
+
+GSList *gui_server_list;
 
 void nbapi_module_init(void *ctx);
 

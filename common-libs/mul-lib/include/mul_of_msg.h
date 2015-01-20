@@ -156,6 +156,7 @@ struct ofp_inst_parser_arg
     bool inst_meter;
     bool inst_clear;
     bool inst_wr_meta;
+    bool mod_fl_flag;
     int push_mpls;
     int push_vlan;
     int push_pbb;
@@ -165,16 +166,21 @@ struct ofp_inst_parser_arg
 
 struct ofp_inst_check_args
 {
+    struct flow *fl;
     void *sw_ctx;
     bool group_act_check;
     void *tbl_prop;
     void *grp_prop;
     bool check_setf_supp;
+    bool inst_local;
     void *grp_list;
     void *meter_list;
+    uint32_t out_port;
+    uint32_t group_id;
     bool (*check_port)(void *sw_arg, uint32_t port);
     bool (*check_add_meter)(void *sw_arg, uint32_t group, void *u_arg);
     bool (*check_add_group)(void *sw_arg, uint32_t meter, void *u_arg);
+    uint8_t (*get_v2p_tbl)(void *sw_arg, uint8_t tbl);
 };
 
 struct ofpx_oxm_parser_arg
@@ -458,6 +464,12 @@ of_mask_clr_tunnel_id(struct flow *mask)
     mask->tunnel_id = 0x0;
 }
 
+static inline void
+of_mask_set_table_id(struct flow *mask)
+{
+    mask->table_id = 0xff;
+}
+
 static inline int 
 of_get_data_len(void *h)
 {
@@ -525,28 +537,31 @@ struct of_flow_mod_params {
     uint16_t command;
     uint32_t ogroup;
     uint32_t cookie;
+    uint32_t seq_cookie;
     void *meter_dep;
     void *grp_dep;
 };
 
 struct of_group_mod_params {
-    void *app_owner;
-    uint32_t group;
-    uint8_t type;
-    uint8_t flags;
+    uint8_t command;           /* Command type - add, del or modify */
+    void *app_owner;           /* Application owner pointer */
+    uint32_t group;            /* Group id */
+    uint8_t type;              /* Group type */
+    uint8_t flags;             /* Group flags for controller use */
 #define OF_MAX_ACT_VECTORS (128)
-    struct of_act_vec_elem *act_vectors[OF_MAX_ACT_VECTORS];
-    size_t act_vec_len;
+    struct of_act_vec_elem *act_vectors[OF_MAX_ACT_VECTORS]; /* Vector of actions */
+    size_t act_vec_len;        /* Length of action vector */
 };
 
 struct of_meter_mod_params {
-    void *app_owner;
-    uint32_t meter;
-    uint16_t flags;
-    uint8_t cflags;
+    uint8_t command;           /* Command type - add, del or modify */  
+    void *app_owner;           /* Application owner pointer */
+    uint32_t meter;            /* Meter id */
+    uint16_t flags;            /* Meter flags as per Openflow */
+    uint8_t cflags;            /* Meter flags for controller use */
 #define OF_MAX_METER_VECTORS (128)
-    struct of_meter_band_elem *meter_bands[OF_MAX_METER_VECTORS];
-    size_t meter_nbands;
+    struct of_meter_band_elem *meter_bands[OF_MAX_METER_VECTORS]; /* Vector of bands */
+    size_t meter_nbands;       /* Valid number of bands */
 };
 
 struct ofp_port_mod_properties {
@@ -696,19 +711,27 @@ struct c_ofp_ctors {
     /* Dump Helpers */
     char *(*dump_flow)(struct flow *fl, struct flow *mask);
     char *(*dump_acts)(void *actions, size_t action_len, bool acts_only);
-    void (*dump_of_msg)(struct cbuf *b, bool tx, uint64_t dpid);
+    void (*dump_of_msg)(struct cbuf *b, bool tx, uint64_t *mask, uint64_t dpid);
 
     /* Supported features */
     bool (*multi_table_support)(uint8_t n_tables, uint8_t table_id);
     bool (*flow_stats_support)(uint32_t cap);
     bool (*group_stats_support)(uint32_t cap);
     bool (*table_stats_support)(uint32_t cap);
+    int (*act_modify_uflow)(struct flow *fl, struct flow *mask,
+                            void *actions, size_t action_len,
+                            bool acts_only, void *u_arg);
 };
 typedef struct c_ofp_ctors c_ofp_ctors_t;
 void of_mact_alloc(mul_act_mdata_t *mdata);
 void of_mact_free(mul_act_mdata_t *mdata);
 void of_capabilities_tostr(char *string, uint32_t capabilities);
 bool of_switch_supports_flow_stats(uint32_t cap);
+bool __of_match_flows(struct flow *f1, struct flow *m1, struct flow *f2);
+bool of_match_flows_prio(struct flow *f1, struct flow *m1,
+                         struct flow *f2, struct flow *m2,
+                         uint16_t p1, uint16_t p2);
+bool of_check_flow_wildcard_generic(struct flow *fl, struct flow *mask);
 char *of_dump_flow_generic_cmd(struct flow *fl, struct flow *mask);
 char *of_dump_flow_generic(struct flow *fl, struct flow *mask);
 char *of_dump_flow_all(struct flow *fl);
@@ -893,12 +916,16 @@ struct cbuf *of131_prep_meter_stat_req(uint32_t meter_id);
 struct cbuf *of131_prep_meter_config_req(uint32_t meter_id);
 struct cbuf *of131_prep_port_stat_req(uint32_t port);
 struct cbuf *of131_prep_q_get_config(uint32_t port_no);
-void of131_dump_msg(struct cbuf *b, bool tx, uint64_t dpid);
+void of131_dump_msg(struct cbuf *b, bool tx, uint64_t *mask, uint64_t dpid);
 char * of131_port_stats_dump(void *feat, size_t feat_len);
 char * of_port_stats_dump(void *feat, size_t feat_len);
 void ofp131_dump_port_details(char *string, uint32_t config, 
                               uint32_t state);
+int of131_modify_uflow(struct flow *fl, struct flow *mask,
+                       void *inst_list, size_t inst_len,
+                       bool acts_only, void *arg);
 void ofp_dump_port_details(char *string, uint32_t config, uint32_t state);
+void ofp_convert_flow_endian_hton(struct flow *fl);
 struct cbuf * of_prep_port_mod_msg(uint32_t port_no, 
                                    struct of_port_mod_params *pm_params, 
                                    uint8_t *hw_addr);
@@ -943,5 +970,9 @@ struct cbuf * of140_prep_port_mod_msg(uint32_t port_no,
                         struct of_port_mod_params *pm_params, 
                         uint8_t *hw_addr);
 char * of140_port_stats_dump(void *feat, size_t feat_len);
+struct cbuf *of140_prep_pkt_out_msg(struct of_pkt_out_params *parms);
+struct cbuf *of140_prep_barrier_req(void);
+struct cbuf *of140_prep_q_get_config(uint32_t port_no);
+struct cbuf *of140_prep_set_config_msg(uint16_t flags, uint16_t miss_len);
 
 #endif

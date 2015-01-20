@@ -66,8 +66,11 @@ mulcli_OBJECTS = $(am_mulcli_OBJECTS)
 mulcli_DEPENDENCIES =  \
 	$(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a \
 	$(top_srcdir)/application/fabric/.libs/libfab.a \
+	$(top_srcdir)/application/makdi/.libs/libmakdi.a \
 	$(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a \
-	$(top_srcdir)/mul/./.libs/libmul.a $(am__append_6)
+	$(top_srcdir)/mul/./.libs/libmul.a \
+	$(top_srcdir)/common-libs/util-linux/libuuid/.libs/libuuid.a \
+	$(am__append_6)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
 am__v_lt_0 = --silent
@@ -125,6 +128,7 @@ CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 DEPDIR = @DEPDIR@
 DLLTOOL = @DLLTOOL@
+DOXYGEN = @DOXYGEN@
 DSYMUTIL = @DSYMUTIL@
 DUMPBIN = @DUMPBIN@
 ECHO_C = @ECHO_C@
@@ -248,18 +252,22 @@ pkgconfigdir = $(libdir)/pkgconfig
 INCLUDES = -I. -I$(top_srcdir)/common/ -I$(top_srcdir)/mul/ \
 	-I$(top_srcdir)/services/loadable/topo_routing/ \
 	-I$(top_srcdir)/application/fabric/ \
+	-I$(top_srcdir)/application/makdi/ \
 	-I$(top_srcdir)/common-libs/3rd-party/derived-lib/include/ \
 	-I$(top_srcdir)/common-libs/3rd-party/quagga-lib/include/ \
-	-I$(top_srcdir)/common-libs/mul-lib/include/ $(am__append_3) \
-	$(am__append_5)
+	-I$(top_srcdir)/common-libs/mul-lib/include/ \
+	-I$(top_srcdir)/common-libs/util-linux/libuuid/src/ \
+	$(am__append_3) $(am__append_5)
 mulcli_CFLAGS = -DMUL_APP_V2_MLAPI $(am__append_1)
 mulcli_SOURCES = mul_cli.c $(top_srcdir)/common/mul_app_main.c
 LD_FLAGS = @LDFLAGS@ $(am__append_2) $(am__append_4)
 mulcli_LDADD = $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a \
 	$(top_srcdir)/application/fabric/.libs/libfab.a \
+	$(top_srcdir)/application/makdi/.libs/libmakdi.a \
 	$(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a \
-	-lrt $(top_srcdir)/mul/./.libs/libmul.a -lcrypto -lssl \
-	-lglib-2.0 $(am__append_6)
+	-lrt $(top_srcdir)/mul/./.libs/libmul.a \
+	$(top_srcdir)/common-libs/util-linux/libuuid/.libs/libuuid.a \
+	-lcrypto -lssl -lglib-2.0 $(am__append_6)
 mulcli_LDFLAGS = $(LD_FLAGS) -lpthread -levent -lcrypt 
 noinst_HEADERS = mul_cli.h
 all: all-am

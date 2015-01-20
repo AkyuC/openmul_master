@@ -427,7 +427,7 @@ static void
 if_dump (const struct interface *ifp)
 {
   struct listnode *node;
-  struct connected *c;
+  struct connected *c __attribute__((unused)); 
 
   zlog_info ("Interface %s index %d metric %d mtu %d "
 #ifdef HAVE_IPV6

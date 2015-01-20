@@ -29,9 +29,12 @@ struct rt_info_
     time_t  rt_next_trigger_ts;
     void    *rt_priv;
     int     (*rt_init_state)(void *tr, bool need_port_state);
-    void    (*rt_add_neigh_conn)(void *tr_struct, int sw_a, int sw_b, 
+    void    (*rt_add_neigh_conn)(void *tr_struct, int sw_a, int sw_b,
+                                 uint64_t dpid_a, uint64_t dpid_b,
                                  struct lweight_pair_ *new_adj, bool update);
     GSList  *(*rt_get_sp)(void *tr_struct, int alias_src_swid, 
+                          int alias_dst_swid);
+    rt_list_t *(*rt_get_sp_all)(void *tr_struct, int alias_src_swid,
                           int alias_dst_swid);
     int     (*rt_calc)(void *tr_struct);
     int     (*rt_recalc)(void *tr_struct);
@@ -67,6 +70,8 @@ struct tr_neigh_query_arg {
     struct tr_struct_ *tr;
     int src_sw;
     int dst_sw;
+    uint64_t src_dpid;
+    uint64_t dst_dpid;
     bool send_port_state;
 };
 
@@ -85,6 +90,7 @@ void __tr_init_neigh_pair_adjacencies(tr_neigh_query_arg_t *arg);
 
 GSList *tr_get_route(tr_struct_t *tr, int src_node, int dst_node);
 GSList *__tr_get_route(tr_struct_t *tr, int src_node, int dst_node);
+rt_list_t *tr_get_route_all(tr_struct_t *tr, int src_node, int dst_node);
 void tr_destroy_route(GSList *route);
 char *tr_dump_route(GSList *route_path);
 char *tr_show_route_adj_matrix(tr_struct_t *tr);

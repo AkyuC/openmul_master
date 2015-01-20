@@ -73,42 +73,89 @@ c_service_clr_rcv_buf(mul_service_t *service)
     return ret;
 }
 
-static bool 
-check_reply_type(struct cbuf *b, uint32_t cmd_code)
+void
+c_service_send_error(void *service, struct cbuf *b,
+                     uint16_t type, uint16_t code)
 {
-    c_ofp_auxapp_cmd_t *cofp_auc  = (void *)(b->data);
+    struct cbuf       *new_b;
+    c_ofp_error_msg_t *cofp_em;
+    void              *data;
+    size_t            data_len;
 
-    if (ntohs(cofp_auc->header.length) < sizeof(*cofp_auc)) {
-        return false;
-    }
+    if (!service) return;
 
-    if (cofp_auc->header.type != C_OFPT_AUX_CMD ||
-        cofp_auc->cmd_code != htonl(cmd_code)) {
-        /* c_log_err("%s: type(%hu) cmd_code (%u)", FN,
-                  cofp_auc->header.type, ntohl(cofp_auc->cmd_code)); */
-        return false;
+    data_len = b->len > C_OFP_MAX_ERR_LEN?
+                    C_OFP_MAX_ERR_LEN : b->len;
+
+    new_b = of_prep_msg(sizeof(*cofp_em) + data_len, C_OFPT_ERR_MSG, 0);
+
+    cofp_em = (void *)(new_b->data);
+    cofp_em->type = htons(type);
+    cofp_em->code = htons(code);
+
+    data = (void *)(cofp_em + 1);
+    memcpy(data, b->data, data_len);
+
+    c_service_send(service, new_b);
+}
+
+void
+c_service_send_success(void *service)
+{
+    struct cbuf             *new_b;
+    struct c_ofp_auxapp_cmd *cofp_aac;
+
+    if (!service) return;
+
+    new_b = of_prep_msg(sizeof(*cofp_aac), C_OFPT_AUX_CMD, 0);
+
+    cofp_aac = (void *)(new_b->data);
+    cofp_aac->cmd_code = htonl(C_AUX_CMD_SUCCESS);
+
+    c_service_send(service, new_b);
+}
+
+int 
+c_check_reply_type(struct cbuf *b, uint32_t cmd_code)
+{
+    c_ofp_auxapp_cmd_t *cofp_auc  = CBUF_DATA(b);
+    c_ofp_error_msg_t *cofp_em;
+
+    switch(cofp_auc->header.type) {
+        case C_OFPT_AUX_CMD: {
+            if (ntohs(cofp_auc->header.length) < sizeof(*cofp_auc) ||
+                cofp_auc->cmd_code != htonl(cmd_code)) {
+                return 1;
+            }
+            return 0;
+        }
+        case C_OFPT_ERR_MSG: {
+            cofp_em = CBUF_DATA(b);
+            if (ntohs(cofp_auc->header.length) < sizeof(*cofp_em))
+                return 1;
+            return (int)(ntohs(cofp_em->code));
+        }
+        default:
+            return 1;
     }
  
-    return true;
+    return 1;
 }
 
 int
 c_service_timed_wait_response(mul_service_t * service)
 {
     struct cbuf *b;
-    int ret = 1;
+    int ret = -1;
 
     b = c_service_wait_response(service);
     if (b) {
-        if (check_reply_type(b, C_AUX_CMD_SUCCESS)) {
-            ret = 0;
-        }
+        ret = c_check_reply_type(b, C_AUX_CMD_SUCCESS);
         free_cbuf(b);
     }
     /* return > 0 if we got a response else < 0 */
     return ret;
 }
-
 
 int 
 c_service_timed_throw_resp(mul_service_t *service)
@@ -142,6 +189,8 @@ c_service_send(mul_service_t *service, struct cbuf *b)
     if (service->is_client) {
         c_service_clr_rcv_buf(service);
         c_socket_write_block_loop(&service->conn, b);
+        if (service->conn.dead && !service->reconn_timer_event)
+            c_service_reconnect(service);
     } else {
 
         c_wr_lock(&service->conn.conn_lock);
@@ -168,14 +217,13 @@ c_service_fetch_response(mul_service_t *service, struct cbuf *b)
 }
 
 /* 
- * c_service_wait_response -
+ * __c_service_wait_response -
  * 
  * This is not yet smp proof 
  */
 struct cbuf *
-c_service_wait_response(mul_service_t *service)
+__c_service_wait_response(mul_service_t *service, int *ret)
 {
-    int ret = 0;
     struct pollfd pfd;
 
     if (service->conn.dead) return NULL;
@@ -184,22 +232,22 @@ c_service_wait_response(mul_service_t *service)
     pfd.fd = service->conn.fd;
     pfd.events = POLLIN;
 
-    ret = poll(&pfd, 1, C_SERV_MSG_TIMEO_MS);
-    if (ret == -1) {
+    *ret = poll(&pfd, 1, C_SERV_MSG_TIMEO_MS);
+    if (*ret == -1) {
         perror("poll");
         c_service_reconnect(service);
         return NULL;
-    } else if (ret == 0) {
+    } else if (*ret == 0) {
         c_log_debug("%s:Timeout!", FN);
     } else {
         if (pfd.revents & POLLIN) {
-            ret = c_socket_read_block_loop(service->conn.fd, service, 
+            *ret = c_socket_read_block_loop(service->conn.fd, service, 
                                    &service->conn,
                                    C_SERV_RCV_BUF_SZ,
                                    (conn_proc_t)(c_service_fetch_response),
                                    of_get_data_len, of_hdr_valid,
                                    sizeof(struct ofp_header));
-            if (c_recvd_sock_dead(ret)) {
+            if (c_recvd_sock_dead(*ret)) {
                 c_log_debug("Service(%s) connection Broken..\n", service->service_name);
                 perror("c_service_wait_repsonse");
                 if (service->conn.cbuf) {
@@ -216,6 +264,17 @@ c_service_wait_response(mul_service_t *service)
 
     /* NOT Reached */
     return NULL;
+}
+
+/* 
+ * c_service_wait_response -
+ * 
+ */
+struct cbuf *
+c_service_wait_response(mul_service_t *service) 
+{
+    int ret = 0;
+    return __c_service_wait_response(service, &ret);
 }
 
 static void
@@ -260,7 +319,8 @@ c_service_validity_timer(evutil_socket_t fd UNUSED, short event UNUSED,
         return c_service_reconnect(service);
     }
 
-    evtimer_add(service->valid_timer_event, &tv);
+    if (service->valid_timer_event)
+        evtimer_add(service->valid_timer_event, &tv);
 }
 
 static void
@@ -270,8 +330,9 @@ c_service_reconn_timer(evutil_socket_t fd UNUSED, short event UNUSED,
     mul_service_t *service = arg;
     struct timeval tv = { 5, 0 };
 
-
-   c_log_debug("Retry Conn to service %s", service->service_name);
+    if (!service->conn.dead) return;
+ 
+    c_log_debug("Retry Conn to service %s", service->service_name);
 
     if(!c_service_client_sock_init(service, service->server?:__server)) {
         c_log_debug("Connection to service %s restored", service->service_name);
@@ -283,6 +344,7 @@ c_service_reconn_timer(evutil_socket_t fd UNUSED, short event UNUSED,
         if (service->conn_update) {
             service->conn_update(service, MUL_SERVICE_UP);
         }
+        mb();
 
         service->valid_timer_event = evtimer_new(service->ev_base,
                                               c_service_validity_timer,
@@ -299,6 +361,9 @@ void
 c_service_reconnect(mul_service_t *service)
 {
     struct timeval tv = { 1, 0 };
+
+    if (service->conn.dead &&
+        service->reconn_timer_event) return;
 
     service->conn.dead = 1;
 
@@ -498,8 +563,16 @@ mul_service_alive(mul_service_t *service)
 {
     struct cbuf *b;
     struct c_ofp_auxapp_cmd *cofp_auc;
+    uint32_t tx_pkts;
+    int ret = 0;
 
     if (service->ext_ka_flag) return false;
+
+    tx_pkts = service->last_tx_pkts;
+    service->last_tx_pkts = service->conn.tx_pkts;
+
+    if (tx_pkts != service->conn.tx_pkts)
+        return true;
 
     if (service->keepalive) {
         return service->keepalive(service);
@@ -511,11 +584,14 @@ mul_service_alive(mul_service_t *service)
     cofp_auc->cmd_code = htonl(C_AUX_CMD_ECHO);
 
     c_service_send(service, b);
-    b = c_service_wait_response(service);
+    b = __c_service_wait_response(service, &ret);
     if (b) {
         free_cbuf(b);
         return true;
     }
+
+    if (ret >= 0)
+        return true;
 
     return false;
 }

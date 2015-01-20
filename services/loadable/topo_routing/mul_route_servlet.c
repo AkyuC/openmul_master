@@ -1,8 +1,10 @@
-/*
- *  mul_route_servlet.c: MUL routing service 
- *  Copyright (C) 2012, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
- * 
- * This program is free software; you can redistribute it and/or
+/**
+ *  @file mul_route_servlet.c
+ *  @brief Mul routing service APIs 
+ *  @author Dipjyoti Saikia  <dipjyoti.saikia@gmail.com> 
+ *  @copyright Copyright (C) 2012, Dipjyoti Saikia 
+ *
+ * @license This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
@@ -15,6 +17,9 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ *
+ *
+ * @see www.openmul.org
  */
 
 #include "mul_common.h"
@@ -24,9 +29,13 @@
 GSList *mul_route_apsp_get_sp(void *rt_service, int src_sw, int dest_sw);
 
 /**
- * mul_route_path_traverse -
+ * @name mul_route_path_traverse -
+ * @brief Traverse through all path elements of a route
+ * @param [in] iroute List of route elements
+ * @param [in] iter_fn Iteration callback per element
+ * @param [in] arg Argument to be passed with iter_fn callback 
  *
- * Traverse through all path elements of a route
+ * @retval void Nothing
  */
 void
 mul_route_path_traverse(GSList *iroute, GFunc iter_fn, void *arg)
@@ -38,9 +47,8 @@ mul_route_path_traverse(GSList *iroute, GFunc iter_fn, void *arg)
 }
 
 /**
- * mul_free_rt_links -
- *
- * Free all path elements of a route
+ * @name mul_free_rt_links -
+ * @brief Free all path elements of a route
  */
 static void
 mul_free_rt_links(void *ptr)
@@ -49,9 +57,11 @@ mul_free_rt_links(void *ptr)
 }
 
 /**
- * mul_destroy_route -
- *
- * Destroy a route
+ * @name mul_destroy_route -
+ * @brief Free memory taken up by a topo route 
+ * @param [in] route List of route elements
+ * 
+ * @retval void Nothing
  */ 
 void
 mul_destroy_route(GSList *route)
@@ -62,9 +72,12 @@ mul_destroy_route(GSList *route)
 }
 
 /**
- * mul_route_init_block_meta -
- *
- * Initialize shared memory meta data for routing subsystem 
+ * @name mul_route_init_block_meta -
+ * @brief Initialize shared memory meta data for routing subsystem 
+ * @param [in] rt_info Pointer to the metadata area for storing info
+ * @param [in] blk The state info block which is locally allocated 
+ * 
+ * @retval void Nothing
  */
 void
 mul_route_init_block_meta(void *rt_info, void *blk)
@@ -78,9 +91,10 @@ mul_route_init_block_meta(void *rt_info, void *blk)
 }
 
 /**
- * mul_route_service_get -
- *
- * Get a handle to the routing service 
+ * @name mul_route_service_get -
+ * @brief Get a service handle to the routing service 
+ * 
+ * @retval void * Pointer to the client service handle
  */
 void *
 mul_route_service_get(void)
@@ -118,9 +132,9 @@ mul_route_service_get(void)
 }
 
 /**
- * mul_route_service_destroy -
- *
- * Derefer usage handle of the routing service
+ * @name mul_route_service_destroy -
+ * @brief Derefer service handle of the routing service
+ * @param [in] rt_service pointer to the client service handle
  */
 void
 mul_route_service_destroy(void *rt_service)
@@ -131,18 +145,25 @@ mul_route_service_destroy(void *rt_service)
 }
 
 /**
- * add_route_path_elem -
+ * @name add_route_path_elem -
+ * @brief Adds a path element to a route given adjacency info 
+ * @param [in] route Double pointer to the route list
+ * @param [in] node alias-id of the current node
+ * @param [in] adj Adjacency information in struct lweight_pair_t *
+ * @param [in] dpid datapath-id of the current node
+ * @param [in] last_hop Bool:flag denoting if this is the last hop
  *
- * Adds a path element to a route 
+ * @retval void Nothing
  */
 static inline void
 add_route_path_elem(GSList **route, int node, lweight_pair_t *adj,
-                    bool last_hop)
+                    uint64_t dpid, bool last_hop)
 {
     rt_path_elem_t *path_elem;
 
     path_elem = calloc(1, sizeof(*path_elem));
     path_elem->sw_alias = node;
+    path_elem->sw_dpid = dpid;
     path_elem->flags = last_hop ? RT_PELEM_LAST_HOP :0;
     path_elem->in_port = NEIGH_NO_LINK; 
     
@@ -156,11 +177,17 @@ add_route_path_elem(GSList **route, int node, lweight_pair_t *adj,
 }
 
 /**
- * mul_route_list_free -
+ * @name mul_route_list_free -
+ * @brief Free a route list
+ * @param [in] path_head The head of the route list
+ * @param [in] free_route Bool:true if individual routes need to be freed
  *
- * Free a route list
+ * @retval void Nothing
+ *
+ * Route-list are used for holding multiple routes from point A to B
+ * especially in 
  */
-static void
+void
 mul_route_list_free(rt_list_t *path_head, bool free_route)
 {
     rt_list_t *cur_path = path_head, *prev_path = NULL;
@@ -168,7 +195,7 @@ mul_route_list_free(rt_list_t *path_head, bool free_route)
     while (cur_path) {
         prev_path = cur_path;
         cur_path = cur_path->next;
-        if (free_route) {
+        if (free_route && !prev_path->skip) {
             mul_destroy_route(prev_path->route);
         }
         free(prev_path);
@@ -176,9 +203,11 @@ mul_route_list_free(rt_list_t *path_head, bool free_route)
 }
 
 /**
- * mul_route_list_size -
+ * @name mul_route_list_size -
+ * @brief Return the number of routes in a route-list 
+ * @param [in] rt_list Route list of routes
  *
- * Return the number of routes in a route-list 
+ * @retval size_t number of individual routes in route list
  */
 static size_t
 mul_route_list_size(rt_list_t *rt_list)
@@ -194,9 +223,8 @@ mul_route_list_size(rt_list_t *rt_list)
 }
 
 /**
- * mul_print_route -
- *
- * Dump a route for printing
+ * @name mul_print_route -
+ * @brief Dump a route for printing
  */
 static void  UNUSED
 mul_print_route(GSList *route_path)
@@ -229,9 +257,8 @@ mul_print_route(GSList *route_path)
 
 
 /**
- * mul_routes_concat -
- *
- * Concat two routes to one 
+ * @name mul_routes_concat -
+ * @brief Concat two routes to one 
  */
 static  GSList *
 mul_routes_concat(GSList *route1, GSList *route2)
@@ -265,9 +292,8 @@ mul_routes_concat(GSList *route1, GSList *route2)
 }
 
 /**
- * mul_route_list_merge -
- *
- * Merge two route-lists into a single route-list 
+ * @name mul_route_list_merge -
+ * @brief Merge two route-lists into a single route-list 
  */
 static void
 mul_route_list_merge(rt_list_t **path, rt_list_t *path_ik,
@@ -296,7 +322,7 @@ mul_route_list_merge(rt_list_t **path, rt_list_t *path_ik,
 }
 
 /**
- * mul_dump_route -
+ * @name mul_dump_route -
  *
  */
 static char *
@@ -327,7 +353,7 @@ mul_dump_route(GSList *route_path)
 }
 
 /**
- * mul_route_list_dump -
+ * @name mul_route_list_dump -
  *
  */
 static void UNUSED
@@ -348,9 +374,9 @@ mul_route_list_dump(rt_list_t *path_head)
 
 
 /**
- * mul_route_apsp_get_subp -
- *
- * Get a list of shortest paths between src and dest 
+ * @name mul_route_apsp_get_subp -
+ * @brief Get a list of shortest paths between src and dest 
+ *        int form of rt_list_t
  */
 static rt_list_t *
 mul_route_apsp_get_subp(rt_apsp_t *rt_apsp_info, int src, int dest, int *max_hops)
@@ -376,6 +402,7 @@ mul_route_apsp_get_subp(rt_apsp_t *rt_apsp_info, int src, int dest, int *max_hop
                 path = calloc(1, sizeof(*path));
                 add_route_path_elem(&path->route, src,
                                     rt_apsp_get_pair(rt_apsp_info, src, dest),
+                                    rt_apsp_get_src_dp(rt_apsp_info, src, dest),
                                     false);
                 /* c_log_err("%s: onlink route between %d to %d", FN, src, dest); */
             } else {
@@ -401,11 +428,14 @@ mul_route_apsp_get_subp(rt_apsp_t *rt_apsp_info, int src, int dest, int *max_hop
 
 
 /**
- * mul_route_select_single_and_purge_list -
+ * @name mul_route_select_single_and_purge_list -
+ * @brief Grabs a route from route list as denoted by rt_select_hint 
+ *        and return to caller
  * @route_list : A route list
- * @rt_select_hint : The route number to select
+ * @rt_select_hint : a hint in form of integer to aid selection among multiple routes 
  *
- * Grabs a route from route list as denoted by rt_select_hint and return to caller
+ * @retval GSList * Pointer to the selected route
+ *
  * If rt_select_hint > number of routes in route list it will return NULL    
  */
 static GSList *
@@ -436,10 +466,11 @@ mul_route_select_single_and_purge_list(rt_list_t *route_list, size_t rt_select_h
 }
 
 /**
- * mul_route_prep_out -
- * @route : A route 
+ * @name mul_route_prep_out -
+ * @brief Adds inport and flags info for each element or node 
+ * @param [in] route : A route 
  *
- * Adds inport and flags info for each element or node 
+ * @retval int zero for success or non-zero for failure
  */
 static int 
 mul_route_prep_out(GSList *route)
@@ -476,27 +507,45 @@ mul_route_prep_out(GSList *route)
 }
 
 /**
- * mul_route_apsp_get_mp_sp -
+ * @mul_route_apsp_get_mp_sp -
+ * @brief Get shortest path between src_sw and dest_sw. 
+ * @param [in] rt_service Pointer to the rt_service client 
+ * @param [in] src_sw Source switch alias-id
+ * @param [in] dest_sw Destination switch alias-id
+ * @param [in] u_arg User argument to be passed when mp_select callback is invoked
+ * @param [in] mp_select Callback to selects a single route in case of multiple ecmp 
+ *                       routes 
+ * @param [in] bpairs Bool:true to specify whether all route pairs are required 
+ *                         else false
+ * @retval void * Pointer to a route_list
  *
- * Get shortest path between src_sw and dest_sw. If multiple paths exists
- * it will select a path based of user provided mp_select function or the
- * first avaialbe route if mp_select is not provided
+ * If multiple paths exists it will select a path based of user provided 
+ * mp_select function or the first availabe route if mp_select is not provided
  */ 
-static GSList *
+static void *
 mul_route_apsp_get_mp_sp(void *rt_service, int src_sw, int dest_sw, void *u_arg,
-                         size_t (*mp_select)(void *u_arg, size_t max_routes))
+                         size_t (*mp_select)(void *u_arg, size_t max_routes),
+                         bool bpairs)
 {
+    uint64_t dest_sw_dpid = 0;
     unsigned int lock, max_retries = 0;
     int max_hops; 
     rt_apsp_t *rt_apsp_info = rt_service;
     GSList *route = NULL;
-    rt_list_t *route_list = NULL;
+    rt_list_t *route_list = NULL, *tmp = NULL;
     size_t mp_rt_hint = 0, num_mp_routes = 0; 
     lweight_pair_t last_hop = { NEIGH_NO_LINK, NEIGH_NO_LINK, 
                                 NEIGH_NO_PATH, 0 };
 
     if (src_sw == dest_sw) {
+        route_list = calloc(1, sizeof(*route_list));
+        if (!route_list) return NULL;
         goto route_same_node;
+    }
+
+    if (!(dest_sw_dpid = c_app_switch_get_dpid_with_alias(dest_sw))) {
+        c_log_err("%s: No such  last hop %d", FN, dest_sw);
+        return NULL;
     }
 
 retry:
@@ -535,34 +584,49 @@ retry:
             mp_rt_hint = 0;
         }
     }
-    route = mul_route_select_single_and_purge_list(route_list, mp_rt_hint);
+
+    if (!bpairs) {
+        route = mul_route_select_single_and_purge_list(route_list, mp_rt_hint);
+        route_list = calloc(1, sizeof(*route_list));
+        if (!route_list) {
+            mul_destroy_route(route);
+            route = NULL;
+        } else {
+            route_list->route = route;
+        }
+    }
 
     if (c_seq_rd_unlock(&rt_apsp_info->state_info->lock, lock)) {
-        mul_destroy_route(route);
+        mul_route_list_free(route_list, true);
         goto retry;
     }
 
     if (max_hops <= 0) {
-        mul_destroy_route(route);
+        mul_route_list_free(route_list, true);
         return NULL;
     }
 
 route_same_node:
-    add_route_path_elem(&route, dest_sw, &last_hop, true);
-
-    if (mul_route_prep_out(route)) {
-        mul_destroy_route(route);
-        route = NULL; 
+    
+    for (tmp = route_list; tmp; tmp = tmp->next) {
+        route = tmp->route;
+        add_route_path_elem(&route, dest_sw, &last_hop, dest_sw_dpid, true);
+        if (mul_route_prep_out(route)) {
+            mul_destroy_route(route);
+            route = NULL; 
+            route_list->route = NULL;
+        }
     }
 
-    return route;
+    return route_list;
 }
 
 /**
- * mul_route_apsp_get_sp -
- * @route_service : Handle to the route service 
- * @src_sw : Source node  
- * @dest_sw : Destination node 
+ * @name mul_route_apsp_get_sp -
+ * @brief Wrapper api on top of mul_route_apsp_get_mp_sp()
+ * @param [in] route_service : Handle to the route service 
+ * @param [in] src_sw : Source node  
+ * @param [in] dest_sw : Destination node 
  *
  * Wrapper api on top of mul_route_apsp_get_mp_sp(). It does not take 
  * into account multi-pathing routes 
@@ -570,14 +634,25 @@ route_same_node:
 GSList *
 mul_route_apsp_get_sp(void *rt_service, int src_sw, int dest_sw)
 {
-    return mul_route_apsp_get_mp_sp(rt_service, src_sw, dest_sw, NULL, NULL);
+    GSList *route = NULL;
+    rt_list_t *route_list = NULL;
+
+    route_list = mul_route_apsp_get_mp_sp(rt_service, src_sw, dest_sw, 
+                                          NULL, NULL, false);
+    if (route_list) {
+        route = route_list->route;
+        free(route_list);
+        return route;
+    }
+    return NULL;
 }
 
 /**
- * mul_route_service_alive -
- * @service : Handle to the route service 
+ * @name mul_route_service_alive -
+ * @brief Checks status of routing service 
+ * @param [in] service : Handle to the route service 
  *
- * Checks status of routing service 
+ * @retval bool true if service is alive
  */
 static bool
 mul_route_service_alive(void *service)
@@ -594,12 +669,12 @@ mul_route_service_alive(void *service)
     return true;
 }
 
-
 /**
- * mul_route_get_nodes -
- * @rt_service : Handle to the route service 
+ * @name mul_route_get_nodes -
+ * @brief Get number of nodes in routing matrix 
+ * @param [in] rt_service : Handle to the route service 
  *
- * Get number of nodes in routing matrix 
+ * @retval size_t number of active nodes in topology
  */
 size_t
 mul_route_get_nodes(void *rt_service)
@@ -613,14 +688,13 @@ mul_route_get_nodes(void *rt_service)
     return rt_apsp_info->state_info->nodes;
 } 
 
-
 /**
- * mul_route_get -
- * @rt_service : Handle to the route service 
- * @src_sw : Source node  
- * @dest_sw : Destination node 
+ * @name mul_route_get -
+ * @brief Front-end api of routing service to get route from source to dest 
+ * @param [in] rt_service : Handle to the route service 
+ * @param [in] src_sw : Source node  
+ * @param [in] dest_sw : Destination node 
  *
- * Front-end api of routing service to get route from source to dest 
  * Applicable when users dont want multi-pathing support
  */
 GSList *
@@ -644,14 +718,14 @@ mul_route_get(void *rt_service, int src_sw, int dest_sw)
 }
 
 /**
- * mul_route_get_mp -
- * @rt_service : Handle to the route service 
- * @src_sw : Source node  
- * @dest_sw : Destination node 
- * @u_arg : User argument to be passed to mp_select  
- * @mp_select : Callback for multi-pathing selection
+ * @name mul_route_get_mp -
+ * @brief Front-end api of routing service to get route from source to dest 
+ * @param [in] rt_service : Handle to the route service 
+ * @paam [in] src_sw : Source node  
+ * @param [in] dest_sw : Destination node 
+ * @param [in] u_arg : User argument to be passed to mp_select  
+ * @param [in] mp_select : Callback for aiding multi-pathing selection
  *
- * Front-end api of routing service to get route from source to dest 
  * Applicable when users want multi-pathing support
  */
 GSList *
@@ -659,6 +733,8 @@ mul_route_get_mp(void *rt_service, int src_sw, int dest_sw,  void *u_arg,
                  size_t (*mp_select)(void *u_arg, size_t max_routes))
 {
     rt_apsp_t *rt_apsp_info = rt_service;
+    GSList *route = NULL;
+    rt_list_t *route_list = NULL;
 
     if (!mul_route_service_alive(rt_service)) {
         return 0;
@@ -672,6 +748,48 @@ mul_route_get_mp(void *rt_service, int src_sw, int dest_sw,  void *u_arg,
         return NULL;
     }
 
-    return mul_route_apsp_get_mp_sp(rt_service, src_sw, dest_sw,
-                                    u_arg, mp_select);
+    route_list = mul_route_apsp_get_mp_sp(rt_service, src_sw, dest_sw,
+                                          u_arg, mp_select, false);
+
+    if (route_list) {
+        route = route_list->route;
+        free(route_list);
+        return route;
+    }
+    return NULL;
+
+}
+
+/**
+ * @name mul_route_get_all -
+ * @brief Front-end api of routing service to get all ecmp routes 
+ *        from source to dest 
+ * @brief rt_service : Handle to the route service 
+ * @param [in] src_sw : Source node  
+ * @param [in] dest_sw : Destination node 
+ * @param [in] u_arg : User argument to be passed to mp_select  
+ * @param [in] mp_select : Callback for multi-pathing selection
+ *
+ */
+rt_list_t *
+mul_route_get_all(void *rt_service, int src_sw, int dest_sw)
+{
+    rt_apsp_t *rt_apsp_info = rt_service;
+    rt_list_t *route_list = NULL;
+
+    if (!mul_route_service_alive(rt_service)) {
+        return 0;
+    }
+
+    if (src_sw < 0 || dest_sw < 0 ||
+        ((src_sw != dest_sw) && (src_sw >= rt_apsp_info->state_info->nodes ||
+        dest_sw >= rt_apsp_info->state_info->nodes))) {
+        c_log_err("%s: src(%d) or dst(%d) out of range(%d)",
+                  FN, src_sw, dest_sw, (int)rt_apsp_info->state_info->nodes);
+        return NULL;
+    }
+
+    route_list = mul_route_apsp_get_mp_sp(rt_service, src_sw, dest_sw,
+                                          NULL, NULL, true);
+    return route_list;
 }

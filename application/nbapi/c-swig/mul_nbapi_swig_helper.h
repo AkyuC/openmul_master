@@ -32,32 +32,35 @@ typedef struct mul_nbapi_swig_##TYPE##_list {       \
 
 #ifdef SWIG
 
-#define MUL_NBAPI_SWIG_TYPEMAP_GLIST_TO_PYLIST(TYPE, STRUCT_NAME)  \
-    %typemap(out) STRUCT_NAME {                         \
-        PyObject *new_pylist = PyList_New($1.length);   \
-        GSList *temp_ptr;                               \
-        int i = 0;                                      \
-        if ($1.array) {                                 \
-            temp_ptr = $1.array;                        \
-            while (temp_ptr) {                          \
-                PyObject *new_obj =                     \
-                        SWIG_NewPointerObj(temp_ptr->data,      \
-                                           SWIGTYPE_p_##TYPE##, \
-                                           SWIG_POINTER_OWN);   \
-                if (new_obj) {                              \
-                    PyList_SetItem(new_pylist, i, new_obj); \
-                }                                           \
-                temp_ptr = temp_ptr->next;                  \
-                i++;                                        \
-            }                                               \
-            g_slist_free($1.array);                         \
-        }                                                   \
-        $result = new_pylist;                               \
-    }                                                        
-#else /* !SWIG */
-
-#define MUL_NBAPI_SWIG_TYPEMAP_GLIST_TO_PYLIST(TYPE,STRUCT_NAME)  
-
+    #define MUL_NBAPI_SWIG_TYPEMAP_GLIST_TO_PYLIST(TYPE, STRUCT_NAME)      \
+        %typemap(out) STRUCT_NAME {                         \
+            PyObject *new_pylist = NULL;                    \
+            GSList *temp_ptr;                                \
+            guint len;                                      \
+            int i = 0;                                      \
+            if ($1.array) {                                 \
+                len = $1.length;                            \
+                new_pylist = PyList_New(len);               \
+                temp_ptr = $1.array;                        \
+                while (temp_ptr) {                          \
+                    PyObject *new_obj =                     \
+                            SWIG_NewPointerObj(temp_ptr->data,       \
+                                                SWIGTYPE_p_##TYPE##, \
+                                                SWIG_POINTER_OWN);   \
+                    if (new_obj) {                              \
+                        PyList_SetItem(new_pylist, i, new_obj); \
+                    }                                           \
+                    temp_ptr = temp_ptr->next;                  \
+                    i++;                                        \
+                }                                               \
+                g_slist_free($1.array);                          \
+            } else {                                         \
+		new_pylist = PyList_New(0);			\
+	    }							\
+            $result = new_pylist;                               \
+        }                                                        
+#else
+    #define MUL_NBAPI_SWIG_TYPEMAP_GLIST_TO_PYLIST(TYPE,STRUCT_NAME)  
 #endif
 
 #define MUL_NBAPI_PYLIST_RETURN(TYPE,STRUCT_NAME)                \

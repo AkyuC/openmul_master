@@ -1,6 +1,6 @@
 /*
  *  mul_thread_core.c: MUL threading infrastructure 
- *  Copyright (C) 2012, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
+ *  Copyright (C) 2012-2014, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -124,6 +124,9 @@ c_worker_thread_final_init(struct c_worker_ctx *w_ctx)
     cpu_set_t           cpu;
     char                ipc_path_str[64];
     struct timeval      tv = { C_PER_WORKER_TIMEO, 0 };
+    int                 i = 0;
+    int                 c_listener = 0;
+    extern ctrl_hdl_t   ctrl_hdl;
 
     w_ctx->cmn_ctx.base = event_base_new();
     assert(w_ctx->cmn_ctx.base);
@@ -143,6 +146,20 @@ c_worker_thread_final_init(struct c_worker_ctx *w_ctx)
                                             (void *)w_ctx);
     evtimer_add(w_ctx->worker_timer_event, &tv);
 
+    for (i = 0; i < ctrl_hdl.n_appthreads; i++) {
+        nbq_init(&w_ctx->work_qs[i].q);
+    }
+
+    c_listener = c_server_socket_create(INADDR_ANY,
+                                        C_APP_WQ_LISTEN_PORT+w_ctx->thread_idx);
+    assert(c_listener);
+    w_ctx->c_app_accept_event = event_new(w_ctx->cmn_ctx.base,
+                                          c_listener,
+                                          EV_READ|EV_PERSIST,
+                                          c_app_wq_accept,
+                                          (void*)w_ctx);
+    event_add(w_ctx->c_app_accept_event, NULL);
+
     /* Set cpu affinity */
     CPU_ZERO(&cpu);
     CPU_SET(w_ctx->thread_idx, &cpu);
@@ -151,6 +168,16 @@ c_worker_thread_final_init(struct c_worker_ctx *w_ctx)
     w_ctx->cmn_ctx.run_state = THREAD_STATE_RUNNING;
 
     return 0;
+}
+
+static void
+c_main_thread_timer_event(evutil_socket_t fd UNUSED, short event UNUSED,
+                         void *arg)
+{
+    struct c_main_ctx   *m_ctx  = arg;
+    struct timeval      tv      = { C_MAIN_THREAD_TIMEO , 0 };
+
+    evtimer_add(m_ctx->main_timer_event, &tv);
 }
 
 static void
@@ -252,6 +279,7 @@ c_main_thread_final_init(struct c_main_ctx *m_ctx)
     char                        ipc_path_str[64];
     int                         thread_idx;
     ctrl_hdl_t                  *ctrl_hdl = m_ctx->cmn_ctx.c_hdl;
+    struct timeval              tv = { C_MAIN_THREAD_BOOT_TIMEO , 0 };
     struct thread_alloc_args    t_args = { 0, 0, 
                                            THREAD_WORKER, 
                                            0, 
@@ -336,6 +364,14 @@ c_main_thread_final_init(struct c_main_ctx *m_ctx)
                                       c_accept, (void*)m_ctx);
     event_add(m_ctx->c_accept_event, NULL);
 
+    /* HA listener */
+    c_listener = c_server_socket_create(INADDR_ANY, MUL_CORE_HA_SERVICE_PORT);
+    assert(c_listener > 0);
+    m_ctx->c_ha_accept_event = event_new(m_ctx->cmn_ctx.base, c_listener, 
+                                         EV_READ|EV_PERSIST,
+                                         c_ha_accept, (void*)m_ctx);
+    event_add(m_ctx->c_ha_accept_event, NULL);
+
     /* Application listener */
     c_listener = c_server_socket_create(INADDR_ANY, C_APP_LISTEN_PORT);
     assert(c_listener);
@@ -350,6 +386,11 @@ c_main_thread_final_init(struct c_main_ctx *m_ctx)
                                           EV_READ|EV_PERSIST,
                                           c_aux_app_accept, (void*)m_ctx);
     event_add(m_ctx->c_app_aux_accept_event, NULL);
+
+    m_ctx->main_timer_event = evtimer_new(m_ctx->cmn_ctx.base,
+                                          c_main_thread_timer_event,
+                                          (void *)m_ctx);
+    evtimer_add(m_ctx->main_timer_event, &tv);
 
     if (ctrl_hdl->ssl_en) {
         ctrl_hdl->ssl_thread_locks = calloc(CRYPTO_num_locks(),
@@ -478,7 +519,10 @@ c_worker_thread_run(struct c_worker_ctx *w_ctx)
 static int
 c_app_thread_pre_init(struct c_app_ctx *app_ctx)
 {
-    char    ipc_path_str[64];
+    struct c_work_q   *wq;
+    char              ipc_path_str[64];
+    extern ctrl_hdl_t ctrl_hdl;
+    int               i = 0;
 
     signal(SIGPIPE, SIG_IGN);
     app_ctx->cmn_ctx.base = event_base_new();
@@ -494,6 +538,29 @@ c_app_thread_pre_init(struct c_app_ctx *app_ctx)
                                          EV_READ|EV_PERSIST,
                                          c_worker_ipc_read, (void*)app_ctx);
     event_add(app_ctx->main_wrk_conn.rd_event, NULL);
+
+    /* Work queues init */
+    for (i = 0; i < ctrl_hdl.n_threads; i++) {
+        wq = &app_ctx->work_qs[i];
+        while ((wq->wq_conn.fd = c_client_socket_create("127.0.0.1",
+                                             C_APP_WQ_LISTEN_PORT + i)) < 0) {
+            c_log_err("%s: Unable to create conn to workq for thread(%d)",
+                      FN, i);
+            sleep(1);
+        }
+        wq->wq_conn.rd_event = event_new(app_ctx->cmn_ctx.base,
+                                     wq->wq_conn.fd,
+                                     EV_READ|EV_PERSIST,
+                                     c_app_workq_fb_thread_read, &wq->wq_conn);
+        wq->wq_conn.wr_event = event_new(app_ctx->cmn_ctx.base,
+                                     wq->wq_conn.fd,
+                                     EV_WRITE, //|EV_PERSIST,
+                                     c_thread_write_event, &wq->wq_conn);
+        event_add(C_EVENT(wq->wq_conn.rd_event), NULL);
+        c_log_info("[WORKQ] App(%d)->worker(%d) up",
+                   app_ctx->thread_idx, i);
+
+    }
     app_ctx->cmn_ctx.run_state = THREAD_STATE_FINAL_INIT;
 
     return 0;
@@ -504,6 +571,7 @@ c_app_thread_final_init(struct c_app_ctx *app_ctx)
 {
     extern ctrl_hdl_t ctrl_hdl;
     cpu_set_t cpu;
+    struct timeval tv = { C_PER_APP_WORKER_TIMEO, 0 };
 
     /* Set cpu affinity */
     CPU_ZERO(&cpu);
@@ -511,6 +579,12 @@ c_app_thread_final_init(struct c_app_ctx *app_ctx)
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpu);
 
     c_builtin_app_start(app_ctx);
+
+    app_ctx->app_main_timer_event = evtimer_new(app_ctx->cmn_ctx.base,
+                                            c_per_app_worker_timer_event,
+                                            (void *)app_ctx);
+    evtimer_add(app_ctx->app_main_timer_event, &tv);
+
     app_ctx->cmn_ctx.run_state = THREAD_STATE_RUNNING;
 
     return 0;

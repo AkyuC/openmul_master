@@ -1,12 +1,13 @@
-/*
- *  mul_app_main.c: MUL application main
- *  Copyright (C) 2012, Dipjyoti Saikia <dipjyoti.saikia@gmail.com>
+/**
+ *  @file mul_app_main.c
+ *  @brief Mul application main file 
+ *  @author Dipjyoti Saikia  <dipjyoti.saikia@gmail.com>
+ *  @copyright Copyright (C) 2012, Dipjyoti Saikia
  *
- * This program is free software; you can redistribute it and/or
+ * @license This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
- * mul_app_main.c: MUL application main
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,6 +17,9 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ *
+ *
+ * @see www.openmul.org
  */
 #include "mul_common.h"
 #include "mul_vty.h"
@@ -24,16 +28,17 @@
 #include "mul_services.h"
 
 struct c_app_service c_app_service_tbl[MUL_MAX_SERVICE_NUM] = {
-    { TR_APP_NAME, MUL_TR_SERVICE_NAME, MUL_TR_SERVICE_PORT, NULL },    
-    { "MISC", MUL_ROUTE_SERVICE_NAME, 0, mul_route_service_get },
-    { "CORE", MUL_CORE_SERVICE_NAME, C_AUX_APP_PORT, NULL },
-    { FAB_APP_NAME, MUL_FAB_CLI_SERVICE_NAME, MUL_FAB_CLI_PORT, NULL },
-    { MAKDI_APP_NAME, MUL_MAKDI_SERVICE_NAME, MUL_MAKDI_CLI_PORT, NULL },
-    { PRISM_APP_NAME, MUL_PRISM_CLI_SERVICE_NAME, MUL_PRISM_CLI_PORT, NULL},
-    { PRISM_APP_NAME, MUL_PRISM_APP_SERVICE_NAME,
+    { TR_APP_NAME, TR_APP_COOKIE, MUL_TR_SERVICE_NAME, MUL_TR_SERVICE_PORT, NULL },    
+    { "MISC", 0, MUL_ROUTE_SERVICE_NAME, 0, mul_route_service_get },
+    { "CORE", 0, MUL_CORE_SERVICE_NAME, C_AUX_APP_PORT, NULL },
+    { FAB_APP_NAME, FAB_APP_COOKIE, MUL_FAB_CLI_SERVICE_NAME, MUL_FAB_CLI_PORT, NULL },
+    { MAKDI_APP_NAME, MAKDI_APP_COOKIE, MUL_MAKDI_SERVICE_NAME, MUL_MAKDI_CLI_PORT, NULL },
+    { PRISM_APP_NAME, PRISM_APP_COOKIE, MUL_PRISM_CLI_SERVICE_NAME, MUL_PRISM_CLI_PORT, NULL},
+    { PRISM_APP_NAME, PRISM_APP_COOKIE, MUL_PRISM_APP_SERVICE_NAME,
         MUL_PRISM_APP_SERVICE_PORT, NULL },
-    { PRISM_APP_NAME, MUL_PRISM_AGENT_SERVICE_NAME,
-        MUL_PRISM_AGENT_SERVICE_PORT, NULL }
+    { PRISM_APP_NAME, PRISM_APP_COOKIE, MUL_PRISM_AGENT_SERVICE_NAME,
+        MUL_PRISM_AGENT_SERVICE_PORT, NULL },
+    { CONX_APP_NAME, CONX_APP_COOKIE, MUL_CONX_CONF_SERVICE_NAME, MUL_CONX_SERVICE_PORT, NULL }
 };
 
 static int c_app_sock_init(c_app_hdl_t *hdl, char *server);
@@ -60,6 +65,7 @@ static struct option longopts[] =
 int c_app_switch_add(c_app_hdl_t *hdl, c_ofp_switch_add_t *cofp_sa);
 int c_app_switch_del(c_app_hdl_t *hdl, c_ofp_switch_delete_t *cofp_sa);
 void c_switch_port_status(c_app_hdl_t *hdl, c_ofp_port_status_t *ofp_psts);
+void c_switch_err_msg(c_app_hdl_t *hdl, c_ofp_error_msg_t *ofp_err);
 void c_app_packet_in(c_app_hdl_t *hdl, c_ofp_packet_in_t *ofp_pin);
 void c_controller_reconn(c_app_hdl_t *hdl);
 void c_controller_disconn(c_app_hdl_t *hdl);
@@ -70,7 +76,10 @@ void c_app_tr_status(c_app_hdl_t *hdl UNUSED, c_ofp_tr_status_mod_t *ofp_vm);
 int c_app_infra_init(c_app_hdl_t *hdl);
 int c_app_infra_vty_init(c_app_hdl_t *hdl);
 
-/* Help information display. */
+/**
+ * @name usage
+ * @brief Help information display. 
+ */
 static void
 usage(char *progname, int status)
 {
@@ -79,11 +88,16 @@ usage(char *progname, int status)
     printf("-s <server-ip> : Controller server ip address to connect\n");
     printf("-H <server-ip> : App HA server ip address to connect\n");
     printf("-V <vty-port> : vty port address. (enables vty shell)\n");
+    printf("-n : Dont connect to controller \n");
     printf("-h : Help\n");
 
     exit(status);
 }
 
+/**
+ * @name c_app_write_event_sched
+ * @brief Schedule a write event
+ */
 static void
 c_app_write_event_sched(void *conn_arg)
 {
@@ -91,6 +105,10 @@ c_app_write_event_sched(void *conn_arg)
     event_add((struct event *)(conn->wr_event), NULL);
 }
 
+/**
+ * @name c_app_write_event 
+ * @brief processes a write event
+ */ 
 static void
 c_app_write_event(evutil_socket_t fd UNUSED, short events UNUSED, void *arg)
 {
@@ -101,6 +119,10 @@ c_app_write_event(evutil_socket_t fd UNUSED, short events UNUSED, void *arg)
     c_wr_unlock(&conn->conn_lock);
 }
 
+/**
+ * @name c_app_notify_reconnect
+ * @brief Send a C_OFPT_RECONN_APP event to the application
+ */
 static void
 c_app_notify_reconnect(c_app_hdl_t *hdl)
 {
@@ -118,6 +140,10 @@ c_app_notify_reconnect(c_app_hdl_t *hdl)
     free_cbuf(b);
 }
 
+/**
+ * @name c_app_notify_disconnect
+ * @brief Send a C_OFPT_NOCONN_APP event to the application
+ */
 static void
 c_app_notify_disconnect(c_app_hdl_t *hdl)
 {
@@ -135,9 +161,14 @@ c_app_notify_disconnect(c_app_hdl_t *hdl)
     free_cbuf(b);
 }
 
+/**
+ * @name c_app_reconn_timer
+ * @brief Timer which is invoked once main controller connection goes down
+ *        and it retries till connection is restored 
+ */
 static void
 c_app_reconn_timer(evutil_socket_t fd UNUSED, short event UNUSED,
-                         void *arg)
+                   void *arg)
 { 
     c_app_hdl_t *hdl = arg;
     struct timeval tv = { 2, 0 };
@@ -153,6 +184,12 @@ c_app_reconn_timer(evutil_socket_t fd UNUSED, short event UNUSED,
     evtimer_add(hdl->reconn_timer_event, &tv);
 }
 
+/**
+ * @name c_app_reconnect
+ * @brief This is responsible for cleaning up existing connection 
+ *        state and firing the retry timer once controller connection
+ *        is dead
+ */
 void
 c_app_reconnect(c_app_hdl_t *hdl)
 {
@@ -180,6 +217,10 @@ c_app_reconnect(c_app_hdl_t *hdl)
     return;
 }
 
+/**
+ * @name c_app_recv_msg
+ * @brief Message handling function for the primary controller connection 
+ */
 static int
 c_app_recv_msg(void *hdl_arg, struct cbuf *b)
 {
@@ -187,6 +228,10 @@ c_app_recv_msg(void *hdl_arg, struct cbuf *b)
     return 0;
 }
 
+/**
+ * @name c_app_read
+ * @brief Reads on controller connection socket 
+ */
 static void
 c_app_read(evutil_socket_t fd, short events UNUSED, void *arg)
 {
@@ -207,11 +252,114 @@ c_app_read(evutil_socket_t fd, short events UNUSED, void *arg)
     return;
 }
 
+/**
+ * @name c_app_read
+ * @brief Reads on controller connection socket 
+ */
+int
+mul_app_ha_proc(mul_service_t *service UNUSED, struct cbuf *b)
+{
+    if (c_app_main_hdl.peer_mini_state == C_HA_STATE_CONNECTED &&
+        c_app_main_hdl.ha_state == C_HA_STATE_MASTER) {
+        c_service_send(c_app_main_hdl.ha_service, b);
+        return 0;
+    }
+    return -1;
+}
+
+/**
+ * @name mul_app_is_master 
+ * @brief Returns the current app HA state 
+ */
+bool
+mul_app_is_master(void)
+{
+    return c_app_main_hdl.ha_state == C_HA_STATE_MASTER ? true : false;
+}
+
+#ifdef APP_HA
+/**
+ * @name mul_app_notify_ha_state
+ * @brief Notify the app of HA state change event 
+ */
+static void
+c_app_notify_ha_state(c_app_hdl_t *hdl, uint32_t ha_sysid, uint32_t ha_state)
+{
+    struct c_ofp_auxapp_cmd *cofp_aac;
+    c_ofp_ha_state_t *cofp_ha;
+    struct cbuf *b;
+
+    if (!hdl->ev_cb) {
+        c_app_notify_ha_event(hdl, ha_sysid, ha_state);
+        return;
+    }
+
+    b =  of_prep_msg(sizeof(c_ofp_auxapp_cmd_t) +
+                    sizeof(c_ofp_ha_state_t),
+                    C_OFPT_AUX_CMD, 0);
+
+    cofp_aac = (void *)(b->data);
+    cofp_aac->cmd_code = ntohl(C_AUX_CMD_HA_STATE_RESP);
+
+    cofp_ha = (void *)(cofp_aac->data);
+    cofp_ha->ha_sysid = htonl(ha_sysid); 
+    cofp_ha->ha_state = htonl(ha_state); 
+
+    hdl->ev_cb(hdl, b);
+
+    free_cbuf(b);
+}
+
+/**
+ * @name c_service_conn_update 
+ * @brief Service connection status update callback 
+ */
+void
+c_service_conn_update(void *service, unsigned char conn_event)
+{
+    uint32_t ha_sysid = 0, ha_state = 0;
+    uint64_t gen_id;
+
+    if (service == c_app_main_hdl.ctrlr_service) {
+        return;
+    }
+
+    if (mul_get_ha_state(c_app_main_hdl.ctrlr_service,
+                         &ha_sysid, &ha_state, &gen_id)) {
+        c_log_err("%s: Failed to get HA state\n", FN);
+        /* We still update as HA_NONE */
+    } else {
+        if (ha_state >= C_HA_STATE_NONE && ha_state <= C_HA_STATE_CONFLICT) 
+            c_app_main_hdl.ha_state = ha_state;
+    }
+
+    if (conn_event == MUL_SERVICE_UP) {
+        c_app_main_hdl.peer_mini_state = C_HA_STATE_CONNECTED;
+    } else if (conn_event == MUL_SERVICE_DOWN) {
+        c_app_main_hdl.peer_mini_state = C_HA_STATE_NONE;
+    } else {
+        NOT_REACHED();
+    }
+
+    c_app_notify_ha_state(&c_app_main_hdl, 0, c_app_main_hdl.ha_state); 
+}
+
+#endif
+
+/**
+ * @name c_app_event_notifier
+ * @brief Traps event messages from mul-core and converts 
+ *        them to api calls back to applications 
+ */
 static void
 c_app_event_notifier(void *h_arg, void *pkt_arg)
 {
     struct cbuf         *b = pkt_arg;
     struct ofp_header   *hdr;
+    c_ofp_auxapp_cmd_t  *cofp_aac;
+#ifdef APP_HA
+    c_ofp_ha_state_t    *cofp_has;
+#endif
     c_app_hdl_t         *hdl = h_arg;
 
     if (!b) {
@@ -239,12 +387,34 @@ c_app_event_notifier(void *h_arg, void *pkt_arg)
         if (!hdl->ev_cb)
             c_switch_port_status(hdl, (void *)hdr);
         break;
+    case C_OFPT_ERR_MSG:
+        if (!hdl->ev_cb)
+            c_switch_err_msg(hdl, (void *)hdr);
+        break;
     case C_OFPT_VENDOR_MSG: 
 	    if (!hdl->ev_cb)
 	        c_app_vendor_msg(hdl, (void *)hdr);
 	break;
 #endif
     case C_OFPT_AUX_CMD:
+        cofp_aac = (void *)(hdr);
+        switch(ntohl(cofp_aac->cmd_code)) {
+#ifdef MUL_APP_V2_MLAPI
+        case C_AUX_CMD_MUL_TR_STATUS:
+            if(!hdl->ev_cb)
+                c_app_tr_status(hdl, (void *)(cofp_aac->data));
+            break;
+#endif
+#ifdef APP_HA
+        case C_AUX_CMD_HA_STATE_RESP:
+            cofp_has = (void *)(cofp_aac->data);
+            hdl->ha_state = ntohl(cofp_has->ha_state); 
+            break;
+#endif
+        default:
+            break;
+        }
+        break;
     default:
         break;
     }
@@ -253,6 +423,10 @@ c_app_event_notifier(void *h_arg, void *pkt_arg)
         hdl->ev_cb(hdl, b);
 }
 
+/**
+ * @name c_app_init
+ * @brief Initialize internal control structure
+ */
 static int 
 c_app_init(c_app_hdl_t *hdl)
 {
@@ -260,9 +434,17 @@ c_app_init(c_app_hdl_t *hdl)
     hdl->base = event_base_new();
     assert(hdl->base);
 
+    c_rlim_dat_init(&hdl->dlog_rlim, 1000, 10);
+    c_rlim_dat_init(&hdl->ilog_rlim, 1000, 20);
+    c_rlim_dat_init(&hdl->elog_rlim, 1000, 30);
+
     return 0;
 }
 
+/**
+ * @name c_app_sock_init
+ * @brief Initialize socket connections and events for the mul-core client 
+ */
 static int
 c_app_sock_init(c_app_hdl_t *hdl, char *server)
 {
@@ -287,6 +469,10 @@ c_app_sock_init(c_app_hdl_t *hdl, char *server)
     return 0;
 }
 
+/**
+ * @name c_app_sock_init
+ * @brief Initialize socket connections and events for the mul-core client 
+ */
 void *
 mul_app_create_service(char *name,  
                        void (*service_handler)(void *service, struct cbuf *msg))
@@ -307,6 +493,13 @@ mul_app_create_service(char *name,
     return NULL;
 }
 
+/**
+ * @name __mul_app_get_service 
+ * @brief private function which instantiated a client service
+ *
+ * This function only allows known services to be instantiated
+ * and also calls service_priv_init() per service  
+ */
 static void *
 __mul_app_get_service(char *name,
                       void (*conn_update)(void *service,
@@ -337,12 +530,33 @@ __mul_app_get_service(char *name,
     return NULL;
 }
 
+/**
+ * @name mul_app_get_service 
+ * @brief Instantiate a client service
+ * @param [in] name Name of the service
+ * @param [in] server server IP address in char string
+ *
+ * @retval void * Pointer to the instantiated service handle
+ *
+ * This does not retry the connection setup or provides callback 
+ * notification for connection status update
+ */
 void *
 mul_app_get_service(char *name, const char *server)
 {
     return __mul_app_get_service(name, NULL, NULL, false, server);
 }
  
+/**
+ * @name mul_app_get_service_notify 
+ * @brief Instantiate a client service
+ * @param [in] name Name of the service
+ * @param [in] conn_update callback to be invoked on connection updates  
+ * @param [in] retry_conn Retry initial connection setup on failure 
+ * @param [in] server server IP address in char string
+ *
+ * @retval void * Pointer to the instantiated service handle
+ */
 void *
 mul_app_get_service_notify(char *name,
                           void (*conn_update)(void *service,
@@ -353,6 +567,16 @@ mul_app_get_service_notify(char *name,
     return __mul_app_get_service(name, conn_update, NULL, retry_conn, server);
 }
 
+/**
+ * @name mul_app_get_service_notify 
+ * @brief Instantiate a client service
+ * @param [in] name Name of the service
+ * @param [in] conn_update callback to be invoked on connection updates  
+ * @param [in] retry_conn Retry initial connection setup on failure 
+ * @param [in] server server IP address in char string
+ *
+ * @retval void * Pointer to the instantiated service handle
+ */
 void *
 mul_app_get_service_notify_ka(char *name,
                               void (*conn_update)(void *service,
@@ -365,6 +589,13 @@ mul_app_get_service_notify_ka(char *name,
                                  retry_conn, server);
 }
  
+/**
+ * @name mul_destroy_service
+ * @brief Tear down and cleanup a client service
+ * @param [in] service Pointer to the client service 
+ *
+ * @retval void Nothing 
+ */
 void
 mul_app_destroy_service(void *service)
 {
@@ -408,7 +639,7 @@ DEFUN_HIDDEN (show_app_version,
 
 DEFUN (c_set_log,
        c_set_log_cmd,
-       "set controller-log (console|syslog) level (warning|error|debug)", 
+       "set log-backend (console|syslog) level (warning|error|debug)", 
        SET_STR
        "Controller Logging Info\n"
        "Console\n"
@@ -444,6 +675,39 @@ DEFUN (c_set_log,
     return CMD_SUCCESS;
 }
 
+DEFUN (c_set_app_log,
+       c_set_app_log_cmd,
+       "set log-app (warning|notice|error|info|debug)", 
+       SET_STR
+       "App Logging Level\n"
+       "Warning or above\n"
+       "Notice or above\n"
+       "Error or above\n"
+       "Info or above\n"
+       "Debug or above\n")
+{
+    int level = 0;
+
+    if (!strncmp(argv[0], "warning", strlen(argv[0]))) {
+        level = MUL_APP_LOG_WARN;
+    } else if (!strncmp(argv[0], "notice", strlen(argv[0]))) {
+        level = MUL_APP_LOG_NOT;
+    } else if (!strncmp(argv[0], "error", strlen(argv[0]))) {
+        level = MUL_APP_LOG_ERR;
+    } else if (!strncmp(argv[0], "info", strlen(argv[0]))) {
+        level = MUL_APP_LOG_INFO;
+    } else if (!strncmp(argv[0], "debug", strlen(argv[0]))) { 
+        level = LOG_DEBUG;
+    } else {
+        NOT_REACHED();
+    }
+
+    c_app_main_hdl.log_lvl = level;
+
+    return CMD_SUCCESS;
+}
+
+
 static void *
 c_app_vty_main(void *arg)
 {   
@@ -463,6 +727,7 @@ c_app_vty_main(void *arg)
     modvty__initcalls(hdl);
     install_element(ENABLE_NODE, &show_app_version_cmd);
     install_element(CONFIG_NODE, &c_set_log_cmd);
+    install_element(CONFIG_NODE, &c_set_app_log_cmd);
     sort_node();
 
     vty_serv_sock(NULL, hdl->vty_port, app_vtysh_path, 1);
@@ -499,11 +764,14 @@ c_app_vty_main(void *arg UNUSED)
 static int
 __main(int argc, char **argv)
 {
-    char    *p;
-    int     daemon_mode = 0;
-    int     vty_shell = 0;
-    uint16_t vty_port = 0;
-    char    app_pid_path[C_APP_PATH_LEN];
+    char        *p;
+    int         daemon_mode = 0;
+    int         vty_shell = 0;
+    uint16_t    vty_port = 0;
+    char        app_pid_path[C_APP_PATH_LEN];
+    char        log_fname[C_APP_PATH_LEN];
+    bool        no_ctrlr = false;
+    int         dfl_log_lvl = MUL_APP_LOG_INFO;
     struct in_addr in_addr;
 
     /* Set umask before anything for security */
@@ -520,7 +788,7 @@ __main(int argc, char **argv)
     while (1) {
         int opt;
 
-        opt = getopt_long (argc, argv, "dhs:V:H:f:N", longopts, 0);
+        opt = getopt_long (argc, argv, "dhs:V:H:f:NnD:", longopts, 0);
         if (opt == EOF)
             break;
 
@@ -548,14 +816,23 @@ __main(int argc, char **argv)
                 exit(0);
             }
             break;
+        case 'D':
+            dfl_log_lvl = atoi(optarg);             
+            if (dfl_log_lvl < MUL_APP_LOG_WARN ||
+                dfl_log_lvl > MUL_APP_LOG_DBG) 
+                dfl_log_lvl = MUL_APP_LOG_INFO;    
+            break;
         case 'f':
-            strcpy(c_app_main_hdl.dpid_file,optarg);
+            strcpy(c_app_main_hdl.dpid_file, optarg);
             break;
         case 'h':
             usage(c_app_main_hdl.progname, 0);
             break;
         case 'N':
             c_app_main_hdl.no_init_conf = 1;
+            break;
+        case 'n':
+            no_ctrlr = true;         
             break;
         default:
             usage(c_app_main_hdl.progname, 1);
@@ -569,18 +846,32 @@ __main(int argc, char **argv)
         c_pid_output(app_pid_path);
     }
 
+    strncpy(log_fname, C_APP_LOG_COMMON_PATH, C_APP_PATH_LEN - 1);
+    strcat(log_fname, c_app_main_hdl.progname);
+    strcat(log_fname, ".log");
     clog_default = openclog (c_app_main_hdl.progname, CLOG_MUL,
                              LOG_CONS|LOG_NDELAY, LOG_DAEMON);
     clog_set_level(NULL, CLOG_DEST_SYSLOG, LOG_ERR);
     clog_set_level(NULL, CLOG_DEST_STDOUT, LOG_DEBUG);
+    clog_set_file(NULL, log_fname, LOG_DEBUG);
     clog_set_name(NULL, CLOG_MUL, c_app_main_hdl.progname);
+
+    c_app_main_hdl.log_lvl = dfl_log_lvl;
 
     c_app_init(&c_app_main_hdl);
     c_app_infra_init(&c_app_main_hdl);
-    while (c_app_sock_init(&c_app_main_hdl, server) < 0) { 
+    while (!no_ctrlr && c_app_sock_init(&c_app_main_hdl, server) < 0) { 
         c_log_debug("Trying to connect..\n");
         sleep(1);
     }
+
+#ifdef APP_HA
+    c_app_main_hdl.ctrlr_service = mul_app_get_service_notify(
+                                                MUL_CORE_SERVICE_NAME,
+                                                c_service_conn_update,
+                                                true, server);
+    assert(c_app_main_hdl.ctrlr_service);
+#endif
 
     mod_initcalls(&c_app_main_hdl);
 

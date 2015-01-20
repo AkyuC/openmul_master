@@ -23,6 +23,9 @@
 #include "mul_route.h"
 #include "mul_route_apsp.h"
 
+/* For Conx servlet service */
+#include "mul_conx_servlet.h"
+
 /* For Topo&Routing combo services */
 #include "mul_tr_servlet.h"
 
@@ -38,6 +41,7 @@
 #define MUL_PRISM_CLI_SERVICE_NAME "prism-cli"
 #define MUL_PRISM_APP_SERVICE_NAME "prism-app"
 #define MUL_PRISM_AGENT_SERVICE_NAME "prism-agent"
+#define MUL_CONX_CONF_SERVICE_NAME "mul-conx"
 
 #define MAX_SWITCHES_PER_CLUSTER  (512)
 
@@ -51,10 +55,11 @@
 #define MUL_PRISM_CLI_PORT 12349
 #define MUL_PRISM_APP_SERVICE_PORT 12350
 #define MUL_PRISM_AGENT_SERVICE_PORT 12351
+#define MUL_CONX_SERVICE_PORT 12352
 
 #define C_SERV_RCV_BUF_SZ 4096
 
-#define C_SERV_MSG_TIMEO_MS (1000)
+#define C_SERV_MSG_TIMEO_MS (2000)
 #define C_SERV_RETRY_CNT 3
 
 struct mul_service
@@ -76,6 +81,9 @@ struct mul_service
     bool (*keepalive)(void *service);
     bool ext_ka_flag;
     void *priv;
+
+    uint32_t last_rx_pkts;
+    uint32_t last_tx_pkts;
 };
 typedef struct mul_service mul_service_t;
 
@@ -85,7 +93,12 @@ mul_service_available(mul_service_t *service)
     return service && !service->conn.dead;
 }
 
+void c_service_send_success(void *service);
+void c_service_send_error(void *service, struct cbuf *b,
+                          uint16_t type, uint16_t code);
+int c_check_reply_type(struct cbuf *b, uint32_t cmd_code);
 struct cbuf   *c_service_wait_response(mul_service_t *service);
+struct cbuf   *__c_service_wait_response(mul_service_t *service, int *ret);
 int           c_service_timed_throw_resp(mul_service_t *service);
 int           c_service_timed_wait_response(mul_service_t *service);
 void          c_service_send(mul_service_t *service, struct cbuf *b);

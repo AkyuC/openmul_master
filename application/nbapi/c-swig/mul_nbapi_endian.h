@@ -328,6 +328,21 @@ ntoh_c_ofp_bkt(struct c_ofp_bkt *bkt)
     nbapi_endian_convert_c_ofp_bkt(bkt, ntohs, ntohl);
 }
 
+static inline void nbapi_endian_convert_c_ofp_meter_mod(struct c_ofp_meter_mod * cofp_mm, uint16_t(*convs)(uint16_t), uint32_t(*convl)(uint32_t), uint64_t(*convll)(uint64_t)){
+    cofp_mm->datapath_id = convll(cofp_mm->datapath_id);
+    cofp_mm->flags = convs(cofp_mm->flags);
+    cofp_mm->meter_id = convl(cofp_mm->meter_id);
+    cofp_mm->byte_count = convll(cofp_mm->byte_count);
+    cofp_mm->packet_count = convll(cofp_mm->packet_count);
+    cofp_mm->flow_count = convl(cofp_mm->flow_count);
+    cofp_mm->duration_sec = convl(cofp_mm->duration_sec);
+    cofp_mm->duration_nsec = convl(cofp_mm->duration_nsec);
+}
+
+static inline void ntoh_c_ofp_meter_mod(struct c_ofp_meter_mod *cofp_mm){
+    nbapi_endian_convert_c_ofp_meter_mod(cofp_mm, ntohs, ntohl, ntohll);
+}
+
 static inline void
 nbapi_endian_convert_ofp_action_header(struct ofp_action_header *header,
                                        uint16_t(*convs)(uint16_t)) 
@@ -426,4 +441,15 @@ ntoh_ofp_meter_features(struct ofp_meter_features *ofp_mf)
 {
     nbapi_endian_convert_ofp_meter_features(ofp_mf, ntohl);
 }
+
+static inline void nbapi_endian_convert_c_ofp_fabric_route_link(struct c_ofp_route_link *cofp_rl, uint16_t(*convs)(uint16_t), uint64_t(*convll)(uint64_t))
+{
+    cofp_rl->datapath_id = convll(cofp_rl->datapath_id);
+    cofp_rl->src_link = convs(cofp_rl->src_link);
+}
+static inline void ntoh_c_ofp_fabric_route_link(struct c_ofp_route_link * cofp_rl){
+    nbapi_endian_convert_c_ofp_fabric_route_link(cofp_rl, ntohs, ntohll);
+}
+
+
 #endif
