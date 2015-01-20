@@ -1,1 +1,0 @@
-../../../c-swig/mul_nbapi.py
