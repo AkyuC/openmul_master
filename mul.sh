@@ -42,9 +42,9 @@ function stop-command {
     pushd  $curr_dir/application/nbapi/py-tornado/ >> /dev/null
     sudo PYTHONPATH=$PYTHONPATH ./mulnbapi stop > /dev/null 2>&1
     popd >> /dev/null
-    pushd  $curr_dir/application/nbapi/py-tornado-prism/ >> /dev/null
-    sudo PYTHONPATH=$PYTHONPATH ./prism_callback.py stop > /dev/null 2>&1
-    popd >> /dev/null
+    #pushd  $curr_dir/application/nbapi/py-tornado-prism/ >> /dev/null
+    #sudo PYTHONPATH=$PYTHONPATH ./prism_callback.py stop > /dev/null 2>&1
+    #popd >> /dev/null
 
 #    pid=`sudo ps -ef | grep "python" | grep "prism" | cut -b 9-16` 
 #    sudo kill -9 $pid > /dev/null 2>&1
@@ -159,9 +159,9 @@ case "$1" in
     pushd  $curr_dir/application/nbapi/py-tornado/ >> /dev/null
     sudo PYTHONPATH=$PYTHONPATH ./mulnbapi start > /dev/null 2>&1
     popd >> /dev/null
-    pushd  $curr_dir/application/nbapi/py-tornado-prism/ >> /dev/null
-    sudo PYTHONPATH=$PYTHONPATH ./prism_callback.py start > /dev/null 2>&1
-    popd >> /dev/null
+    #pushd  $curr_dir/application/nbapi/py-tornado-prism/ >> /dev/null
+    #sudo PYTHONPATH=$PYTHONPATH ./prism_callback.py start > /dev/null 2>&1
+    #popd >> /dev/null
 
     echo "OpenMUL prism-fabric mode is running.."
     ;;
