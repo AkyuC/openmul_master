@@ -1405,10 +1405,21 @@ nbapi_of_dump_act_out(struct ofp_action_header *action, void *arg)
 {
     struct ofp_action_output *of_ao = (void *)(action);
     struct ofp_inst_parser_arg *dp = arg;
+    uint16_t port = ntohs(of_ao->port);
 
-    dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
+    if (port == OFPP_CONTROLLER)  {
+        dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
+                        "{'action':'%s','value':'%s'},",
+                        "OUTPUT", "CONTROLLER");
+    } else if (port == OFPP_LOCAL)  {
+        dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
+                        "{'action':'%s','value':'%s'},",
+                        "OUTPUT", "LOCAL");
+    } else {
+        dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
                         "{'action':'%s','value':%d},",
-                        "OUTPUT", ntohs(of_ao->port));
+                        "OUTPUT", port);
+    }
     assert(dp->len < OF_DUMP_INST_SZ-1);
     return ntohs(action->len);
 }
@@ -1629,10 +1640,33 @@ nbapi_of131_dump_act_output(struct ofp_action_header *action, void *arg)
 {
     struct ofp131_action_output *of_ao = (void *)(action);
     struct ofp_inst_parser_arg *dp = arg;
+    uint32_t port = ntohl(of_ao->port);
 
-    dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
+    if (port == OFPP131_CONTROLLER) {
+        dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
+                        "{'action':'%s','value':'%s'},",
+                        "OUTPUT", "CONTROLLER");
+    } else if (port == OFPP131_LOCAL) {
+        dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
+                        "{'action':'%s','value':'%s'},",
+                        "OUTPUT", "LOCAL");
+    } else if (port == OFPP131_ALL) {
+        dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
+                        "{'action':'%s','value':'%s'},",
+                        "OUTPUT", "ALL");
+    } else if (port == OFPP131_FLOOD) {
+        dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
+                        "{'action':'%s','value':'%s'},",
+                        "OUTPUT", "FLOOD");
+    } else if (port == OFPP131_NORMAL) {
+        dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
+                        "{'action':'%s','value':'%s'},",
+                        "OUTPUT", "NORMAL");
+    } else {
+        dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
                         "{'action':'%s','value':%d},", 
-                        "OUTPUT", ntohl(of_ao->port));
+                        "OUTPUT", port);
+    }
     assert(dp->len < OF_DUMP_INST_SZ-1);
 
     return ntohs(action->len);
