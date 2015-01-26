@@ -138,7 +138,7 @@ function gui {
     "http://download.oracle.com/otn-pub/java/jdk/7u72-b14/jdk-7u72-linux-x64.tar.gz"
 
     #Install JDK
-    sudo tar -xvf jdk-7*
+    sudo tar -xvf jdk-7*.tar.gz
     sudo mkdir /usr/lib/jvm
     sudo mv ./jdk1.7* /usr/lib/jvm/jdk1.7.0
     sudo update-alternatives --install "/usr/bin/java" "java" "/usr/lib/jvm/jdk1.7.0/bin/java" 1
@@ -150,7 +150,7 @@ function gui {
 
     #Install Tomcat
     sudo wget http://apache.tt.co.kr/tomcat/tomcat-8/v8.0.15/bin/apache-tomcat-8.0.15.tar.gz
-    sudo tar -xvf apache-tomcat-8*
+    sudo tar -xvf apache-tomcat-8*.tar.gz
     sudo mv ./apache-tomcat-8.0*/ /opt/tomcat
 
     export JAVA_HOME=/usr/lib/jvm/java-7-openjdk-amd64
@@ -169,7 +169,7 @@ function gui {
 
 
 function usage {
-    printf '\nUsage: %s [-aM]\n\n' $(basename $0) >&2
+    printf '\nUsage: %s [-aMG]\n\n' $(basename $0) >&2
 
     printf 'This install script attempts to install useful packages\n' >&2
     printf 'for OpenMUL.It should (hopefully) work on Ubuntu 11.10+\n' >&2
@@ -187,7 +187,7 @@ if [ $# -eq 0 ]
 then
     openmul
 else
-    while getopts 'aM' OPTION
+    while getopts 'aMG' OPTION
     do
       case $OPTION in
       a)    openmul;;

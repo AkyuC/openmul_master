@@ -1,3 +1,15 @@
+## What is OpenMUL ?
+
+Open Mul is an Openflow / SDN controller platform. It has a C language 
+based multi-threaded infrastructure at its core. It supports a multi-level 
+north bound interface for hosting applications. It aims to support various 
+SDN enabling south-bound protocols such as Openflow 1.4, 1.3 and 1.0 along 
+with ovsdb, of-config etc.
+
+It is designed for performance and reliability which is the need of the hour 
+for deployment in mission-critical networks. It is also highly flexible, 
+modular and easy to learn.
+
 ## How to get openmul source-code ?
 
 $  git clone https://github.com/openmul/openmul.git
@@ -13,6 +25,8 @@ For getting source code based on permissive license (eg Apache or BSD) or any su
    $ ./build.sh 
 
    The above command will install all necessary packages and build necessary modules.
+
+ b) For using the GUI, follow the INSTALL.GUI readme file
 
 2. Executables will be built as :
 
