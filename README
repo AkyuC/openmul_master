@@ -20,7 +20,7 @@ For getting source code based on permissive license (eg Apache or BSD) or any su
 
 1. Run all-in-one build command : 
 
- a) For Ubuntu 10.04.3LTS+, CentOS-5+, run the following command : 
+ a) For Ubuntu 14.04 LTS, CentOS-5+, run the following command : 
    
    $ ./build.sh 
 
