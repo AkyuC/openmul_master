@@ -1,32 +1,9 @@
 
 This readme file will outline the basic steps to setup environment for using openmul GUI.
-Following steps have been validated in Ubuntu 12.04 :
-
-# Pre-requisites - JDK, Tomcat, mysql
-
-# Install Tomcat
-$ sudo apt-get install tomcat7
-
-# Install JDK 
-$ sudo apt-get install default-jdk
+Following steps have been validated in Ubuntu 14.04 :
 
 # Install mysql (versions may change)
 $ sudo apt-get install mysql-server-5.5
-
-# Setup up PATHs
-$ vim ~/.bashrc 
-
-# Add the following lines (Change to exact tomcat location if needed)
-export JAVA_HOME=/usr/lib/jvm/default-java
-export CATALINA_HOME=/opt/tomcat
-
-# After saving .bashrc file, execute:
-$ . ~/.bashrc 
-
-# Startup tomcat server
-$ sudo /opt/tomcat/bin/./startup.sh
-
-# Do openmul gui specific setup 
 
 $ cd openmul/application/gui
 $ sudo mysql -u root -p
@@ -35,12 +12,9 @@ mysql> source <openmul-dir>/application/gui/beem.sql
 mysql> use beem;
 mysql> exit
 
-$ sudo unzip ROOT.war -d ./ROOT
-$ sudo rm -r /opt/tomcat/webapps/ROOT
-$ sudo mv ROOT /opt/tomcat/webapps/
-
-# Reset tomcat server
-$ sudo /opt/tomcat/bin/./startup.sh
+# Run all in one script to prepare all other necessary packages 
+$ cd openmul/
+$ ./build.sh -G
 
 # Open a browser with address 
 127.0.0.1:8080
@@ -50,3 +24,4 @@ user: admin
 password : admin
 
 # Enjoy using the GUI
+# PS : Please note to refresh the browser after first login
