@@ -133,24 +133,25 @@ function gui {
 
     # Pre-requisites
     # JDK
-    sudo wget --no-cookies --no-check-certificate --header \
-    "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" \
-    "http://download.oracle.com/otn-pub/java/jdk/7u72-b14/jdk-7u72-linux-x64.tar.gz"
+    #sudo wget --no-cookies --no-check-certificate --header \
+    #"Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" \
+    #"http://download.oracle.com/otn-pub/java/jdk/7u72-b14/jdk-7u72-linux-x64.tar.gz"
 
     #Install JDK
-    sudo tar -xvf jdk-7*.tar.gz
-    sudo mkdir /usr/lib/jvm
-    sudo mv ./jdk1.7* /usr/lib/jvm/jdk1.7.0
-    sudo update-alternatives --install "/usr/bin/java" "java" "/usr/lib/jvm/jdk1.7.0/bin/java" 1
-    sudo update-alternatives --install "/usr/bin/javac" "javac" "/usr/lib/jvm/jdk1.7.0/bin/javac" 1
-    sudo update-alternatives --install "/usr/bin/javaws" "javaws" "/usr/lib/jvm/jdk1.7.0/bin/javaws" 1
-    sudo chmod a+x /usr/bin/java
-    sudo chmod a+x /usr/bin/javac
-    sudo chmod a+x /usr/bin/javaws
+    #sudo tar -xvf jdk-7*.tar.gz
+    #sudo mkdir /usr/lib/jvm
+    #sudo mv ./jdk1.7* /usr/lib/jvm/jdk1.7.0
+    #sudo update-alternatives --install "/usr/bin/java" "java" "/usr/lib/jvm/jdk1.7.0/bin/java" 1
+    #sudo update-alternatives --install "/usr/bin/javac" "javac" "/usr/lib/jvm/jdk1.7.0/bin/javac" 1
+    #sudo update-alternatives --install "/usr/bin/javaws" "javaws" "/usr/lib/jvm/jdk1.7.0/bin/javaws" 1
+    #sudo chmod a+x /usr/bin/java
+    #sudo chmod a+x /usr/bin/javac
+    #sudo chmod a+x /usr/bin/javaws
+    sudo apt-get install openjdk-7-jdk
 
     #Install Tomcat
-    sudo wget http://apache.tt.co.kr/tomcat/tomcat-8/v8.0.15/bin/apache-tomcat-8.0.15.tar.gz
-    sudo tar -xvf apache-tomcat-8*.tar.gz
+    sudo wget http://apache.mirror.cdnetworks.com/tomcat/tomcat-8/v8.0.18/bin/apache-tomcat-8.0.18.tar.gz
+    sudo tar -xvzf apache-tomcat-8*.tar.gz
     sudo mv ./apache-tomcat-8.0*/ /opt/tomcat
 
     export JAVA_HOME=/usr/lib/jvm/java-7-openjdk-amd64
