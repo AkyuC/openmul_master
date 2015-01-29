@@ -154,10 +154,7 @@ function gui {
     sudo tar -xvzf apache-tomcat-8*.tar.gz
     sudo mv ./apache-tomcat-8.0*/ /opt/tomcat
 
-    export JAVA_HOME=/usr/lib/jvm/java-7-openjdk-amd64
-    export CATALINA_HOME=/opt/tomcat
-
-    sudo /opt/tomcat/bin/./startup.sh 
+    sudo JAVA_HOME=/usr/lib/jvm/java-7-openjdk-amd64 CATALINA_HOME=/opt/tomcat /opt/tomcat/bin/./startup.sh 
 
     pushd ./application/gui >> /dev/null
     sudo unzip ROOT.war -d ./ROOT 
@@ -165,7 +162,7 @@ function gui {
     sudo mv ROOT /opt/tomcat/webapps/
     popd >> /dev/null
 
-    sudo /opt/tomcat/bin/./startup.sh
+    sudo JAVA_HOME=/usr/lib/jvm/java-7-openjdk-amd64 CATALINA_HOME=/opt/tomcat /opt/tomcat/bin/./startup.sh
 }
 
 

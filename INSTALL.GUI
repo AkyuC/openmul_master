@@ -1,6 +1,6 @@
 
 This readme file will outline the basic steps to setup environment for using openmul GUI.
-Following steps have been validated in Ubuntu 14.04 :
+Following steps have been validated in Ubuntu 12.04 :
 
 # Install mysql (versions may change)
 $ sudo apt-get install mysql-server-5.5
