@@ -526,7 +526,8 @@ c_l2_lrn_fwd(c_switch_t *sw, struct cbuf *b UNUSED, void *data, size_t pkt_len,
     }
 
     c_l2fdb_learn(sw, in_flow->dl_src, in_port);
-    if (is_multicast_ether_addr(in_flow->dl_dst)) {
+    if (!is_broadcast_ether_addr(in_flow->dl_dst) && 
+        is_multicast_ether_addr(in_flow->dl_dst)) {
         c_wr_unlock(&sw->lock);
         c_l2_proc_slow_path(sw, b, data, pkt_len, pkt_mdata, in_port);
         return 0;

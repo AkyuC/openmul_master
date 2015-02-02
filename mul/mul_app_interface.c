@@ -1198,7 +1198,7 @@ c_app_flow_mod_wrk_command(void *app_arg, struct cbuf *b, void *data)
 #ifdef MUL_FLOW_DEBUG
     if (1) {
         char *str = of_dump_flow_generic(&cofp_fm->flow, &cofp_fm->mask);
-        c_log_err("[FLOW] switch |0x%llx|:Flow-%s |%s|",
+        c_log_debug("[FLOW] switch |0x%llx|:Flow-%s |%s|",
               U642ULL(sw->DPID),
               cofp_fm->command == C_OFPC_ADD ? "Add" :"Del",
               str); 

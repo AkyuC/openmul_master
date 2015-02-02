@@ -257,8 +257,8 @@ main(int argc, char **argv)
     clog_default = openclog (progname, CLOG_MUL,
                              LOG_CONS|LOG_NDELAY, LOG_DAEMON);
     clog_set_level(NULL, CLOG_DEST_SYSLOG, dfl_log);
-    clog_set_level(NULL, CLOG_DEST_STDOUT, LOG_DEBUG);
-    clog_set_file(NULL, "/var/log/mul.log", LOG_DEBUG);
+    clog_set_level(NULL, CLOG_DEST_STDOUT, dfl_log);
+    clog_set_file(NULL, "/var/log/mul.log", dfl_log);
 
     if(geteuid() != 0) {
         c_log_err("!! Run as root !!");
