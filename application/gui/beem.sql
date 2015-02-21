@@ -271,7 +271,7 @@ CREATE TABLE `user` (
 
 LOCK TABLES `user` WRITE;
 /*!40000 ALTER TABLE `user` DISABLE KEYS */;
-INSERT INTO `user` VALUES (1,'admin','admin','Admin',10,'http','127.0.0.1','8181','1.0','admin');
+INSERT INTO `user` VALUES (0,'openmul','openmul','Root',10,'http','127.0.0.1','8181','1.0','user');
 /*!40000 ALTER TABLE `user` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

@@ -158,7 +158,7 @@ function gui {
 
     pushd ./application/gui >> /dev/null
     sudo unzip ROOT.war -d ./ROOT 
-    sudo rm -r /opt/tomcat/webapps/ROOT
+    sudo rm -fr /opt/tomcat/webapps/ROOT
     sudo mv ROOT /opt/tomcat/webapps/
     popd >> /dev/null
 

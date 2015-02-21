@@ -20,8 +20,8 @@ $ ./build.sh -G
 127.0.0.1:8080
 
 # Login with following credentials
-user: admin
-password : admin
+user: openmul
+password : openmul
 
 # Enjoy using the GUI
 # PS : Please note to refresh the browser after first login
