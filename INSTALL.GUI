@@ -5,16 +5,17 @@ Following steps have been validated in Ubuntu 12.04 :
 # Install mysql (versions may change)
 $ sudo apt-get install mysql-server-5.5
 
+# Run all in one script to prepare all other necessary packages 
+$ cd openmul/
+$ ./build.sh -G
+
+# Configure necessary mysql DB structures
 $ cd openmul/application/gui
 $ sudo mysql -u root -p
 
 mysql> source <openmul-dir>/application/gui/beem.sql
 mysql> use beem;
 mysql> exit
-
-# Run all in one script to prepare all other necessary packages 
-$ cd openmul/
-$ ./build.sh -G
 
 # Open a browser with address 
 127.0.0.1:8080
