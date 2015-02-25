@@ -1,3 +1,19 @@
+------------------------
+mul-concave
+-----------------------
+- PRISM SDN logical router
+- GUI support (Beta)
+- High availability support for major components (active-standby)
+- Adaptive service chaining application
+- Loop detection/prevention in topology
+- OF domain multi-path connector services
+- Various Openflow switches validated to work flawlessly
+- Persistent DB storage of all active configuration elements
+- Performance improvements 
+- Huge number of bug fixes
+- Native python app support
+- Developer friendly documentation
+
 -------------------------
 mul-4.0.1
 -------------------------
