@@ -1417,7 +1417,7 @@ nbapi_of_dump_act_out(struct ofp_action_header *action, void *arg)
                         "OUTPUT", "LOCAL");
     } else {
         dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "{'action':'%s','value':%d},",
+                        "{'action':'%s','value':'%u'},",
                         "OUTPUT", port);
     }
     assert(dp->len < OF_DUMP_INST_SZ-1);

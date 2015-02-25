@@ -291,7 +291,7 @@ nbapi_switch_brief_list_t get_switch_all(void) {
     return list;
 }
 struct 
-c_sw_port *get_switch_port(uint64_t datapath_id, uint16_t port_no) 
+c_sw_port *get_switch_port(uint64_t datapath_id, uint32_t port_no) 
 {
     int i, n_ports;
     struct c_sw_port *ret_val;

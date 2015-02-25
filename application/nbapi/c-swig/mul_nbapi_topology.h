@@ -67,7 +67,7 @@ uint32_t get_group_act_type(uint32_t *actions, int type);
 uint32_t get_max_group(uint32_t *max_groups, int type);
 
 nbapi_switch_brief_list_t  get_switch_all(void);
-struct c_sw_port *get_switch_port(uint64_t datapath_id, uint16_t port_no);
+struct c_sw_port *get_switch_port(uint64_t datapath_id, uint32_t port_no);
 nbapi_swport_list_t get_switch_port_all(uint64_t datapath_id);
 void nbapi_ntoh_actions(void *actions, size_t act_len);
 c_ofp_group_mod_t *get_switch_group_table(uint64_t datapath_id, uint32_t group_id);
