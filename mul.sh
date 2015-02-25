@@ -84,6 +84,10 @@ case "$1" in
     pushd  $curr_dir/application/cli/ >> /dev/null
     sudo ./mulcli -V 10000  -d
     popd >> /dev/null
+    source pythonpath.sh
+    pushd  $curr_dir/application/nbapi/py-tornado/ >> /dev/null
+    sudo PYTHONPATH=$PYTHONPATH ./mulnbapi start > /dev/null 2>&1
+    popd >> /dev/null
     echo "OpenMUL l2switch mode is running.."
     ;;
 "fabric")
@@ -99,7 +103,10 @@ case "$1" in
     pushd  $curr_dir/application/cli/ >> /dev/null
     sudo ./mulcli -V 10000 -d
     popd >> /dev/null
-
+    source pythonpath.sh
+    pushd  $curr_dir/application/nbapi/py-tornado/ >> /dev/null
+    sudo PYTHONPATH=$PYTHONPATH ./mulnbapi start > /dev/null 2>&1
+    popd >> /dev/null
     echo "OpenMUL fabric mode is running.."
     ;;
 "prism")
