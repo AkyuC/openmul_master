@@ -169,6 +169,7 @@ bool            c_of_fl_group_check_add(void *sw_arg, uint32_t group_id, void *a
 struct cbuf *   c_of_prep_group_mod_msg(c_switch_group_t *grp, bool add);
 bool            c_of_fl_meter_check_add(void *sw_arg, uint32_t group_id, void *arg);
 struct cbuf *   c_of_prep_meter_mod_msg(c_switch_meter_t *meter, bool add);
+struct cbuf *   c_of_prep_switch_desc_msg(c_switch_t *sw);
 struct cbuf *   c_of_prep_group_feature_msg(c_switch_t *sw);
 struct cbuf *   c_of_prep_meter_feature_msg(c_switch_t *sw);
 struct cbuf *   c_of_prep_table_feature_msg(c_switch_t *sw, uint8_t table_id);

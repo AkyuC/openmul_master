@@ -54,6 +54,53 @@ of_capabilities_tostr(char *string, uint32_t capabilities)
     }
 }
 
+char *
+of_switch_desc_dump(void *desc, size_t desc_len)
+{
+    char *pbuf;
+    size_t len = 0;
+    struct ofp_desc_stats *ofp_d = desc;
+
+    if (desc_len != sizeof(*ofp_d)) {
+        c_log_err("%s: Can't dump size err", FN);
+        return NULL;
+    }
+    pbuf =  calloc(1, OF_DUMP_MSG_SZ);
+    assert(pbuf);
+
+    len += snprintf(pbuf + len, OF_DUMP_MSG_SZ - len - 1,
+                    "%-20s", "Manufacturer:");
+    ofp_d->mfr_desc[DESC_STR_LEN-1] = '\0';
+    len += snprintf(pbuf + len, OF_DUMP_MSG_SZ - len - 1,
+                    "%s\r\n", ofp_d->mfr_desc);
+
+    len += snprintf(pbuf + len, OF_DUMP_MSG_SZ - len - 1,
+                    "%-20s", "HW Desc:");
+    ofp_d->hw_desc[DESC_STR_LEN-1] = '\0';
+    len += snprintf(pbuf + len, OF_DUMP_MSG_SZ - len - 1,
+                    "%s\r\n", ofp_d->hw_desc);
+
+    len += snprintf(pbuf + len, OF_DUMP_MSG_SZ - len - 1,
+                    "%-20s", "SW Desc:");
+    ofp_d->sw_desc[DESC_STR_LEN-1] = '\0';
+    len += snprintf(pbuf + len, OF_DUMP_MSG_SZ - len - 1,
+                    "%s\r\n", ofp_d->sw_desc);
+
+    len += snprintf(pbuf + len, OF_DUMP_MSG_SZ - len - 1,
+                    "%-20s", "Serial:");
+    ofp_d->sw_desc[SERIAL_NUM_LEN-1] = '\0';
+    len += snprintf(pbuf + len, OF_DUMP_MSG_SZ - len - 1,
+                    "%s\r\n", ofp_d->serial_num);
+
+    len += snprintf(pbuf + len, OF_DUMP_MSG_SZ - len - 1,
+                    "%-20s", "DP Desc:");
+    ofp_d->dp_desc[DESC_STR_LEN-1] = '\0';
+    len += snprintf(pbuf + len, OF_DUMP_MSG_SZ - len - 1,
+                    "%s\r\n", ofp_d->dp_desc);
+
+    return pbuf;
+} 
+
 bool
 of_switch_supports_flow_stats(uint32_t cap)
 {
@@ -7598,8 +7645,6 @@ of131_act_type_to_name(uint16_t act)
     }
     return "";
 }
-
-
 
 char *
 of131_group_features_dump(void *feat, size_t feat_len)

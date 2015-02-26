@@ -823,6 +823,7 @@ c_switch_put(c_switch_t *sw)
                                             c_sw_exp_ent_free);
         if (sw->meter_features) free(sw->meter_features);
         if (sw->group_features) free(sw->group_features);
+        if (sw->sw_desc) free(sw->sw_desc);
         if (sw->sw_ports) g_hash_table_destroy(sw->sw_ports);
         if (sw->groups) g_hash_table_destroy(sw->groups);
         if (sw->meters) g_hash_table_destroy(sw->meters);
@@ -961,6 +962,8 @@ c_switch_try_publish(c_switch_t *sw, bool need_ha_sync_req)
                 __of_send_mpart_msg(sw, OFPMP_METER_FEATURES, 0, 0);
                 /* There is no port info in features reply. Get it! */
                 __of_send_mpart_msg(sw, OFPMP_PORT_DESC, 0, 0);
+                /* Get switch description */
+                __of_send_mpart_msg(sw, OFPMP_DESC, 0, 0);
                 sw->last_feat_probed = ctime;
                 c_log_debug("|SWITCH| Port Probe for |0x%llx|",
                         U642ULL(sw->DPID));
@@ -2464,6 +2467,34 @@ c_of_fl_group_check_add(void *sw_arg, uint32_t group_id, void *arg)
 
     u_arg->grp_list = g_slist_append(u_arg->grp_list, new_group);
     return true;
+}
+
+struct cbuf *
+c_of_prep_switch_desc_msg(c_switch_t *sw)
+{
+    struct cbuf *b;
+    size_t tot_len = 0;
+    struct c_ofp_auxapp_cmd *cofp_aac;
+    struct c_ofp_switch_feature_common *cofp_sfc;
+
+    c_rd_lock(&sw->lock); 
+    tot_len = sizeof(*cofp_sfc) + sizeof(*cofp_aac) +
+              ((sw->sw_desc) ? sw->desc_len : 0);
+
+    b = of_prep_msg(tot_len, C_OFPT_AUX_CMD, 0);
+
+    cofp_aac = CBUF_DATA(b);
+    cofp_aac->cmd_code =  htonl(C_AUX_CMD_MUL_GET_SWITCH_DESC);
+     
+    cofp_sfc = ASSIGN_PTR(cofp_aac->data);
+    cofp_sfc->datapath_id = htonll(sw->DPID);
+    if (sw->sw_desc) {
+        memcpy(cofp_sfc->data, sw->sw_desc, sw->desc_len);
+    }
+    
+    c_rd_unlock(&sw->lock); 
+
+    return b;
 }
 
 struct cbuf *
@@ -6680,6 +6711,9 @@ of131_recv_features_reply(c_switch_t *sw, struct cbuf *b)
     /* Update gen-id if stale */
     c_switch_tx(sw, of131_prep_role_request_msg(OFPCR_ROLE_NOCHANGE, 0), false); 
 
+    /* Update switch description */
+    c_switch_tx(sw, of131_prep_mpart_msg(OFPMP_DESC, 0, 0), false); 
+
     sw->last_feat_probed = time(NULL);
 }
 
@@ -6784,6 +6818,25 @@ of13_14_mpart_process(c_switch_t *sw, struct cbuf *b)
     }
 
     switch (htons(ofp_mr->type)) {
+    case OFPMP_DESC:
+        {
+            struct ofp_desc_stats *ofp_d = (void *)(ofp_mr->body);
+
+            if (body_len < sizeof(*ofp_d)) break;
+
+            if (!sw->sw_desc ||
+                sw->desc_len != sizeof(*ofp_d)) {
+                if (sw->sw_desc) free(sw->sw_desc);
+                sw->sw_desc = calloc(1, sizeof(*ofp_d));
+                if (!sw->sw_desc) break;
+            }
+            c_wr_lock(&sw->lock);
+            c_log_err("%s Recevied DESC Reply", FN);
+            memcpy(sw->sw_desc, ofp_d, sizeof(*ofp_d));
+            sw->desc_len = sizeof(*ofp_d);
+            c_wr_unlock(&sw->lock);
+            break;
+        }
     case OFPMP_PORT_DESC:
         {
             struct ofp131_port *port = (void *)(ofp_mr->body);
@@ -7879,6 +7932,9 @@ of140_recv_features_reply(c_switch_t *sw, struct cbuf *b)
 
     /* Update gen-id if stale */
     c_switch_tx(sw, of140_prep_role_request_msg(OFPCR_ROLE_NOCHANGE, 0), false); 
+
+    /* Update switch description */
+    c_switch_tx(sw, of140_prep_mpart_msg(OFPMP_DESC, 0, 0), false);
 
     sw->last_feat_probed = time(NULL);
 }

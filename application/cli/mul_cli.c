@@ -1218,6 +1218,45 @@ DEFUN (of_switch_table_stats_show,
     return CMD_SUCCESS;
 }
 
+
+DEFUN (show_of_switch_desc_detail,
+       show_of_switch_desc_detail_cmd,
+       "show of-switch X desc-features",
+       SHOW_STR
+       "Openflow switches\n"
+       "Datapath-id in 0xXXX format\n"
+       "Switch description features\n")
+{
+    uint64_t    dp_id;
+    struct cbuf *b;
+    char *      pbuf;
+
+    dp_id = strtoull(argv[0], NULL, 16);
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s",
+            VTY_NEWLINE);
+
+
+    b = mul_get_switch_features(cli->mul_service, dp_id,
+                                0, C_AUX_CMD_MUL_GET_SWITCH_DESC);
+    if (b) {
+        pbuf = mul_dump_switch_desc(b, true);
+        if (pbuf) {
+            vty_out (vty, "%s", pbuf);
+            free(pbuf);
+        }
+    }
+
+    vty_out (vty,
+            "-------------------------------------------"
+            "----------------------------------%s%s",
+            VTY_NEWLINE, VTY_NEWLINE);
+
+    return CMD_SUCCESS;
+}
+
 DEFUN (show_of_switch_group_detail,
        show_of_switch_group_detail_cmd,
        "show of-switch X group-features",
@@ -6160,6 +6199,7 @@ cli_module_vty_init(void *arg)
     //install_element(MUL_NODE, &mul_conf_exit_cmd);
     install_element(ENABLE_NODE, &show_of_switch_cmd);
     install_element(ENABLE_NODE, &show_of_switch_detail_cmd);
+    install_element(ENABLE_NODE, &show_of_switch_desc_detail_cmd);
     install_element(ENABLE_NODE, &show_of_switch_group_detail_cmd);
     install_element(ENABLE_NODE, &show_of_switch_meter_detail_cmd);
     install_element(ENABLE_NODE, &show_of_switch_table_detail_cmd);
