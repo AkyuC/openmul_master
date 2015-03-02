@@ -6831,7 +6831,6 @@ of13_14_mpart_process(c_switch_t *sw, struct cbuf *b)
                 if (!sw->sw_desc) break;
             }
             c_wr_lock(&sw->lock);
-            c_log_err("%s Recevied DESC Reply", FN);
             memcpy(sw->sw_desc, ofp_d, sizeof(*ofp_d));
             sw->desc_len = sizeof(*ofp_d);
             c_wr_unlock(&sw->lock);
