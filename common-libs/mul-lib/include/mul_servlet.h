@@ -55,6 +55,7 @@ int mul_get_meter_info(void *service, uint64_t dpid,
                   void (*cb_fn)(void *arg, void *pbuf));
 struct cbuf * mul_get_switch_features(void *service, uint64_t dpid,
                                       uint8_t table, uint32_t type);
+char *mul_dump_switch_desc(struct cbuf *b, bool free_buf);
 char *mul_dump_switch_meter_features(struct cbuf *b, bool free_buf);
 char *mul_dump_switch_group_features(struct cbuf *b, bool free_buf);
 char *mul_dump_switch_table_features(struct cbuf *b, bool free_buf);

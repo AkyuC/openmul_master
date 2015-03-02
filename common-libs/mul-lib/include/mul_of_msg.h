@@ -723,6 +723,8 @@ struct c_ofp_ctors {
                             bool acts_only, void *u_arg);
 };
 typedef struct c_ofp_ctors c_ofp_ctors_t;
+
+char *of_switch_desc_dump(void *desc, size_t desc_len);
 void of_mact_alloc(mul_act_mdata_t *mdata);
 void of_mact_free(mul_act_mdata_t *mdata);
 void of_capabilities_tostr(char *string, uint32_t capabilities);

@@ -466,7 +466,8 @@ mul_get_switch_detail_config(void *service, uint64_t dpid, void *arg,
  * @param [in] dpid Datapath_id of the requested switch
  * @param [in] table table-id if requesting  for table features
  * @param [in] type Type of feature requested : C_AUX_CMD_MUL_SWITCH_METER_FEAT,
- *                C_AUX_CMD_MUL_SWITCH_TABLE_FEAT, C_AUX_CMD_MUL_SWITCH_GROUP_FEAT
+ *                C_AUX_CMD_MUL_SWITCH_TABLE_FEAT, C_AUX_CMD_MUL_SWITCH_GROUP_FEAT,
+ *                C_AUX_CMD_MUL_GET_SWITCH_DESC
  *
  * @retval struct cbuf * Pointer to buffer returned by server
  */
@@ -496,6 +497,7 @@ mul_get_switch_features(void *service, uint64_t dpid, uint8_t table,
     case C_AUX_CMD_MUL_SWITCH_METER_FEAT:
     case C_AUX_CMD_MUL_SWITCH_TABLE_FEAT:
     case C_AUX_CMD_MUL_SWITCH_GROUP_FEAT:
+    case C_AUX_CMD_MUL_GET_SWITCH_DESC:
         break; 
     default:
         free_cbuf(b);
@@ -562,6 +564,54 @@ mul_dump_switch_table_features(struct cbuf *b, bool free_buf)
     }
                                 
     buf = of131_table_features_dump((void *)(cofp_f->data));
+free_out:
+    if (free_buf) {
+        free_cbuf(b);
+    }
+    return buf;
+}
+
+/**
+ * @name mul_dump_switch_desc -
+ * @brief Dump a switch's description 
+ * @param [in] b Pointer to the cbuf response from server
+ * @param [in] free_buf Flag to denote freeing the buffer
+ *
+ * @retval char * Pointer to the ascii string result
+ */
+char *
+mul_dump_switch_desc(struct cbuf *b, bool free_buf)
+{
+    struct c_ofp_auxapp_cmd *cofp_auc;
+    struct c_ofp_switch_feature_common *cofp_f;
+    char *buf = NULL;
+    uint8_t version;
+
+    if (!b) return NULL;
+
+    cofp_auc = CBUF_DATA(b);
+    if (cofp_auc->cmd_code != htonl(C_AUX_CMD_MUL_GET_SWITCH_DESC)) {
+        goto free_out;
+    }
+
+    if (ntohs(cofp_auc->header.length) -
+        (sizeof(*cofp_auc) + sizeof(*cofp_f)) < 
+        sizeof(struct ofp_desc_stats)) {
+        c_log_err("%s: Len error", FN);
+        goto free_out;
+    }
+
+    cofp_f = ASSIGN_PTR(cofp_auc->data);
+    
+    version = c_app_switch_get_version_with_id(ntohll(cofp_f->datapath_id));
+    if (version != OFP_VERSION && version !=  OFP_VERSION_131 &&
+        version != OFP_VERSION_140) {
+        c_log_err("%s:Unsupported OFP version", FN);
+        goto free_out;
+    }
+
+    buf = of_switch_desc_dump(cofp_f->data,
+                              sizeof(struct ofp_desc_stats));
 free_out:
     if (free_buf) {
         free_cbuf(b);
