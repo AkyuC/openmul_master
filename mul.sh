@@ -57,6 +57,7 @@ function start-command {
 init-command
 stop-command
 cp-pylib-command
+sudo JAVA_HOME=/usr/lib/jvm/java-7-openjdk-amd64 CATALINA_HOME=/opt/tomcat /opt/tomcat/bin/./startup.sh > /dev/null 2>&1
 case "$1" in
 "standalone")
     pushd  $curr_dir/mul/ >> /dev/null
