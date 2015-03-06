@@ -2671,6 +2671,37 @@ c_app_rcv_ha_sync_req(void *app_arg UNUSED, struct cbuf *b)
 }
 
 static void 
+c_app_send_switch_desc(void *app_arg, struct cbuf *b)
+{
+    struct c_ofp_auxapp_cmd *cofp_aac = CBUF_DATA(b);
+    struct c_ofp_switch_feature_common *cofp_f;
+    c_switch_t *sw = NULL;
+
+    if (ntohs(cofp_aac->header.length) <
+        sizeof(*cofp_aac) + sizeof(*cofp_f)) {
+        c_log_err("%s: Size err (%x) of (%lx)", FN,
+                  ntohs(cofp_aac->header.length),
+                  U322UL(sizeof(*cofp_aac) + sizeof(*cofp_f)));
+        c_remote_app_error(app_arg, b, OFPET_BAD_REQUEST, OFPBRC_BAD_LEN);
+        return;
+    }
+
+    cofp_f = ASSIGN_PTR(cofp_aac->data);
+    sw = c_switch_get(&ctrl_hdl, ntohll(cofp_f->datapath_id));
+    if (!sw) {
+        c_log_err("%s: Switch(0x%llx) not found", FN, U642ULL(ntohll(cofp_f->datapath_id)));
+        c_remote_app_error(app_arg, b, OFPET_BAD_REQUEST, OFPBRC_BAD_DPID);
+        return;
+    }
+
+    b = c_of_prep_switch_desc_msg(sw);
+    c_switch_put(sw);
+    c_remote_app_event(app_arg, b);
+
+    return;
+}
+
+static void 
 c_app_send_switch_group_features(void *app_arg, struct cbuf *b)
 {
     struct c_ofp_auxapp_cmd *cofp_aac = CBUF_DATA(b);
@@ -3445,6 +3476,9 @@ c_app_aux_request_handler(void *app_arg, struct cbuf *b, void *data)
         break;
     case C_AUX_CMD_HA_SYNC_DONE:
         c_app_rcv_ha_sync_done(app_arg, b);
+        break;
+    case C_AUX_CMD_MUL_GET_SWITCH_DESC:
+        c_app_send_switch_desc(app_arg, b);
         break;
     case C_AUX_CMD_MUL_SWITCH_GROUP_FEAT:
         c_app_send_switch_group_features(app_arg, b);

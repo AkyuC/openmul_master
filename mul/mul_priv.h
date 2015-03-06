@@ -496,6 +496,8 @@ struct c_switch
 
     GSList *exp_list;                       /* Expired entries */
 
+    void *sw_desc;                          /* Switch description */
+    size_t desc_len;                        /* Description length */
     void *group_features;                   /* Group features */
     size_t group_feat_len;                  /* Group features length */
     void *meter_features;                   /* Meter features */

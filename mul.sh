@@ -77,7 +77,7 @@ case "$1" in
     ;;
 "l2switch")
     pushd  $curr_dir/mul/ >> /dev/null
-    sudo ./mul -d -P 6633
+    sudo ./mul -d
     popd >> /dev/null
     pushd  $curr_dir/application/l2switch/ >> /dev/null
     sudo ./mull2sw -V 6000 -d
