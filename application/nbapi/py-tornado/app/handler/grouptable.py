@@ -124,7 +124,7 @@ class GroupTableHandler(BaseHandler):
             'packet_count':        group.packet_count,
             'duration_sec':        group.duration_sec,
             'duration_nsec':        group.duration_nsec,
-            'action-buckets':   self.__c_ofp_bkt_serialization(group)
+            'action_buckets':   self.__c_ofp_bkt_serialization(group)
         }
 
     def __c_ofp_bkt_serialization(self, group):

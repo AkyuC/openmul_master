@@ -2,17 +2,19 @@ import logging
 import json
 import warnings
 import colander
+import time, datetime
 
 import re
-from time import sleep
 
 from app.lib import mul_nbapi as mul
 from app.handler.base import BaseHandler
+#from app.handler.thread_pool import in_thread_pool, in_ioloop, blocking
 #from app.handler.ids import FlowHolder
+from tornado.web import asynchronous
 
 logger = logging.getLogger("FlowTableHandler")
+#logger.setLevel(BaseHandler.LOG_LEVEL)
 logger.setLevel(logging.DEBUG)
-
 
 class FlowTableHandler(BaseHandler):
 
@@ -26,6 +28,8 @@ class FlowTableHandler(BaseHandler):
             res = self.__get_switch_flow(dpid, flow_id)
         elif 'stats' in self.get_request_uri():
             res = self.__get_switch_flow(dpid, -1)
+        elif '/all/' in self.get_request_uri():
+            res = self.__get_switch_flow('0')
         elif dpid and flow_id is None:
             res = self.__get_switch_flow(dpid)
         elif dpid and flow_id:
@@ -35,137 +39,99 @@ class FlowTableHandler(BaseHandler):
     def options(self, dpid=None, flow_id=None):
         self.write("ok")
 
+    @asynchronous
     def post(self, dpid, flow_id=None):
-        logger.debug("requset url - %s", self.get_request_uri())
-        logger.debug("request params - dpid: %s, flow_id: %s", dpid, flow_id)
-        ret = {} 
-        flow = mask = mdata = None
-        new_flow_id = None
+        ret={}
         try:
-            body = FlowSchema().deserialize(json.loads(self.request.body))
-            logger.debug(str(body))
-            version = int(mul.nbapi_get_switch_version_with_id(int(dpid,16)))
-            if int(version)==0:
-                raise Exception, 'switch does not exist'
-            self.__match_check(version, body)
-            self.__inst_action_check(version, body) 
-            nw_src = str(body['nw_src']) if int(body['dl_type'], 16) != 0x86dd else str(body['nw_src6'])
-            nw_dst = str(body['nw_dst']) if int(body['dl_type'], 16) != 0x86dd else str(body['nw_dst6'])
-            flow = mul.nbapi_make_flow(str(body['dl_src']) , 
-                                       str(body['dl_dst']) ,
-                                       str(body['dl_type']) ,
-                                       str(body['dl_vlan']) ,
-                                       str(body['dl_vlan_pcp']),
-                                       str(body['mpls_label']),
-                                       str(body['mpls_tc']) ,
-                                       str(body['mpls_bos']) ,
-                                       nw_dst,
-                                       nw_src,
-                                       str(body['nw_proto']), 
-                                       str(body['nw_tos']) ,
-                                       str(body['tp_dst']) ,
-                                       str(body['tp_src']) ,
-                                       str(body['in_port']) ,
-                                       str(body['table_id']) )
-            if flow == None:
-                raise Exception, 'flow failed to alloc'
-            mask = mul.nbapi_make_mask( str(body['dl_src']),
-                                        str(body['dl_dst']), 
-                                        str(body['dl_type']),
-                                        str(body['dl_vlan']), 
-                                        str(body['dl_vlan_pcp']), 
-                                        str(body['mpls_label']), 
-                                        str(body['mpls_tc']),
-                                        str(body['mpls_bos']),
-                                        nw_dst,
-                                        nw_src,
-                                        str(body['nw_proto']),
-                                        str(body['nw_tos']),
-                                        str(body['tp_dst']),
-                                        str(body['tp_src']),
-                                        str(body['in_port']))
-            if mask == None:
-                raise Exception, 'mask failed to alloc'
-            mdata = mul.nbapi_mdata_alloc(int(dpid, 16))
-            if mdata == None:
-                raise Exception, 'cannot set mdata'
-            drop = check = 0
-            for instruction in body['instructions']:
-                if instruction['instruction'] == 'APPLY_ACTIONS':
-                    if version != 1:
-                        check = mul.nbapi_mdata_inst_apply(mdata)
-                elif instruction['instruction'] == 'WRITE_ACTIONS':
-                    check = mul.nbapi_mdata_inst_write(mdata)
-                elif instruction['instruction'] == 'METER':
-                    check = mul.nbapi_mdata_inst_meter(mdata, int(instruction['value']))
-                elif instruction['instruction'] == 'GOTO_TABLE':
-                    check = mul.nbapi_mdata_inst_goto(mdata, int(instruction['value']))
-
-                if check != 0:
-                    raise Exception, 'failed to set'+str(instruction['instruction'])
-
-                check = -1
-                for action in instruction['actions']:
-                    if 'DROP' == str(action['action']):
-                        drop = 1
-                        check = 0
-                    else:
-                        check = mul.nbapi_action_to_mdata(mdata, str(action['action']), str(action['value']))
-                if check != 0:
-                    raise Exception, 'Malformed action data'+action['action']+' : '+action['value']+str(check)
-
-            flags = mul.C_FL_ENT_STATIC
-            if str(body['barrier']) != 'disable':
-                flags |= mul.C_FL_ENT_BARRIER
-
-            if str(body['stat']) != 'disable':
-                flags |= mul.C_FL_ENT_GSTATS
-
-            check = mul.add_static_flow(int(dpid, 16),
-                                        flow,
-                                        mask,
-                                        int(body['priority']),
-                                        mdata,
-                                        flags,
-                                        drop)
-            if check == 0:
-                sleep(0.5)
-                new_flow_id = self.__make_flow_id(int(dpid,16), flow, mask, int(body['priority']))
-                #new_flow_id = self.__check_flow_realy_in_switch(int(dpid, 16), flow, mask, int(body['priority']))
-                #new_flow_id = FlowHolder.getInstance().save(int(dpid,16) , flow, mask, int(body['priority']))
-                #if new_flow_id == None:
-                #    raise Exception, 'this flow is rejected by switch'
-                if flow_id and flow_id!=new_flow_id:
-                    ret = self.delete(None, flow_id)
-                else:
-                    ret = { 'flow_id' : str(new_flow_id) }
+            body=json.loads(self.request.body)
+            if 'flows' in  body.keys():
+#                start=datetime.datetime.now()
+                r_list=[]
+                for b in body['flows']:
+                    r_list.append(self.__add_flow(dpid, b))
+                logger.debug(len(r_list))
+                self.finish({'flows':r_list})
+#                total=datetime.datetime.now()-start
+#                self.finish({'flows':r_list})
+#                logger.debug("%10f"%(total.total_seconds()*1000))
+####
+#                self.__add_multiple_flows(dpid, body['flows'], self.finish)
+####
+#                r_list=[]
+#                for b in body['flows']:
+#                    self.__add_multiple_flows(dpid, b, r_list.append)
+#                logger.debug(len(r_list))
+#                self.finish({'flows':r_list})
             else:
-                raise Exception, 'flow already exist'
-
+                if flow_id:
+                    self.delete(dpid, flow_id)
+                    #self.__add_flow(dpid, b) 
+                else:
+                    self.finish({'flow_id':self.__add_flow(dpid, body)})
         except Exception, e:
-            ret.update({"error_message" : "failed to add flow!", "reason" : str(e)})
-        finally:
-            if mdata != None:
-                mul.nbapi_mdata_free(mdata)
-            if flow != None:
-                mul.nbapi_flow_free(flow)
-            if mask != None:
-                mul.nbapi_flow_free(mask)
-            if flow_id:
-                if 'error' not in str(ret):#delete success. now ret={flow_id:deleted_flow_id}
-                    ret = {'flow_id' : str(new_flow_id)}#change to ret = {flow_id:added_flow_id}
-            self.finish(ret)
+            logger.debug(str(e))
+            self.finish({"error_message" : "failed to add flow!", "reason" : str(e)})
+        #finally:
+            #logger.debug(ret)
+            #self.finish(ret)
+
+    def __blocking_add_flow(self, dpid, b, callback):
+        callback(self.__add_flow(dpid, b))
+ 
+    def __add_flow(self, dpid, requestbody):
+        body=FlowSchema().deserialize(requestbody)
+        #logger.debug(body)
+        drop = check = 0
+        mdata = mul.nbapi_mdata_alloc(int(dpid, 16))
+        if mdata is None:
+            return 'switch not exist'
+        for instruction in body['instructions']:
+            if instruction['instruction'] == 'APPLY_ACTIONS':
+                check = mul.nbapi_mdata_inst_apply(mdata)
+            elif instruction['instruction'] == 'WRITE_ACTIONS':
+                check = mul.nbapi_mdata_inst_write(mdata)
+            elif instruction['instruction'] == 'METER':
+                check = mul.nbapi_mdata_inst_meter(mdata, int(instruction['value']))
+            elif instruction['instruction'] == 'GOTO_TABLE':
+                check = mul.nbapi_mdata_inst_goto(mdata, int(instruction['value']))
+            if check != 0:
+                return 'failed to set instruction'+str(instruction['instruction'])
+            check = -1
+            for action in instruction['actions']:
+                if 'DROP' == str(action['action']):
+                    drop = 1
+                    check = 0
+                else:
+                    check = mul.nbapi_action_to_mdata(mdata, str(action['action']), str(action['value']))
+                if check != 0:
+                    return 'failed to set action '+action['action']+' : '+action['value']+str(check)
+        start=datetime.datetime.now()
+        check = mul.add_static_flow(int(dpid,16),       
+                                    int(body['priority']),str(body['barrier']),str(body['stat']),
+                                    mdata, drop,
+                                    str(body['dl_src']),str(body['dl_dst']),str(body['dl_type']),str(body['dl_vlan']),str(body['dl_vlan_pcp']),str(body['mpls_label']),str(body['mpls_tc']),str(body['mpls_bos']),str(body['nw_src']),str(body['nw_src6']),str(body['nw_dst']),str(body['nw_dst6']),str(body['nw_proto']),str(body['nw_tos']),str(body['tp_dst']),str(body['tp_src']),str(body['in_port']),str(body['table_id']))
+        total=datetime.datetime.now()-start
+        if check == 0:
+            #flow_id = self.__make_flow_id(int(dpid, 16), flow, mask, int(body['priority']))
+            return "%10f"%float(total.total_seconds()*10000)
+            #return 'success'
+        else:
+            return 'flow already exist'
 
     def put(self, dpid=None, flow_id=None):
         pass
 
     def delete(self, dpid=None, flow_id=None):
+        logger.debug("requset url - %s", self.get_request_uri())
+        logger.debug("request params - dpid: %s, flow_id: %s", dpid, flow_id)
+
         ret = {}
+        res = None
         try:
             that_flow_id=None
             flow_list = mul.get_flow(int(dpid, 16))
             for flow in flow_list:
-                that_flow_id = self.__make_flow_id(dpid, flow.flow, flow.mask, flow.priority)
+                that_flow_id = self.__make_flow_id(int(dpid,16), flow.flow, flow.mask, flow.priority)
                 if that_flow_id == flow_id:
                     res = mul.delete_static_flow(flow.datapath_id,
                                          flow.flow,
@@ -177,11 +143,12 @@ class FlowTableHandler(BaseHandler):
                         ret.update({
                             "flow_id": flow_id
                         })
-            if that_flow_id == None:
-                raise Exception, 'No such flow_id'
+            #if not res:
+            #    raise Exception, 'No such flow_id'
         except Exception, e:
             ret.update({'error_message' : 'Failed to delete flow', 'reason' : str(e)})
         finally:
+            logger.debug("%.10f"%float((end-start).total_seconds()*1000)+" milliseconds")
             if dpid:
                 self.finish(ret)
             else:#modify
@@ -332,7 +299,7 @@ class FlowTableHandler(BaseHandler):
         if body['mpls_label'] or body['mpls_tc'] or body['mpls_bos']:
             if version == 1:
                 raise Exception, 'no mpls support in switch'
-            if int(body['dl_type'], 16)!='0x8847':
+            if int(body['dl_type'], 16)!=0x8847:
                 raise Exception, 'dl_type not ETH_TYPE_MPLS'
         if (body['nw_src'] or body['nw_dst']) and (body['nw_src6'] or body['nw_dst6']):
             raise Exception, 'nw_src or nw_dst and nw_src6 or nw_dst6 cannot handle together'
@@ -424,7 +391,6 @@ class FlowTableHandler(BaseHandler):
                 nw_src = "--------20"
             if str_dip == "-1":
                 nw_dst = "--------20"
-
         flow_id = "%016x" %dpid + "%02x" %flow.table_id + "%04x" %priority
         flow_id += dl_src.replace(':','')   if dl_src_mask != '00:00:00:00:00:00' else '------------'
         flow_id += dl_dst.replace(':','')   if dl_dst_mask != '00:00:00:00:00:00' else '------------'
@@ -479,7 +445,6 @@ class FlowTableHandler(BaseHandler):
         tp_dst, flow_id = self.__flow_id_slicing(flow_id, 4)
         tp_src, flow_id = self.__flow_id_slicing(flow_id, 4)
         nw_src = nw_dst = None
-
         if dl_type == '0x86dd':
             nw_src, flow_id = self.__flow_id_slicing(flow_id,34, False)
             nw_dst, flow_id = self.__flow_id_slicing(flow_id,34, False)
@@ -583,20 +548,20 @@ class FlowSchema(colander.MappingSchema):
                     missing=None, 
                     validator=colander.Regex(r"0x([0-9A-Fa-f]){1,4}"))
     dl_vlan = colander.SchemaNode(colander.String(), 
-                    missing=None, 
-                    validator=colander.OneOf(["%d" %i for i in range(4096)]))
+                    missing=None)#, 
+                    #validator=colander.OneOf(["%d" %i for i in range(4096)]))
     dl_vlan_pcp = colander.SchemaNode(colander.String(), 
                     missing=None, 
                     validator=colander.OneOf(["%d" %i for i in range(8)]))
     mpls_label =  colander.SchemaNode(colander.String(), 
-                    missing=None, 
-                    validator=colander.OneOf(["%d" %i for i in range(1048576)]))
+                    missing=None)#, 
+                    #validator=colander.OneOf(["%d" %i for i in range(1048576)]))
     mpls_tc = colander.SchemaNode(colander.String(), 
-                    missing=None, 
-                    validator=colander.OneOf(["%d" %i for i in range(8)]))
+                    missing=None)#, 
+                    #validator=colander.OneOf(["%d" %i for i in range(8)]))
     mpls_bos = colander.SchemaNode(colander.String(), 
-                    missing=None, 
-                    validator=colander.OneOf(['%d' %i for i in range(2)]))
+                    missing=None)#, 
+                    #validator=colander.OneOf(['%d' %i for i in range(2)]))
     nw_dst = colander.SchemaNode(colander.String(), 
                     missing=None, 
                     validator=colander.Regex(r"([0-9a-fA-F]{1,3}(\.)){3}[0-9a-fA-F]{1,3}(/[0-9]{1,2}){0,1}"))
@@ -610,23 +575,23 @@ class FlowSchema(colander.MappingSchema):
                     missing=None,
                     validator=colander.Regex(r"([0-9a-fA-F]{1,4}(:)){5}[0-9a-fA-F]{1,4}(/[0-9]{1,3}){0,1}"))
     nw_proto = colander.SchemaNode(colander.String(), 
-                    missing=None, 
-                    validator=colander.OneOf(["%d" %i for i in range(256)]))
+                    missing=None)#, 
+                    #validator=colander.OneOf(["%d" %i for i in range(256)]))
     nw_tos = colander.SchemaNode(colander.String(), 
-                    missing=None, 
-                    validator=colander.OneOf(["%d" %i for i in range(64)]))
+                    missing=None)#, 
+                    #validator=colander.OneOf(["%d" %i for i in range(64)]))
     tp_dst = colander.SchemaNode(colander.String(), 
-                    missing=None, 
-                    validator=colander.OneOf(["%d" %i for i in range(65536)]))
+                    missing=None)#, 
+                    #validator=colander.OneOf(["%d" %i for i in range(65536)]))
     tp_src = colander.SchemaNode(colander.String(), 
-                    missing=None, 
-                    validator=colander.OneOf(["%d" %i for i in range(65536)]))
+                    missing=None)#, 
+                    #validator=colander.OneOf(["%d" %i for i in range(65536)]))
     in_port = colander.SchemaNode(colander.String(), 
-                    missing=None, 
-                    validator=colander.OneOf(["%d" %i for i in range(65536)]))
+                    missing=None)#, 
+                    #validator=colander.OneOf(["%d" %i for i in range(65536)]))
     table_id = colander.SchemaNode(colander.String(), 
-                    missing=0, 
-                    validator=colander.OneOf(["%d" %i for i in range(255)]))
+                    missing=0)#, 
+                    #validator=colander.OneOf(["%d" %i for i in range(255)]))
 
     barrier = colander.SchemaNode(colander.String(),
                     missing='disable',
@@ -639,7 +604,7 @@ class FlowSchema(colander.MappingSchema):
     instructions = InstructionList()
 
 
-    priority = colander.SchemaNode(colander.Int(), missing=mul.C_FL_PRIO_FWD, validator=colander.OneOf([i for i in range(65536)]))
+    priority = colander.SchemaNode(colander.Int(), missing=mul.C_FL_PRIO_FWD)#, #validator=colander.OneOf([i for i in range(65536)]))
     
 
 

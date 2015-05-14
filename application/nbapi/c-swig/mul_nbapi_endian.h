@@ -377,6 +377,41 @@ ntoh_nbapi_flow_brief(struct c_ofp_flow_info *cofp_fi)
     nbapi_endian_convert_nbapi_flow_brief(cofp_fi, ntohs, ntohl, ntohll);
 }
 
+static inline void
+ntoh_ofp140_port_stats(struct ofp140_port_stats *ofp_ps){
+    ofp_ps->port_no = ntohl(ofp_ps->port_no);
+    ofp_ps->duration_sec = ntohl(ofp_ps->duration_sec);
+    ofp_ps->duration_nsec = ntohl(ofp_ps->duration_nsec);
+    ofp_ps->rx_packets = ntohll(ofp_ps->rx_packets);
+    ofp_ps->tx_packets = ntohll(ofp_ps->tx_packets);
+    ofp_ps->rx_bytes = ntohll(ofp_ps->rx_bytes);
+    ofp_ps->tx_bytes = ntohll(ofp_ps->tx_bytes);
+    ofp_ps->rx_dropped = ntohll(ofp_ps->rx_dropped);
+    ofp_ps->tx_dropped = ntohll(ofp_ps->tx_dropped);
+    ofp_ps->rx_errors = ntohll(ofp_ps->rx_errors);
+    ofp_ps->tx_errors = ntohll(ofp_ps->tx_errors);
+}
+static inline void ntoh_ofp_port_stats_prop_ethernet(struct ofp_port_stats_prop_ethernet *eth_prop){
+    eth_prop->rx_frame_err = ntohll(eth_prop->rx_frame_err);
+    eth_prop->rx_over_err = ntohll(eth_prop->rx_over_err);
+    eth_prop->rx_crc_err = ntohll(eth_prop->rx_crc_err);
+    eth_prop->collisions = ntohll(eth_prop->collisions);
+}
+static inline void ntoh_ofp_port_stats_prop_optical(struct ofp_port_stats_prop_optical *opt_prop){
+    opt_prop->flags = ntohl(opt_prop->flags);
+    opt_prop->tx_freq_lmda = ntohl(opt_prop->tx_freq_lmda);
+    opt_prop->tx_offset = ntohl(opt_prop->tx_offset);
+    opt_prop->tx_grid_span = ntohl(opt_prop->tx_grid_span);
+    opt_prop->rx_freq_lmda = ntohl(opt_prop->rx_freq_lmda);
+    opt_prop->rx_offset = ntohl(opt_prop->rx_offset);
+    opt_prop->rx_grid_span = ntohl(opt_prop->rx_grid_span);
+    opt_prop->tx_pwr = ntohs(opt_prop->tx_pwr);
+    opt_prop->rx_pwr = ntohs(opt_prop->rx_pwr);
+    opt_prop->bias_current = ntohs(opt_prop->bias_current);
+    opt_prop->temperature = ntohs(opt_prop->temperature);
+
+}
+
 static inline void 
 nbapi_endian_convert_ofp131_port_stats(struct ofp131_port_stats *ofp_ps,
                                        uint32_t(*convl)(uint32_t),
@@ -404,6 +439,30 @@ ntoh_ofp131_port_stats(struct ofp131_port_stats *ofp_ps)
 {
     nbapi_endian_convert_ofp131_port_stats(ofp_ps, ntohl, ntohll);
 }
+
+static inline void 
+nbapi_endian_convert_ofp_port_stats(struct ofp_port_stats *ofp_ps,
+                                    uint16_t(*convs)(uint16_t),
+                                    uint64_t(*convll)(uint64_t))
+{
+    ofp_ps->port_no = convs(ofp_ps->port_no);
+    ofp_ps->rx_packets = convll(ofp_ps->rx_packets);
+    ofp_ps->tx_packets = convll(ofp_ps->tx_packets);
+    ofp_ps->rx_bytes = convll(ofp_ps->rx_bytes);
+    ofp_ps->tx_bytes = convll(ofp_ps->tx_bytes);
+    ofp_ps->rx_dropped = convll(ofp_ps->rx_dropped);
+    ofp_ps->tx_dropped = convll(ofp_ps->tx_dropped);
+    ofp_ps->rx_errors = convll(ofp_ps->rx_errors);
+    ofp_ps->tx_errors = convll(ofp_ps->tx_errors);
+    ofp_ps->rx_frame_err = convll(ofp_ps->rx_frame_err);
+    ofp_ps->rx_over_err = convll(ofp_ps->rx_over_err);
+    ofp_ps->rx_crc_err = convll(ofp_ps->rx_crc_err);
+    ofp_ps->collisions = convll(ofp_ps->collisions);
+}
+static inline void ntoh_ofp_port_stats(struct ofp_port_stats *ofp_ps){
+    nbapi_endian_convert_ofp_port_stats(ofp_ps, ntohs, ntohll);
+}
+
 
 static inline void
 nbapi_endian_convert_ofp_group_features(struct ofp_group_features *ofp_gf, 

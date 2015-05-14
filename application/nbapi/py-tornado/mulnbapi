@@ -61,12 +61,15 @@ class App(tornado.web.Application):
             (r"/1.0/topology/switch", SwitchHandler),
             (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/neighbor", TopologyHandler),
             (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)", SwitchHandler),
+            (r"/1.0/topology/switch/all", SwitchHandler),
             (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/port", SwitchHandler),
+            (r"/1.0/topology/switch/all/port", SwitchHandler),
             (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/port/([0-9]+)", SwitchHandler),
             (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/meter", TableFeatureHandler),
             (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/group", TableFeatureHandler),
             (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/table/([0-9]+)", TableFeatureHandler),
             (r"/1.0/topology/switch/(0x[0-9a-zA-Z]+)/limit", SwitchHandler),
+            (r"/1.0/flowtable/all/flow", FlowTableHandler),
             (r"/1.0/flowtable/(0x[0-9a-zA-Z]+)/flow", FlowTableHandler),
             (r"/1.0/flowtable/(0x[0-9a-zA-Z]+)/flow/([0-9a-fA-F-]+)", FlowTableHandler),
             (r"/1.0/flowtable/(0x[0-9a-zA-Z]+)/table/([0-9]+)", FlowTableHandler),
@@ -76,7 +79,8 @@ class App(tornado.web.Application):
             (r"/1.0/metertable/(0x[0-9a-zA-Z]+)/meter", MeterTableHandler),
             (r"/1.0/metertable/(0x[0-9a-zA-Z]+)/meter/([0-9]+)", MeterTableHandler),
             (r"/1.0/stats/switch/(0x[0-9a-zA-Z]+)/flow/([0-9a-fA-F-]+)", FlowTableHandler),#StatHandler),
-            (r"/1.0/stats/switch/(0x[0-9a-zA-Z]+)/port/([0-9]+)", StatHandler)
+            (r"/1.0/stats/switch/(0x[0-9a-zA-Z]+)/port/([0-9]+)", StatHandler),
+            (r"/1.0/stats/switch/(0x[0-9a-zA-Z]+)/port/all", StatHandler)
         ]
 #fabric api 
         from app.handler.fabric.route import RouteHandler
@@ -94,8 +98,8 @@ class App(tornado.web.Application):
             #(r"/1.0/fabric/subnet", SubnetHandler),#
             #(r"/1.0/fabric/subnet/([0-9]+)", SubnetHandler),#
             (r"/1.0/fabric/host", HostHandler),
-            (r"/1.0/fabric/tenant/([0-9a-zA-Z-]+)/network/([0-9a-zA-Z-]+)/host", HostHandler)
-            #(r"/1.0/fabric/tenant/([0-9a-zA-Z-]+)/network/([0-9a-zA-Z-]+)/host/([0-9a-zA-Z.]+)", HostHandler),
+            (r"/1.0/fabric/tenant/([0-9a-zA-Z-]+)/network/([0-9a-zA-Z-]+)/host", HostHandler),
+            (r"/1.0/fabric/tenant/([0-9a-zA-Z-]+)/network/([0-9a-zA-Z-]+)/host/([0-9a-zA-Z.]+)", HostHandler),
             #(r"/1.0/fabric/tenant/([0-9a-zA-Z]+)/network/([0-9a-zA-Z-]+)/tunnel", TunnelHandler),#
             #(r"/1.0/fabric/tenant/([0-9a-zA-Z]+)/network/([0-9a-zA-Z-]+)/tunnel/([0-9]+)", TunnelHandler),#
         ]

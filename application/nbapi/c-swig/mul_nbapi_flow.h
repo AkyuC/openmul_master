@@ -45,8 +45,14 @@ MUL_NBAPI_PYLIST_RETURN(c_ofp_flow_info, nbapi_switch_flow_list_t)
 MUL_NBAPI_PYLIST_RETURN(c_ofp_group_mod, nbapi_switch_group_list_t)
 
 void regist_nbapi_cb(char *port);
-int add_static_flow(uint64_t datapath_id, struct flow *fl, struct flow *mask,
-                    uint8_t priority, mul_act_mdata_t *mdata, uint64_t flags, int drop);
+int add_static_flow(uint64_t datapath_id, uint8_t priority, char *barrier, char *stat,
+                    mul_act_mdata_t *mdata, int drop,
+                    char *dl_src, char *dl_dst, char *dl_type, char *dl_vlan,
+                    char *dl_vlan_pcp, char *mpls_label, char *mpls_tc, 
+                    char *mpls_bos, char *nw_src, char *nw_src6, char *nw_dst, 
+                    char *nw_dst6, char *nw_proto, char *nw_tos, char *tp_dst, 
+                    char *tp_src, char *in_port, char *table_id);
+
 struct of_group_mod_params *prepare_add_group(char *group, char *type);
 void nbapi_group_action_add(int act_len, struct of_group_mod_params *g_parms,
                             mul_act_mdata_t *mdata, char *weight, char *ff_port, char *ff_group);
@@ -60,8 +66,8 @@ int delete_static_flow(uint64_t datapath_id, struct flow *fl, struct flow *mask,
 /* helpers to access data */
 char *nbapi_parse_mac_to_str(uint8_t *mac);
 char *nbapi_fab_parse_nw_addr_to_str(struct flow *flow);
-char *nbapi_parse_ipv6_nw_addr_to_str(struct flow *flow, struct flow *mask, int i);
-char *nbapi_parse_nw_addr_to_str(struct flow *flow, struct flow *mask, int i);
+char *nbapi_parse_ipv6_nw_addr_to_str(struct flow *flow, struct flow *mask, char *s);
+char *nbapi_parse_nw_addr_to_str(struct flow *flow, struct flow *mask, char *s);
 
 /* helpers to create arguments */
 uint8_t nbapi_get_switch_version_with_id(uint64_t dpid);

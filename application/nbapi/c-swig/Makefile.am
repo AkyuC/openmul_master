@@ -4,15 +4,15 @@ pkgconfigdir=$(libdir)/pkgconfig
 
 BUILT_SOURCES = mul_nbapi_wrap.c
 SWIG_SOURCES = mul_nbapi.i
-SWIG_DEPEND = mul_nbapi_statistics.h mul_nbapi_topology.h mul_nbapi_flow.h \
-          mul_nbapi_fabric.h mul_nbapi_meter.h mul_nbapi_path.h \
-	      mul_nbapi_swig_helper.h $(top_srcdir)/common-libs/mul-lib/include/mul_app_interface.h \
+SWIG_DEPEND = mul_nbapi_statistics.h mul_nbapi_topology.h mul_nbapi_flow.h mul_nbapi_fabric.h mul_nbapi_meter.h mul_nbapi_path.h \
+	      mul_nbapi_swig_helper.h $(top_srcdir)/common-libs/mul-lib/include//mul_app_interface.h \
 	      $(top_srcdir)/common-libs/mul-lib/include/mul_fabric_servlet.h \
 	      $(top_srcdir)/common-libs/mul-lib/include/makdi_servlet.h \
 	      $(top_srcdir)/common-libs/mul-lib/include/mul_servlet.h \
 	      $(top_srcdir)/common-libs/mul-lib/include/mul_tr_servlet.h \
 	      $(top_srcdir)/common-libs/mul-lib/include/openflow-10.h \
 	      $(top_srcdir)/common-libs/mul-lib/include/openflow-131.h \
+          $(top_srcdir)/common-libs/mul-lib/include/openflow-140.h \
 	      $(top_srcdir)/common-libs/mul-lib/include/mul_route.h
 
 

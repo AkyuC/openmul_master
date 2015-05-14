@@ -85,8 +85,9 @@ list_array_ent_free(void *arg)
     free(arg);
 }
 
-Port_Stats_t 
-*get_switch_statistics_port(uint64_t datapath_id, uint16_t port){//, int type) {
+Port_Stats_t  *
+get_switch_statistics_port(uint64_t datapath_id, uint32_t port)
+{
     int n_flows;
     nbapi_switch_flow_list_t list;
     float pps=0;
@@ -174,7 +175,37 @@ set_port_stats(uint64_t dpid, bool enable)
     return 1;
 }
 
-struct ofp131_port_stats *show_port_stats (uint64_t dpid, uint32_t port_no){
+struct ofp_port_stats *
+show_port_stats (uint64_t dpid, uint32_t port_no)
+{
+    struct cbuf *b = NULL;
+    struct c_ofp_auxapp_cmd *cofp_auc;
+    struct c_ofp_switch_port_query *cofp_pq;
+    struct ofp_port_stats *ofp_ps = NULL;
+    size_t feat_len = 0;
+
+    b = mul_get_switch_port_stats(nbapi_app_data->mul_service, dpid, port_no);
+    if (!b) return NULL;
+
+    cofp_auc = CBUF_DATA(b);
+    if(cofp_auc->cmd_code != htonl(C_AUX_CMD_MUL_SWITCH_PORT_QUERY)) {
+        free_cbuf(b);
+        return NULL;
+    }
+    
+    feat_len = ntohs(cofp_auc->header.length) - (sizeof(*cofp_auc) +
+                        sizeof(*cofp_pq));
+    cofp_pq = ASSIGN_PTR(cofp_auc->data);
+    if(feat_len != sizeof(struct ofp_port_stats)){
+        free_cbuf(b);
+        return NULL;
+    }
+    ofp_ps = calloc(1, sizeof(*ofp_ps));
+    memcpy(ofp_ps, cofp_pq->data, sizeof(*ofp_ps));
+    ntoh_ofp_port_stats(ofp_ps);
+    return ofp_ps;
+}
+struct ofp131_port_stats *show_port_stats131 (uint64_t dpid, uint32_t port_no){
 
     struct cbuf *b = NULL;
     struct c_ofp_auxapp_cmd *cofp_auc;
@@ -201,17 +232,74 @@ struct ofp131_port_stats *show_port_stats (uint64_t dpid, uint32_t port_no){
     version = c_app_switch_get_version_with_id(ntohll(cofp_pq->datapath_id));
 
     if (version == OFP_VERSION_131) {
-	if (feat_len < sizeof(struct ofp131_port_stats)) {
-	    free_cbuf(b);
-	    return NULL;
-	}
-        ofp_ps = calloc(1, sizeof(*ofp_ps));
-        memcpy(ofp_ps, cofp_pq->data, sizeof(*ofp_ps));
-        ntoh_ofp131_port_stats(ofp_ps);
+        if (feat_len < sizeof(struct ofp131_port_stats)) {
+	        free_cbuf(b);
+	        return NULL;
+	    }
     }
-
+    ofp_ps = calloc(1, sizeof(*ofp_ps));
+    memcpy(ofp_ps, cofp_pq->data, sizeof(*ofp_ps));
+    ntoh_ofp131_port_stats(ofp_ps);
     return ofp_ps;
 }
+
+struct ofp140_port_stats *
+show_port_stats140(uint64_t dpid, uint32_t port_no)
+{
+    struct c_ofp_auxapp_cmd *cofp_auc;
+    struct c_ofp_switch_port_query *cofp_pq;
+    struct cbuf *b = NULL;
+    struct ofp140_port_stats *ofp_ps = NULL;
+    size_t feat_len = 0;
+
+    b =  mul_get_switch_port_stats(nbapi_app_data->mul_service ,dpid, port_no);
+
+    if (!b) return NULL;
+    cofp_auc = CBUF_DATA(b);
+    if (cofp_auc->cmd_code != htonl(C_AUX_CMD_MUL_SWITCH_PORT_QUERY)) {
+        free_cbuf(b);
+        return NULL;
+    }
+
+    feat_len = ntohs(cofp_auc->header.length) - (sizeof(*cofp_auc) +
+                        sizeof(*cofp_pq));
+    cofp_pq = ASSIGN_PTR(cofp_auc->data);
+
+    if (feat_len < sizeof(struct ofp140_port_stats)) {
+        free_cbuf(b);
+        return NULL;
+    }
+    ofp_ps = calloc(1, sizeof(*ofp_ps));
+    memcpy(ofp_ps, cofp_pq->data, sizeof(*ofp_ps));
+    ntoh_ofp140_port_stats(ofp_ps);
+    if(feat_len <= sizeof(*ofp_ps)){
+        struct ofp_port_stats_prop_header *properties = ofp_ps->properties;
+        properties->type = -1;
+    }
+    return ofp_ps;
+}
+
+uint16_t get_ofp140_port_stats_prop_type(struct ofp140_port_stats * ofp_ps){
+    struct ofp_port_stats_prop_header *properties = ofp_ps->properties;
+    //if(properties == NULL) return -1;
+    return properties->type;
+}
+
+struct ofp_port_stats_prop_ethernet *show_ofp_port_stats_prop_ethernet(struct ofp140_port_stats *ofp_ps){
+    struct ofp_port_stats_prop_ethernet *eth_prop = NULL;
+    eth_prop = calloc(1, sizeof(*eth_prop));
+    memcpy(eth_prop, ofp_ps->properties, sizeof(*eth_prop));
+    ntoh_ofp_port_stats_prop_ethernet(eth_prop);
+    return eth_prop;
+}
+struct ofp_port_stats_prop_optical *show_ofp_port_stats_prop_optical(struct ofp140_port_stats *ofp_ps){
+    struct ofp_port_stats_prop_optical *opt_prop = NULL;
+    opt_prop = calloc(1, sizeof(*opt_prop));
+    memcpy(opt_prop, ofp_ps->properties, sizeof(*opt_prop));
+    ntoh_ofp_port_stats_prop_optical(opt_prop);
+    return opt_prop;
+}
+
 struct c_ofp_switch_table_stats *get_table_stats(uint64_t dpid, uint8_t table)
 {
     struct cbuf *b;

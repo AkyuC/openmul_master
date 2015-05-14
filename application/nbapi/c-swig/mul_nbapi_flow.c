@@ -29,40 +29,275 @@ void regist_nbapi_cb(char *addr_port)
 }
 
 int
-add_static_flow(uint64_t datapath_id, 
-                struct flow *fl, struct flow *mask, 
-                uint8_t priority,
-                mul_act_mdata_t *mdata,
-                uint64_t flags,
-                int drop) 
-{
+add_static_flow(uint64_t datapath_id, uint8_t priority, char *barrier, char *stat,
+                mul_act_mdata_t *mdata, int drop, char *dl_src, char *dl_dst, 
+                char *dl_type, char *dl_vlan, char *dl_vlan_pcp, char *mpls_label,
+                char *mpls_tc, char *mpls_bos, char *nw_src, char *nw_src6, char *nw_dst,
+                char *nw_dst6, char *nw_proto, char *nw_tos, char *tp_dst, char *tp_src, 
+                char *in_port, char *table_id){
+    struct flow *flow;
+    struct flow *mask;
     void *actions = NULL;
     size_t action_len = 0;
-    int ret = 0;
+    int ret = -1;
+    char *mac_str = NULL, *next = NULL;
+    struct prefix_ipv4 dst_p, src_p;
+    struct prefix_ipv6 dst_p6, src_p6;
+    struct ipv6_addr addr6;
+    uint32_t nmask;
+    int i = 0;
+    uint8_t version;
+    uint64_t flags;
+    
+    flow = calloc(1, sizeof(*flow));
+    assert(flow);
+    mask = calloc(1, sizeof(*mask));
+    assert(mask);
+    of_mask_set_no_dc(mask);
+    
+    version = c_app_switch_get_version_with_id(datapath_id);
 
-    if (!fl || !mask || !mdata) return -1;
-
-    hton_flow(fl);
-    hton_flow(mask);
-    if( drop == 0) {
+    if (drop == 0) {
         action_len = mul_app_act_len(mdata);
         actions = mdata->act_base;
-    } else if ( drop == 1 ) {
+    } else if ( drop == 1 ){
         action_len = 0;
     }
-    mul_service_send_flow_add(nbapi_app_data->mul_service, datapath_id,
-                                fl, mask, 0xffffffff, 
-                                actions, action_len, 
-                                0, 0, priority, flags);
-    if (c_service_timed_wait_response(nbapi_app_data->mul_service) > 0) {
-        c_log_err("%s: Failed to add a flow.", FN);
+
+    if (!strncmp(dl_src, "None", strlen(dl_src))) {
+        memset(flow->dl_src, 0, 6);
+        memset(mask->dl_src, 0, 6);
+    } else {
+        mac_str = (void *)dl_src;
+        for (i = 0; i < 6; i++){
+            flow->dl_src[i] = (uint8_t)strtoul(mac_str, &next, 16);
+            if(mac_str == next)
+                break;
+            mac_str = next +1;
+        }
+        if (i != 6) {
+            goto free_and_return;
+        }
+    }
+
+    if (!strncmp(dl_dst, "None", strlen(dl_dst))) {
+        memset(flow->dl_dst, 0, 6);
+        memset(mask->dl_dst, 0, 6);
+    } else {
+        mac_str = (void *)dl_dst;
+        for (i = 0; i < 6; i++){
+            flow->dl_dst[i] = (uint8_t)strtoul(mac_str, &next, 16);
+            if(mac_str == next)
+                break;
+            mac_str = next +1;
+        }
+        if (i != 6) {
+            goto free_and_return;
+        }
+    }
+
+    if (!strncmp(dl_type, "None", strlen(dl_type))){
+        flow->dl_type=0;
+        mask->dl_type=0;
+    } else {
+        flow->dl_type= htons((uint16_t)strtoull(dl_type, NULL, 16));
+    }
+
+    if (!strncmp(dl_vlan, "None", strlen(dl_vlan))){
+        flow->dl_vlan=0;
+        mask->dl_vlan=0;
+    } else {
+        flow->dl_vlan = htons(atoi(dl_vlan));
+    }
+
+    if (!strncmp(dl_vlan_pcp, "None", strlen(dl_vlan_pcp))){
+        flow->dl_vlan_pcp=0;
+        mask->dl_vlan_pcp=0;
+    } else {
+        if (flow->dl_vlan) flow->dl_vlan_pcp= atoi(dl_vlan_pcp);
+        else goto free_and_return;
+    }
+
+    if (!strncmp(mpls_label, "None", strlen(mpls_label))){
+        flow->mpls_label = 0;
+        mask->mpls_label = 0;
+    } else {
+        if(version == OFP_VERSION) goto free_and_return;
+        if(flow->dl_type == htons(ETH_TYPE_MPLS) ||
+            flow->dl_type == htons(ETH_TYPE_MPLS_MCAST)) {
+            flow->mpls_label = htonl(atoi(mpls_label));
+        } else goto free_and_return;
+    }
+
+    if (!strncmp(mpls_tc, "None", strlen(mpls_tc))){
+        flow->mpls_tc = 0;
+        mask->mpls_tc = 0;
+    } else {
+        if(version == OFP_VERSION) goto free_and_return;
+        if (flow->dl_type == htons(ETH_TYPE_MPLS) ||
+            flow->dl_type == htons(ETH_TYPE_MPLS_MCAST)) {
+            flow->mpls_tc = atoi(mpls_tc);
+        } else goto free_and_return;
+    }
+
+    if (!strncmp(mpls_bos, "None", strlen(mpls_bos))){
+        flow->mpls_bos = 0;
+        mask->mpls_bos = 0;
+    } else {
+        if(version == OFP_VERSION) goto free_and_return;
+        if (flow->dl_type == htons(ETH_TYPE_MPLS) ||
+            flow->dl_type == htons(ETH_TYPE_MPLS_MCAST)) {
+            flow->mpls_bos = atoi(mpls_tc);
+        } else goto free_and_return;
+    }
+
+    if(flow->dl_type == htons(ETH_TYPE_IPV6)) {
+        memset(&mask->ipv6, 0, sizeof(mask->ipv6));
+        if(!strncmp(nw_dst6, "None", strlen(nw_dst6))){
+            dst_p6.prefixlen=0;
+            memset(&dst_p6.prefix, 0, sizeof(dst_p6.prefix));
+        } else {
+            ret=str2prefix_ipv6(nw_dst6, (void *)&dst_p6);
+            if (ret <= 0) goto free_and_return;
+            if (dst_p6.prefixlen){
+                ipv6_addr_set(&addr6, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff);
+                ipv6_addr_prefix(&mask->ipv6.nw_dst, &addr6, dst_p6.prefixlen);
+            }
+        }
+        if(dst_p6.prefixlen)
+            ipv6_addr_prefix(&flow->ipv6.nw_dst, 
+                             (struct ipv6_addr *)&dst_p6.prefix, dst_p6.prefixlen);
+        if(!strncmp(nw_src6, "None", strlen(nw_src6))){
+            src_p6.prefixlen=0;
+            memset(&src_p6.prefix, 0, sizeof(src_p6.prefix));
+        } else {
+            ret=str2prefix_ipv6(nw_src6, (void *)&src_p6);
+            if (ret <= 0) goto free_and_return;
+            if (src_p6.prefixlen){
+                ipv6_addr_set(&addr6, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff);
+                ipv6_addr_prefix(&mask->ipv6.nw_src, &addr6, src_p6.prefixlen);
+            }
+        }
+        if(src_p6.prefixlen)
+            ipv6_addr_prefix(&flow->ipv6.nw_src, 
+                             (struct ipv6_addr *)&src_p6.prefix, src_p6.prefixlen);
+        ret = -1;
+    } else {
+        memset(&mask->ipv6, 0, sizeof(mask->ipv6));
+        if(!strncmp(nw_dst, "None", strlen(nw_dst))){
+            dst_p.prefixlen=0;
+            dst_p.prefix.s_addr=0;
+            nmask=0;
+        } else {
+            ret = str2prefix(nw_dst, (void *)&dst_p);
+            if(ret<=0) goto free_and_return;
+            if(dst_p.prefixlen){
+                if((flow->dl_type == htons(ETH_TYPE_IP)) ||
+                   (flow->dl_type == htons(ETH_TYPE_ARP))) {
+                    nmask = make_inet_mask(dst_p.prefixlen);
+                } else goto free_and_return;
+            } else nmask = 0;
+        }
+        mask->ip.nw_dst = htonl(nmask);
+        flow->ip.nw_dst = dst_p.prefix.s_addr & htonl(nmask);
+        if(!strncmp(nw_src, "None", strlen(nw_src))){
+            src_p.prefixlen=0;
+            src_p.prefix.s_addr=0;
+            nmask=0;
+        } else {
+            ret = str2prefix(nw_src, (void *)&src_p);
+            if(ret<=0) goto free_and_return;
+            if(src_p.prefixlen){
+                if((flow->dl_type == htons(ETH_TYPE_IP)) ||
+                   (flow->dl_type == htons(ETH_TYPE_ARP))) {
+                    nmask = make_inet_mask(src_p.prefixlen);
+                } else goto free_and_return;
+            } else nmask = 0;
+        }
+        mask->ip.nw_src = htonl(nmask);
+        flow->ip.nw_src = src_p.prefix.s_addr & htonl(nmask);
+
         ret = -1;
     }
 
-    ntoh_flow(fl);
+    if (!strncmp(nw_proto, "None", strlen(nw_proto))){
+        flow->nw_proto=0;
+        mask->nw_proto=0;
+    } else {
+        if (flow->dl_type == htons(ETH_TYPE_IPV6) ||
+            flow->dl_type == htons(ETH_TYPE_IP) ) {
+            flow->nw_proto = atoi(nw_proto);
+        } else goto free_and_return;
+    }
 
+    if (!strncmp(nw_tos, "None", strlen(nw_tos))){
+        flow->nw_tos = 0;
+        mask->nw_tos = 0;
+    } else {
+        if(flow->dl_type == htons(ETH_TYPE_IP)){
+            flow->nw_tos = atoi(nw_tos);
+        } else goto free_and_return;
+    }
+
+    if (!strncmp(tp_dst, "None", strlen(tp_dst))){
+        flow->tp_dst = 0;
+        mask->tp_dst = 0;
+    } else {
+        if(flow->nw_proto == IP_TYPE_UDP || flow->nw_proto == IP_TYPE_TCP) {
+            flow->tp_dst = htons(atoi(tp_dst));
+        } else goto free_and_return;
+    }
+
+    if (!strncmp(tp_src, "None", strlen(tp_src))){
+        flow->tp_src = 0;
+        mask->tp_src = 0;
+    } else {
+        if(flow->nw_proto == IP_TYPE_UDP || flow->nw_proto == IP_TYPE_TCP) {
+            flow->tp_src = htons(atoi(tp_src));
+        } else goto free_and_return;
+    }
+
+    if (!strncmp(in_port, "None", strlen(in_port))){
+        flow->in_port = 0;
+        mask->in_port = 0;
+    } else {
+        flow->in_port=htonl(atoi(in_port));
+    }
+
+    flow->table_id = atoi(table_id);
+
+    mask->tunnel_id = 0;
+    mask->metadata = 0;
+
+    flags = C_FL_ENT_STATIC;
+    if (!strncmp(barrier, "enable", strlen(barrier))){
+        flags |= C_FL_ENT_BARRIER;
+    }
+    if (!strncmp(stat, "enable", strlen(stat))){
+        flags |= C_FL_ENT_GSTATS;
+    }
+
+
+
+
+    mul_service_send_flow_add(nbapi_app_data->mul_service, datapath_id,
+                                flow, mask, 0xffffffff, 
+                                actions, action_len, 
+                                0, 0, priority, flags);
+
+    if (c_service_timed_wait_response(nbapi_app_data->mul_service) > 0) {
+        goto free_and_return;
+    }
+    ret = 0;
+
+free_and_return:
+    mul_app_act_free(mdata);
+    free(flow);
+    free(mask);
+    free(mdata);
     return ret;
 }
+
 
 struct of_group_mod_params *
 prepare_add_group(char *group, char *type)
@@ -181,17 +416,19 @@ char *nbapi_fab_parse_nw_addr_to_str(struct flow * flow)
     return ret;
 }
 
-char *nbapi_parse_ipv6_nw_addr_to_str(struct flow *flow, struct flow *mask, int i){
+char *nbapi_parse_ipv6_nw_addr_to_str(struct flow *flow, struct flow *mask, char *s)
+{
     char *ret = calloc(sizeof(char), 1000);
     char ip6_addr_str[INET6_ADDRSTRLEN];
     char ip6_mask_str[INET6_ADDRSTRLEN];
     struct ipv6_addr flow_addr;
     struct ipv6_addr mask_addr;
     int i_mask = 0;
+    int i;
 
     if (!ret) return NULL;
 
-    if( i == 1) {
+    if(!strncmp(s, "src", strlen(s))) {
         flow_addr = flow->ipv6.nw_src;
         mask_addr = mask->ipv6.nw_src;
     } else {
@@ -227,7 +464,7 @@ char *nbapi_parse_ipv6_nw_addr_to_str(struct flow *flow, struct flow *mask, int 
     return ret;
 }
 
-char *nbapi_parse_nw_addr_to_str(struct flow * flow, struct flow * mask, int i){
+char *nbapi_parse_nw_addr_to_str(struct flow * flow, struct flow * mask, char *s){
     char * ret = calloc(sizeof(char), 30);
     struct in_addr in_addr, in_mask;
     int i_mask = 0;
@@ -235,7 +472,7 @@ char *nbapi_parse_nw_addr_to_str(struct flow * flow, struct flow * mask, int i){
     memset(&in_mask, 0, sizeof(in_mask));
     if (!ret) return NULL;
     sprintf(ret, "-1");
-    if ( i == 0 ){
+    if(!strncmp(s, "src", strlen(s))) {
         if(!mask->ip.nw_src) return ret;
         in_addr.s_addr = flow->ip.nw_src & mask->ip.nw_src;
         in_mask.s_addr = mask->ip.nw_src;
@@ -1431,7 +1668,7 @@ nbapi_of_dump_act_set_vlan(struct ofp_action_header *action, void *arg)
     struct ofp_inst_parser_arg *dp = arg;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "{'action':'%s','value':'%d'}",//0x%04x'},",
+                        "{'action':'%s','value':'%d'},",//0x%04x'},",
                         "SET_VLAN_VID", ntohs(vid_act->vlan_vid));
     assert(dp->len < OF_DUMP_INST_SZ-1);
     return sizeof(*vid_act);
@@ -1444,7 +1681,7 @@ nbapi_of_dump_act_set_vlan_pcp(struct ofp_action_header *action, void *arg)
     struct ofp_inst_parser_arg *dp = arg;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "{'action':'%s','value':%d},",
+                        "{'action':'%s','value':'%d'},",
                         "SET_VLAN_PCP", vlan_pcp_act->vlan_pcp);
     assert(dp->len < OF_DUMP_INST_SZ-1);
     return sizeof(*vlan_pcp_act);
@@ -1540,7 +1777,7 @@ nbapi_of131_dump_goto_inst(struct ofp_instruction *inst, void *arg)
     struct ofp_inst_parser_arg *dp = arg;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "{'instruction':'%s','value':%d},", 
+                        "{'instruction':'%s','value':'%d'},", 
                         "GOTO_TABLE", ofp_ig->table_id);
     assert(dp->len < OF_DUMP_INST_SZ - 1);
 
@@ -1554,7 +1791,7 @@ nbapi_of131_dump_wr_meta_inst(struct ofp_instruction *inst, void *arg)
     struct ofp_inst_parser_arg *dp = arg;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - (dp->len) - 1,
-                        "{'type':'%s','metadata':0x%llx},",
+                        "{'type':'%s','metadata':'0x%llx'},",
                         "WRITE_METADATA",
                         U642ULL(ntohll(ofp_iwm->metadata)));
     assert(dp->len < OF_DUMP_INST_SZ-1);
@@ -1607,7 +1844,7 @@ nbapi_of131_dump_meter_inst(struct ofp_instruction *inst, void *arg)
     struct ofp_inst_parser_arg *dp = arg;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "{'instruction':'%s','value':%d},",
+                        "{'instruction':'%s','value':'%d'},",
                         "METER", ntohl(ofp_im->meter_id));
     assert(dp->len < OF_DUMP_INST_SZ-1);
     
@@ -1873,7 +2110,7 @@ nbapi_of131_dump_set_field_dl_type(struct ofp_oxm_header *oxm, void *arg)
     if (OFP_OXM_GHDR_HM(oxm)) return -1;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "{'action':'%s','value':0x%x},", 
+                        "{'action':'%s','value':'0x%x'},", 
                         "SET_ETH_TYPE", ntohs(dl_type));
     assert(dp->len < OF_DUMP_INST_SZ-1);
     
@@ -1889,7 +2126,7 @@ nbapi_of131_dump_set_field_dl_vlan(struct ofp_oxm_header *oxm, void *arg)
     if (OFP_OXM_GHDR_HM(oxm)) return -1;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "{'action':'%s','value':%d},",
+                        "{'action':'%s','value':'%d'},",
                         //"{'action':'%s','value':0x%x},", 
                         "SET_VLAN_VID", ntohs(*vid) & 0xfff);
     assert(dp->len < OF_DUMP_INST_SZ-1);
@@ -1905,7 +2142,7 @@ nbapi_of131_dump_set_field_dl_vlan_pcp(struct ofp_oxm_header *oxm, void *arg)
     if (OFP_OXM_GHDR_HM(oxm)) return -1;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "{'action':'%s','value':%d},",
+                        "{'action':'%s','value':'%d'},",
                         //"{'action':'%s','value':0x%x},", 
                         "SET_VLAN_PCP", *vlan_pcp);
     assert(dp->len < OF_DUMP_INST_SZ-1);
@@ -1923,7 +2160,7 @@ nbapi_of131_dump_set_field_mpls_label(struct ofp_oxm_header *oxm, void *arg)
     if (OFP_OXM_GHDR_HM(oxm)) return -1;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "{'action':'%s','value':%d},",
+                        "{'action':'%s','value':'%d'},",
                         //"{'action':'%s','value':0x%x},",
                         "SET_MPLS_LABEL", ntohl(label));
     assert(dp->len < OF_DUMP_INST_SZ-1);
@@ -1940,7 +2177,7 @@ nbapi_of131_dump_set_field_mpls_tc(struct ofp_oxm_header *oxm, void *arg)
     if (OFP_OXM_GHDR_HM(oxm)) return -1;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "{'action':'%s','value':%d},",
+                        "{'action':'%s','value':'%d'},",
                         //"{'action':'%s','value':0x%x},",
                         "SET_MPLS_TC", *tc);
     assert(dp->len < OF_DUMP_INST_SZ-1);
@@ -1957,7 +2194,7 @@ nbapi_of131_dump_set_field_mpls_bos(struct ofp_oxm_header *oxm, void *arg)
     if (OFP_OXM_GHDR_HM(oxm)) return -1;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "{'action':'%s','value':0x%x},",
+                        "{'action':'%s','value':'0x%x'},",
                         "SET_MPLS_BOS", *bos);
     assert(dp->len < OF_DUMP_INST_SZ-1);
 
@@ -2016,7 +2253,7 @@ nbapi_of131_dump_set_field_ipv4_dscp(struct ofp_oxm_header *oxm, void *arg)
     if (OFP_OXM_GHDR_HM(oxm)) return -1;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "{'action':'%s','value':0x%x},",
+                        "{'action':'%s','value':'0x%x'},",
                         //"SET_IPV4_DSCP"
                         "SET_NW_TOS", dscp);
     assert(dp->len < OF_DUMP_INST_SZ-1);
@@ -2075,7 +2312,7 @@ nbapi_of131_dump_set_field_tp_port(struct ofp_oxm_header *oxm, void *arg,
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
                         //"{'action':'%s','value':0x%x},", 
-                        "{'action':'%s','value':%d},",
+                        "{'action':'%s','value':'%d'},",
                         str, ntohs(port));
     assert(dp->len < OF_DUMP_INST_SZ-1);
 
@@ -2113,7 +2350,7 @@ nbapi_of131_dump_group_act(struct ofp_action_header *action, void *arg)
     struct ofp_inst_parser_arg *dp = arg;
 
     dp->len += snprintf(dp->pbuf + dp->len, OF_DUMP_INST_SZ - dp->len - 1,
-                        "{'action':'%s','value':%lu},",
+                        "{'action':'%s','value':'%lu'},",
                        //"{'action':'%s','value':%lu},",
                         "GROUP", U322UL(ntohl(grp_act->group_id)));
     assert(dp->len < OF_DUMP_INST_SZ-1);

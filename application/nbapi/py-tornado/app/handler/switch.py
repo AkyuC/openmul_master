@@ -3,7 +3,7 @@ import logging
 
 from app.lib import mul_nbapi as mul
 from app.handler.base import BaseHandler
-from app.lib import mul_nbapi as mul
+from app.handler.stats import StatHandler
 
 logger = logging.getLogger("SwitchHandler")
 logger.setLevel(logging.DEBUG)
@@ -14,16 +14,20 @@ class SwitchHandler(BaseHandler):
     This Handler manages the following URL:
         GET     topology/switch                             : get_switch_all
         GET     topology/switch/{dpid}                      : get_switch(dpid)
+        GET     topology/switch/all                         : get_switch_general_all
         GET     topology/switch/{dpid}/limit                : get_switch_limit(dpid)
         POST    topology/switch/{dpid}/limit                : set_switch_limit(dpid)
         GET     topology/switch/{dpid}/port                 : get_switch_port_all(dpid)
+        GET     topology/switch/all/port                    : get_all_switch_port
         GET     topology/switch/{dpid}/port/{port_no}       : get_switch_port(dpid)
     """
     BASE_URL = "/topology/switch" 
 
     request_mapper = {
         "^$":                             "get_switch_all",
+        "^all$":                          "get_switch_general_all",
         "^0x[0-9a-fA-F]+$":               "get_switch",
+        "^all/port$":                     "get_all_switch_port",
         "^0x[0-9a-fA-F]+/port$":          "get_switch_port_all",
         "^0x[0-9a-fA-F]+/port/[0-9]+$":   "get_switch_port",
         "^0x[0-9a-fA-F]+/limit$":         "handle_limit"
@@ -69,6 +73,23 @@ class SwitchHandler(BaseHandler):
             res = {}
         self.write(json.dumps(res))
 
+#this fuction is for avior
+    def get_switch_general_all(self, *args):
+        res = {}
+        try:
+            ret = []
+            switches = mul.get_switch_all()
+            for switch in switches:
+                sw_gnr = mul.get_switch_general(switch.switch_id.datapath_id)
+                ports = mul.get_switch_port_all(switch.switch_id.datapath_id)
+                sw_with_port = self.__ofp_switch_add_serialization(sw_gnr)
+                sw_with_port['ports'] = [self.__ofp_phy_port_serialization(port) for port in ports]
+                ret.append(sw_with_port)
+            res = {'switches' : ret}
+        except Exception, e:#no switch
+            res = {'error_message' : 'Falied to get all switch general feature', 'reason':str(e)}
+        self.finish(res)
+
     def get_switch_port_all(self, *args):
         dpid = int(args[0], 0)
         res = mul.get_switch_port_all(dpid)
@@ -93,6 +114,20 @@ class SwitchHandler(BaseHandler):
         except Exception, e:
             self.finish({'error_message' : 'Failed to get port', 'reason' :
                     str(e)})
+
+    def get_all_switch_port(self, *args):
+        res = {}
+        try:
+            ret = []
+            switches = mul.get_switch_all()
+            for switch in switches:
+                ports = mul.get_switch_port_all(switch.switch_id.datapath_id)
+                sw_ports = [self.__ofp_phy_port_serialization(port) for port in ports]
+                ret.append({'dpid' : '0x%lx' % switch.switch_id.datapath_id , 'ports' : sw_ports})
+            res={'switch_ports':ret} 
+        except Exception, e:
+            res={'error_message' : 'failed to get all switch ports', 'reason' :  str(e)}
+        self.finish(res)
 
     def handle_limit(self, *args):
         ret = {}

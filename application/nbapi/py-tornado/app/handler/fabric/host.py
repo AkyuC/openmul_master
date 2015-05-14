@@ -88,9 +88,9 @@ class HostHandler(BaseHandler):
             self.finish(ret)
 
     def __delete_host(self, tenant_id, network_id, host_ip):
+        ret={}
         try:
-            hosts = mul.get_fabric_host_all(1, 0)
-            ret = {}
+            hosts = mul.get_fabric_host_all(1)
             check = 0
             for host in hosts:
                 host_flow = host.host_flow

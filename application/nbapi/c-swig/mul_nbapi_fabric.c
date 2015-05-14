@@ -301,7 +301,7 @@ nbapi_fabric_route_dump(void *arg, char *buf){
                         ntohs(cofp_rl->src_link));
 	cofp_rl++;
     }
-    len--;
+    if(n_links!=0) len--;
     len += snprintf(nf_r->str_route+len, FAB_DFL_PBUF_SZ-len-1,"]");
     memcpy(&nf_r->src_host, &cofp_route->src_host, sizeof(cofp_route->src_host));
     memcpy(&nf_r->dst_host, &cofp_route->dst_host, sizeof(cofp_route->dst_host));

@@ -29,6 +29,7 @@ int nbapi_init(int argc, char **argv);
 %include "openflow-common.h"
 %include "openflow-10.h"
 %include "openflow-131.h"
+%include "openflow-140.h"
 %include "mul_of_msg.h"
 %include "mul_app_interface.h"
 %include "mul_app_infra.h"
