@@ -3267,6 +3267,18 @@ DEFUN (flow_no_post_validate,
     return CMD_SUCCESS;
 }
 
+DEFUN (flow_res_stale_en,
+       flow_res_stale_en_cmd,
+       "flow-res-stale-enable",
+       "Enable residual staling after initial scanning\n")
+{
+    struct cli_flow_action_parms *fl_parms = vty->index;
+
+    fl_parms->flags |= C_FL_ENT_RES_STALE;
+
+    return CMD_SUCCESS;
+}
+
 
 DEFUN (flow_prio,
        flow_prio_cmd,
@@ -3277,6 +3289,36 @@ DEFUN (flow_prio,
     struct cli_flow_action_parms *fl_parms = vty->index;
 
     fl_parms->fl_prio = atoi(argv[0]);
+
+    return CMD_SUCCESS;
+}
+
+DEFUN (flow_idle_timeout,
+       flow_idle_timeout_cmd,
+       "flow-idle-timeout <0-65535>",
+       "Sets the flow idle timeout\n"
+       "Enter the idle timeout value\n")
+{
+    struct cli_flow_action_parms *fl_parms = vty->index;
+
+    fl_parms->idle_timeout = atoi(argv[0]);
+    /*Enable Stats to delete flow in controller in case timer expires*/
+    fl_parms->flags |= C_FL_ENT_GSTATS;
+
+    return CMD_SUCCESS;
+}
+
+DEFUN (flow_hard_timeout,
+       flow_hard_timeout_cmd,
+       "flow-hard-timeout <0-65535>",
+       "Sets the flow hard timeout\n"
+       "Enter the hard timeout value\n")
+{
+    struct cli_flow_action_parms *fl_parms = vty->index;
+
+    fl_parms->hard_timeout = atoi(argv[0]);
+    /*Enable Stats to delete flow in controller in case timer expires*/
+    fl_parms->flags |= C_FL_ENT_GSTATS;
 
     return CMD_SUCCESS;
 }
@@ -3975,11 +4017,19 @@ DEFUN (flow_commit,
                 vty_out(vty, "Ignoring all non-drop actions if any%s",
                         VTY_NEWLINE);
             }
+
+            if (args->idle_timeout > args->hard_timeout) {
+                vty_out(vty, "Ignoring: ITIMEO is greater than HTIMEO%s",
+                        VTY_NEWLINE);
+                goto reset;
+            }
+
             mul_service_send_flow_add(cli->mul_service, args->dpid,
                                   args->fl, args->mask, 
                                   CLI_UNK_BUFFER_ID,
                                   actions, action_len,
-                                  0, 0, args->fl_prio, 
+                                  args->idle_timeout, args->hard_timeout, 
+                                  args->fl_prio, 
                                   args->flags | C_FL_ENT_STATIC);
             if (!(args->flags & C_FL_NO_ACK) &&
                 c_service_timed_wait_response(cli->mul_service) > 0) {
@@ -3990,6 +4040,7 @@ DEFUN (flow_commit,
             vty_out(vty, "No actions added.Flow not added%s", VTY_NEWLINE);
         }
 
+reset:
         if (args->fl) {
             free(args->fl);
         }
@@ -6238,9 +6289,12 @@ cli_module_vty_init(void *arg)
     install_element_attr_type(FLOW_NODE, &flow_stats_en_cmd, MUL_NODE);
     install_element_attr_type(FLOW_NODE, &flow_barrier_en_cmd, MUL_NODE);
     install_element_attr_type(FLOW_NODE, &flow_no_post_validate_cmd, MUL_NODE);
+    install_element_attr_type(FLOW_NODE, &flow_res_stale_en_cmd, MUL_NODE);
     install_element_attr_type(FLOW_NODE, &flow_prio_cmd, MUL_NODE);
     install_element_attr_type(FLOW_NODE, &flow_tunnel_cmd, MUL_NODE);
     install_element_attr_type(FLOW_NODE, &flow_commit_cmd, MUL_NODE);
+    install_element_attr_type(FLOW_NODE, &flow_idle_timeout_cmd, MUL_NODE);
+    install_element_attr_type(FLOW_NODE, &flow_hard_timeout_cmd, MUL_NODE);
 
     install_element_attr_type(INST_NODE, &of_add_output_action_cmd, MUL_NODE);
     install_element_attr_type(INST_NODE, &of_add_set_vid_action_cmd, MUL_NODE);

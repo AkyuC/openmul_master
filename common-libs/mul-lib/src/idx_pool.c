@@ -46,7 +46,7 @@ ipool_get(ipool_hdl_t *pool, void *priv)
 
     c_wr_unlock(&pool->lock);
 
-    return next_idx;
+    return next_idx+pool->start_idx;
 }
 
 int
@@ -60,6 +60,7 @@ ipool_put(ipool_hdl_t *pool, int ret_idx)
         return -1;
     }
 
+    ret_idx -= pool->start_idx;
     pool->idx_arr[ret_idx].next_idx = pool->next_idx;
     pool->idx_arr[ret_idx].priv = NULL;
     pool->next_idx = ret_idx;
@@ -93,7 +94,8 @@ ipool_create(size_t sz, uint32_t start_idx)
     c_rw_lock_init(&pool->lock);
 
     pool->max_idx = start_idx + sz - 1; 
-    pool->next_idx = start_idx;
+    pool->next_idx = 0;
+    pool->start_idx = start_idx;
 
     for (; idx < sz; idx++) {
         pool->idx_arr[idx].next_idx = idx+1;

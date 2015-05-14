@@ -26,6 +26,7 @@ typedef struct ipool_arr_
 typedef struct ipool_hdl_
 {
     c_rw_lock_t lock;
+    int start_idx;
     int next_idx;
     int max_idx;
     ipool_arr_t *idx_arr;    

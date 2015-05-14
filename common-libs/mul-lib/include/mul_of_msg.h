@@ -405,6 +405,12 @@ of_mask_set_dl_vlan(struct flow *mask)
 }
 
 static inline void
+of_mask_set_dl_vlan_present(struct flow *mask)
+{
+    mask->dl_vlan = htons(OFPVID_PRESENT);
+}
+
+static inline void
 of_mask_clr_dl_vlan(struct flow *mask)
 {
     mask->dl_vlan = 0x0;
@@ -729,7 +735,8 @@ void of_mact_alloc(mul_act_mdata_t *mdata);
 void of_mact_free(mul_act_mdata_t *mdata);
 void of_capabilities_tostr(char *string, uint32_t capabilities);
 bool of_switch_supports_flow_stats(uint32_t cap);
-bool __of_match_flows(struct flow *f1, struct flow *m1, struct flow *f2);
+bool __of_match_flows(const struct flow *f1, const struct flow *m1,
+                      const struct flow *f2);
 bool of_match_flows_prio(struct flow *f1, struct flow *m1,
                          struct flow *f2, struct flow *m2,
                          uint16_t p1, uint16_t p2);

@@ -255,6 +255,8 @@ struct c_ofp_flow_mod {
 #define C_FL_ENT_CTRL_LOCAL (0x800) /* Flow is meant for local controller delivery */
 #define C_FL_ENT_TBL_PHYS   (0x1000) /* Table-id in flow should not be translated to 
                                         virtual table-id */
+#define C_FL_ENT_RES_STALE  (0x2000) /* Force this entry to stale if no updates received 
+                                        after switch re-add/reset */
     uint64_t             flags;
     uint8_t              pad0;
 #define C_OFPC_ADD  0

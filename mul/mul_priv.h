@@ -45,7 +45,7 @@
 #define C_MAX_RULE_FLOW_TBLS        (255)
 #define C_TBL_HW_IDX_DFL            (0)
 
-#define C_OPT_NO_TABLES             (3)
+#define C_OPT_NO_TABLES             (4)
 #define C_MAX_Q_PROP_LEN            (2048)
 
 #define C_CP_METER_ID               (0)
@@ -304,6 +304,9 @@ typedef struct c_fl_entry_hdr_
 #define C_FL_HARD_DFL_TIMEO (900)
     uint16_t h_timeo;
     uint32_t xid;
+#define C_FL_RES_STALE_FLAG (1ULL<<63)
+#define C_FL_APP_COOKIE_MASK (0x7fffffff)
+#define C_FL_APP_COOKIE_SHIFT (32)
     uint64_t cookie;
 }c_fl_entry_hdr_t;
 
@@ -318,6 +321,9 @@ typedef struct c_fl_entry_hdr_
 #define FL_HTIMEO fl_hdr.h_timeo
 #define FL_COOKIE fl_hdr.cookie
 #define FL_XID fl_hdr.xid
+
+#define FL_APP_COOKIE(e) ((uint32_t)(e->FL_COOKIE >> C_FL_APP_COOKIE_SHIFT) \
+                            & C_FL_APP_COOKIE_MASK) 
 
 typedef struct c_fl_entry_stats_
 {
@@ -393,6 +399,8 @@ struct c_switch_group
     struct c_switch *sw;
     void *app_owner;
     c_atomic_t ref;
+#define C_GRP_APP_COOKIE_SHIFT (16)
+#define C_GRP_APP_COOKIE_MASK (0x7fff)
     uint32_t group;
     uint8_t type;
     uint8_t flags;
@@ -419,6 +427,9 @@ struct c_switch_group
 };
 typedef struct c_switch_group c_switch_group_t;
 
+#define GRP_APP_COOKIE(e) ((uint32_t)(e->group >> C_GRP_APP_COOKIE_SHIFT) \
+                            & C_GRP_APP_COOKIE_MASK)
+
 #define C_SWITCH_SUPPORTS_METER(sw) ((sw)->ofp_ctors && \
                                      (sw)->ofp_ctors->meter_add && \
                                      (sw)->ofp_ctors->meter_del)
@@ -428,6 +439,8 @@ struct c_switch_meter
     struct c_switch *sw;
     void *app_owner;
     c_atomic_t ref;
+#define C_METER_APP_COOKIE_SHIFT (16)
+#define C_METER_APP_COOKIE_MASK (0x7fff)
     uint32_t meter;
     uint16_t flags;
     uint8_t cflags;
@@ -454,6 +467,9 @@ struct c_switch_meter
     uint32_t duration_nsec;
 };
 typedef struct c_switch_meter c_switch_meter_t;
+
+#define METER_APP_COOKIE(e) ((uint32_t)(e->meter >> C_METER_APP_COOKIE_SHIFT) \
+                                           & C_METER_APP_COOKIE_MASK)
 
 enum switch_clone_type{
     SW_CLONE_USE,
@@ -702,6 +718,8 @@ void    *alloc_ipc_msg(uint8_t ipc_type, uint16_t ipc_msg_type);
 
 c_app_info_t *c_app_alloc(void *ctx);
 c_app_info_t *c_app_get(ctrl_hdl_t *c_hdl, char *app_name);
+c_app_info_t *c_app_get_by_cookie(ctrl_hdl_t *c_hdl, uint32_t cookie);
+c_app_info_t *__c_app_get_by_cookie(ctrl_hdl_t *c_hdl, uint32_t cookie);
 void    c_app_put(c_app_info_t *app);
 bool    c_app_hdr_valid(void *h_arg);
 int     c_builtin_app_start(void *arg);

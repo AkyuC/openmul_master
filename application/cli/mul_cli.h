@@ -55,6 +55,8 @@ struct cli_flow_action_parms {
     struct mul_act_mdata *mdata;
     bool drop_pkt;
     uint16_t fl_prio;
+    uint16_t idle_timeout;
+    uint16_t hard_timeout;
 };
 
 struct cli_group_bucket_parms

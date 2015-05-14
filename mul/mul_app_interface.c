@@ -117,6 +117,50 @@ mul_app_free_buf(void *b)
 }
 
 static inline c_app_info_t *
+__c_app_lookup_by_cookie(ctrl_hdl_t *c_hdl, uint32_t cookie)
+{
+    c_app_info_t *app;  
+    GSList       *iterator = NULL;
+
+    for (iterator = c_hdl->app_list; iterator; iterator = iterator->next) {
+        app = iterator->data;
+        if (app->app_cookie == cookie) {
+            return app;
+        }
+    }
+
+    return NULL;
+}
+
+c_app_info_t *
+c_app_get_by_cookie(ctrl_hdl_t *c_hdl, uint32_t cookie)
+{
+    c_app_info_t *app = NULL;  
+
+    c_rd_lock(&c_hdl->lock);
+
+    if ((app = __c_app_lookup_by_cookie(c_hdl, cookie))) {
+        atomic_inc(&app->ref, 1);
+    }
+
+    c_rd_unlock(&c_hdl->lock);
+
+    return app;
+}
+
+c_app_info_t *
+__c_app_get_by_cookie(ctrl_hdl_t *c_hdl, uint32_t cookie)
+{
+    c_app_info_t *app = NULL;  
+
+    if ((app = __c_app_lookup_by_cookie(c_hdl, cookie))) {
+        atomic_inc(&app->ref, 1);
+    }
+
+    return app;
+}
+
+static inline c_app_info_t *
 __c_app_lookup(ctrl_hdl_t *c_hdl, char *app_name)
 {
     c_app_info_t *app;  
@@ -417,6 +461,13 @@ mul_register_app(void *app_arg, char *app_name, uint32_t app_flags,
             assert(dpid);
 
             *dpid = ntohll(dpid_list[n]);
+
+            /*Checking if APP has sent duplicate DPIDs*/
+            if (g_hash_table_contains(app->dpid_hlist, dpid)) {
+                free(dpid);
+                continue;
+            }
+
             g_hash_table_insert(app->dpid_hlist, dpid, dpid);
 
             if ((sw = __c_switch_get(&ctrl_hdl, *dpid))) {
@@ -1928,7 +1979,7 @@ c_app_per_flow_stale(void *arg, c_fl_entry_t *ent)
         return;
     }
 
-    if ((uint32_t)(ent->FL_COOKIE >> 32) == app_cookie) { 
+    if (FL_APP_COOKIE(ent) == app_cookie) { 
         ent->stale_time = time(NULL);
         ent->FL_FLAGS |= C_FL_ENT_STALE;
         ent->fl_stats.last_scan = 0; 
@@ -1953,7 +2004,7 @@ c_app_per_group_stale(void *arg, c_switch_group_t *grp)
 {
     uint32_t app_cookie = *(uint32_t *)arg;
 
-    if ((uint32_t)((grp->group >> 16) & 0xffff) == app_cookie) { 
+    if (GRP_APP_COOKIE(grp) == app_cookie) {
         if (!(grp->flags & C_GRP_STALE)) {
             grp->stale_time = time(NULL);
             grp->flags |= C_GRP_STALE;
@@ -1974,7 +2025,7 @@ c_app_per_meter_stale(void *arg, c_switch_meter_t *m)
 {
     uint32_t app_cookie = *(uint32_t *)arg;
 
-    if ((uint32_t)((m->meter >> 16) & 0xffff) == app_cookie) { 
+    if (METER_APP_COOKIE(m) == app_cookie) { 
         if (!(m->flags & C_METER_STALE)) {
             m->stale_time = time(NULL);
             m->flags |= C_METER_STALE;
@@ -2485,6 +2536,9 @@ c_app_per_switch_per_group_info(void *k, uint32_t group_id, void *arg)
             c_app_send_per_group_info(iter_arg, grp);
             c_rd_unlock(&sw->lock);
             return 0;
+        } else {
+            c_log_err("%s: DPID %llx Group ID %u not exist", FN, sw->DPID,
+                    group_id);
         }
     }
     c_rd_unlock(&sw->lock);
@@ -2670,7 +2724,7 @@ c_app_rcv_ha_sync_req(void *app_arg UNUSED, struct cbuf *b)
     c_switch_put(sw);
 }
 
-static void 
+static void
 c_app_send_switch_desc(void *app_arg, struct cbuf *b)
 {
     struct c_ofp_auxapp_cmd *cofp_aac = CBUF_DATA(b);

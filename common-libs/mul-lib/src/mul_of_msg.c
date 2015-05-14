@@ -99,7 +99,7 @@ of_switch_desc_dump(void *desc, size_t desc_len)
                     "%s\r\n", ofp_d->dp_desc);
 
     return pbuf;
-} 
+}
 
 bool
 of_switch_supports_flow_stats(uint32_t cap)
@@ -1521,9 +1521,9 @@ err_out:
 }
 
 static bool
-__of_match_flows_l4(struct flow *f1,
-                    struct flow *m1,
-                    struct flow *f2)
+__of_match_flows_l4(const struct flow *f1,
+                    const struct flow *m1,
+                    const struct flow *f2)
 {
     if ((!m1->nw_proto || f1->nw_proto == f2->nw_proto) &&
         (!m1->nw_tos || f1->nw_tos == f2->nw_tos) &&
@@ -1535,9 +1535,9 @@ __of_match_flows_l4(struct flow *f1,
 }
 
 static bool
-__of_match_flows_ip(struct flow *fl1, 
-                    struct flow *mask,
-                    struct flow *fl2)
+__of_match_flows_ip(const struct flow *fl1, 
+                    const struct flow *mask,
+                    const struct flow *fl2)
 {
     /* Assumes fl1 and fl2's mask are equal */
     if (!mask->dl_type)  return true;
@@ -1568,9 +1568,9 @@ __of_match_flows_ip(struct flow *fl1,
 }
 
 static inline bool
-__of_match_flows_mpls(struct flow *f1,
-                      struct flow *m1,
-                      struct flow *f2)
+__of_match_flows_mpls(const struct flow *f1,
+                      const struct flow *m1,
+                      const struct flow *f2)
 {
     if ((!m1->mpls_label || f1->mpls_label == f2->mpls_label) &&
         (!m1->mpls_tc || f1->mpls_tc == f2->mpls_tc) &&
@@ -1581,9 +1581,9 @@ __of_match_flows_mpls(struct flow *f1,
 }
 
 static inline bool
-__of_match_flows_vlan(struct flow *f1,
-                      struct flow *m1,
-                      struct flow *f2)
+__of_match_flows_vlan(const struct flow *f1,
+                      const struct flow *m1,
+                      const struct flow *f2)
 {
     if (m1->dl_vlan && f1->dl_vlan == htons(0xfff) && f2->dl_vlan) {
         return true;
@@ -1596,9 +1596,9 @@ __of_match_flows_vlan(struct flow *f1,
 }
 
 static inline bool
-__of_match_flows_l2(struct flow *f1,
-                 struct flow *m1,
-                 struct flow *f2)
+__of_match_flows_l2(const struct flow *f1,
+                 const struct flow *m1,
+                 const struct flow *f2)
 {
     uint8_t zero_mac[6] = { 0, 0, 0, 0, 0, 0};
 
@@ -1612,9 +1612,9 @@ __of_match_flows_l2(struct flow *f1,
 }
 
 static inline bool
-__of_match_flows_mdata(struct flow *f1,
-                       struct flow *m1,
-                       struct flow *f2)
+__of_match_flows_mdata(const struct flow *f1,
+                       const struct flow *m1,
+                       const struct flow *f2)
 {
     if ((!m1->in_port || f1->in_port == f2->in_port) &&
         (!m1->metadata || f1->metadata == f2->metadata) &&
@@ -1625,9 +1625,9 @@ __of_match_flows_mdata(struct flow *f1,
 }
 
 bool
-__of_match_flows(struct flow *f1,
-                 struct flow *m1,
-                 struct flow *f2)
+__of_match_flows(const struct flow *f1,
+                 const struct flow *m1,
+                 const struct flow *f2)
 {
     if (__of_match_flows_l2(f1, m1, f2) &&
         __of_match_flows_mpls(f1, m1, f2) &&
@@ -7645,6 +7645,8 @@ of131_act_type_to_name(uint16_t act)
     }
     return "";
 }
+
+
 
 char *
 of131_group_features_dump(void *feat, size_t feat_len)

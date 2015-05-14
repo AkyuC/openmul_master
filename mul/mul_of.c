@@ -540,7 +540,7 @@ of_switch_mk_xphys_mapping(c_switch_t *sw)
             sw->xphys_map_tbl[j] = i;
             /* Enable miss entries */
             c_switch_flow_table_enable_miss(sw, i, false,
-                                            (j == 0 || j == 1) ?
+                                            (j == 0 || j == 1 || j == 2) ?
                                             true: false);
             j++;
         }
@@ -888,6 +888,7 @@ c_switch_try_publish(c_switch_t *sw, bool need_ha_sync_req)
                  * minimal required tables 
                  */
                 if (sw->n_tables >= C_OPT_NO_TABLES) {
+                    c_switch_flow_table_enable(sw, 3, false);
                     c_switch_flow_table_enable(sw, 2, false);
                     c_switch_flow_table_enable(sw, 1, false);
                     c_switch_flow_table_enable(sw, 0, false);
@@ -1948,6 +1949,8 @@ c_flow_rule_add(c_switch_t *sw, struct of_flow_mod_params *fl_parms)
     new_ent->FL_FLAGS = fl_parms->flags;
 
     new_ent->FL_PRIO = fl_parms->prio;
+    new_ent->FL_ITIMEO = fl_parms->itimeo;
+    new_ent->FL_HTIMEO = fl_parms->htimeo;
     memcpy(&new_ent->fl, fl_parms->flow, sizeof(struct flow));
     memcpy(&new_ent->fl_mask, fl_parms->mask, sizeof(struct flow));
     new_ent->action_len = fl_parms->action_len;
@@ -2039,6 +2042,14 @@ c_flow_rule_add(c_switch_t *sw, struct of_flow_mod_params *fl_parms)
         new_ent->FL_COOKIE = (uint64_t)sw->fl_idx_cookie | (uint64_t)fl_parms->cookie << 32;
     } else {
         new_ent->FL_COOKIE = (uint64_t)fl_parms->seq_cookie | (uint64_t)fl_parms->cookie << 32;
+    }
+
+    if (new_ent->FL_FLAGS & C_FL_ENT_RES_STALE) {
+        if (new_ent->FL_FLAGS & C_FL_ENT_RESIDUAL) {
+            new_ent->stale_time = time(NULL);
+            new_ent->FL_FLAGS |= C_FL_ENT_STALE;
+        } 
+        new_ent->FL_COOKIE |= C_FL_RES_STALE_FLAG;
     }
 
     if (new_ent->FL_FLAGS & C_FL_ENT_RESIDUAL ||
@@ -2477,7 +2488,7 @@ c_of_prep_switch_desc_msg(c_switch_t *sw)
     struct c_ofp_auxapp_cmd *cofp_aac;
     struct c_ofp_switch_feature_common *cofp_sfc;
 
-    c_rd_lock(&sw->lock); 
+    c_rd_lock(&sw->lock);
     tot_len = sizeof(*cofp_sfc) + sizeof(*cofp_aac) +
               ((sw->sw_desc) ? sw->desc_len : 0);
 
@@ -2485,14 +2496,14 @@ c_of_prep_switch_desc_msg(c_switch_t *sw)
 
     cofp_aac = CBUF_DATA(b);
     cofp_aac->cmd_code =  htonl(C_AUX_CMD_MUL_GET_SWITCH_DESC);
-     
+
     cofp_sfc = ASSIGN_PTR(cofp_aac->data);
     cofp_sfc->datapath_id = htonll(sw->DPID);
     if (sw->sw_desc) {
         memcpy(cofp_sfc->data, sw->sw_desc, sw->desc_len);
     }
-    
-    c_rd_unlock(&sw->lock); 
+
+    c_rd_unlock(&sw->lock);
 
     return b;
 }
@@ -2788,6 +2799,12 @@ c_switch_group_init(c_switch_t *sw, struct of_group_mod_params *gp_parms)
     c_app_ref(new->app_owner);
     new->sw = sw;
     new->last_seen = time(NULL);
+
+    if (gp_parms->flags & C_GRP_RESIDUAL &&
+        (new->group >> 31 & 0x1)) {
+        new->stale_time = time(NULL);
+        new->flags |= C_GRP_STALE;
+    }
 
     return new;
 }
@@ -3252,6 +3269,12 @@ c_switch_meter_init(c_switch_t *sw, struct of_meter_mod_params *m_parms)
     new->sw = sw;
 
     new->last_seen = time(NULL);
+
+    if (m_parms->cflags & C_METER_RESIDUAL &&
+        (new->meter >> 31 & 0x1)) {
+        new->stale_time = time(NULL);
+        new->cflags |= C_METER_STALE;
+    }
 
     return new;
 }
@@ -3848,7 +3871,7 @@ c_ofp_prep_flow_mod_with_parms(c_switch_t *sw,
     cofp_fm->htimeo = htons(htimeo);
     cofp_fm->buffer_id = htonl(buffer_id);
     cofp_fm->oport = OF_NO_PORT;
-    cofp_fm->cookie = htonl(cookie_id);
+    cofp_fm->cookie = htonl(cookie_id & 0x7fffffff);
     cofp_fm->seq_cookie = htonl(seq_cookie);
 
     if (add && actions && action_len) {
@@ -5070,6 +5093,7 @@ c_mcast_app_packet_in(c_switch_t *sw, struct cbuf *b,
     void    *app;
     GSList  *iterator;
     c_switch_group_t *group;
+    uint32_t cookie = 0;
     int ret = -1;
 
     c_sw_hier_rdlock(sw);
@@ -5080,12 +5104,18 @@ c_mcast_app_packet_in(c_switch_t *sw, struct cbuf *b,
         for (iterator = fl_ent->groups; iterator;
              iterator = iterator->next) {
             group = iterator->data;
-            app = group->app_owner;
+            cookie = GRP_APP_COOKIE(group);
+            if (cookie) {
+                app = __c_app_get_by_cookie(&ctrl_hdl, cookie);
+            } else {
+                app = group->app_owner;
+            }
             if (app)  {
                 if (use_local_grp && !(group->flags & C_GRP_LOCAL))
                     continue;
                 ret = 0;
                 c_signal_app_event(sw, b, C_PACKET_IN, app, mdata, true);
+                if (cookie) c_app_put(app);
             }
         }
     } else if (!use_local_grp) {
@@ -5524,15 +5554,22 @@ c_flow_stats_update(c_switch_t *sw, struct flow *flow, struct flow *mask,
             sw->switch_state & SW_FLOW_PROBED &&
             !(sw->switch_state & SW_FLOW_PROBE_DONE) &&
             !htimeo) {
-            struct cbuf *b = c_ofp_prep_flow_mod_with_parms(sw, flow, mask,
-                                                        itimeo, htimeo,
-                                                        C_FL_ENT_RESIDUAL |
-                                                        C_FL_ENT_TBL_PHYS,
-                                                        prio, (uint32_t)(-1),
-                                                        (uint32_t)(cookie >> 32),
-                                                        (uint32_t)(cookie & 0xffffffff),
-                                                        flow_acts, act_len,
-                                                        true);
+            uint64_t flags = C_FL_ENT_TBL_PHYS | C_FL_ENT_RESIDUAL;
+            struct cbuf *b;
+
+            if (cookie & C_FL_RES_STALE_FLAG) {
+                flags |= C_FL_ENT_RES_STALE;
+            }
+
+            b = c_ofp_prep_flow_mod_with_parms(sw, flow, mask,
+                                               itimeo, htimeo,
+                                               flags, prio, 
+                                               (uint32_t)(-1),
+                                               (uint32_t)(cookie >> 32) 
+                                                          & 0x7fffffff,
+                                               (uint32_t)(cookie & 0xffffffff),
+                                               flow_acts, act_len,
+                                               true);
 
             if (b) {
                 void *app;
@@ -6712,7 +6749,7 @@ of131_recv_features_reply(c_switch_t *sw, struct cbuf *b)
     c_switch_tx(sw, of131_prep_role_request_msg(OFPCR_ROLE_NOCHANGE, 0), false); 
 
     /* Update switch description */
-    c_switch_tx(sw, of131_prep_mpart_msg(OFPMP_DESC, 0, 0), false); 
+    c_switch_tx(sw, of131_prep_mpart_msg(OFPMP_DESC, 0, 0), false);
 
     sw->last_feat_probed = time(NULL);
 }

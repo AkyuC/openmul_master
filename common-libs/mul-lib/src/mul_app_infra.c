@@ -1604,7 +1604,7 @@ uint32_t
 mul_app_group_id_alloc(uint32_t id)
 {
     return (((hdl->app_cookie & 0xffff) << 16) |
-            (id & 0xffff));
+            (id & 0xffff) | (1 << 31));
 }
 
 /**

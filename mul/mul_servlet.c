@@ -595,14 +595,14 @@ mul_dump_switch_desc(struct cbuf *b, bool free_buf)
     }
 
     if (ntohs(cofp_auc->header.length) -
-        (sizeof(*cofp_auc) + sizeof(*cofp_f)) < 
+        (sizeof(*cofp_auc) + sizeof(*cofp_f)) <
         sizeof(struct ofp_desc_stats)) {
         c_log_err("%s: Len error", FN);
         goto free_out;
     }
 
     cofp_f = ASSIGN_PTR(cofp_auc->data);
-    
+
     version = c_app_switch_get_version_with_id(ntohll(cofp_f->datapath_id));
     if (version != OFP_VERSION && version !=  OFP_VERSION_131 &&
         version != OFP_VERSION_140) {
@@ -826,8 +826,10 @@ mul_dump_single_flow(struct c_ofp_flow_info *cofp_fi, void *arg,
     if (!pbuf) return; 
 
     len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
-                    "%s:%hu %s:%d ", "Prio", ntohs(cofp_fi->priority),
-                    "Table", cofp_fi->flow.table_id);
+                    "%s:%hu %s:%d %s:%hu %s:%hu ", "Prio", ntohs(cofp_fi->priority),
+                    "Table", cofp_fi->flow.table_id,
+                    "Itimeo", ntohs(cofp_fi->itimeo),
+                    "Htimeo", ntohs(cofp_fi->htimeo));
 
     len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
                     "%s: %s %s %s %s %s %s\r\n", "Flags",
