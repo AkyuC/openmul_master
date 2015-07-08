@@ -32,6 +32,7 @@ extern initcall_t __start_modvtyinit_sec, __stop_modvtyinit_sec;
 #endif
 
 /* Registered application names */
+#define HELLO_APP_NAME "mul-hello"
 #define FAB_APP_NAME "mul-fabric"
 #define CLI_APP_NAME "mul-cli"
 #define L2SW_APP_NAME "mul-l2sw"
@@ -41,7 +42,6 @@ extern initcall_t __start_modvtyinit_sec, __stop_modvtyinit_sec;
 #define PRISM_APP_NAME "prism"
 #define CONX_APP_NAME "ConX"
 #define DRONE_APP_NAME "Drone"
-#define MUL_MAX_SERVICE_NUM 9
 
 #define FAB_APP_COOKIE 0x1111 
 #define CLI_APP_COOKIE 0x0
@@ -51,7 +51,7 @@ extern initcall_t __start_modvtyinit_sec, __stop_modvtyinit_sec;
 #define FEMTO_APP_COOKIE 0x0 
 #define PRISM_APP_COOKIE 0x3333 
 #define CONX_APP_COOKIE 0x4444 
-#define MUL_MAX_SERVICE_NUM 9
+#define MUL_MAX_SERVICE_NUM 10 
 
 /* Controller app event notifications */
 typedef enum c_app_event {
