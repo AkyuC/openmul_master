@@ -97,9 +97,9 @@ function openmul {
                  swig libcurl4-gnutls-dev libglib2.0-dev libevent-dev libssl-dev autoconf libtool
 
         $install python-pip
-        sudo pip install --upgrade pip
+        sudo -H pip install --upgrade pip
 
-        sudo pip install -r python_req.txt
+        sudo -H pip install -r python_req.txt
         $install --force-yes python-daemon
 
     elif [ "$DIST" = "Fedora" ]; then
@@ -150,7 +150,7 @@ function gui {
     sudo apt-get install openjdk-7-jdk
 
     #Install Tomcat
-    sudo wget http://apache.mirror.cdnetworks.com/tomcat/tomcat-8/v8.0.18/bin/apache-tomcat-8.0.18.tar.gz
+    sudo wget http://archive.apache.org/dist/tomcat/tomcat-8/v8.0.24/bin/apache-tomcat-8.0.24.tar.gz
     sudo tar -xvzf apache-tomcat-8*.tar.gz
     sudo mv ./apache-tomcat-8.0*/ /opt/tomcat
 
