@@ -134,9 +134,9 @@ case "$1" in
     pushd  $curr_dir/application/nbapi/py-tornado/ >> /dev/null
     sudo PYTHONPATH=$PYTHONPATH ./mulnbapi start > /dev/null 2>&1
     popd >> /dev/null
-    pushd  $curr_dir/application/nbapi/py-tornado-prism/ >> /dev/null
-    sudo PYTHONPATH=$PYTHONPATH ./prism_callback.py start > /dev/null 2>&1
-    popd >> /dev/null
+    #pushd  $curr_dir/application/nbapi/py-tornado-prism/ >> /dev/null
+    #sudo PYTHONPATH=$PYTHONPATH ./prism_callback.py start > /dev/null 2>&1
+    #popd >> /dev/null
     echo "OpenMUL prism mode is running.."
     ;;
 "prism-fabric")
