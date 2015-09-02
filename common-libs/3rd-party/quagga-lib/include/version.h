@@ -26,7 +26,7 @@
 
 #define QUAGGA_PROGNAME   "OpenMUL"
 
-#define QUAGGA_VERSION     "Concave-r1"
+#define QUAGGA_VERSION     "Ellipse-5.0.1"
 
 #define ZEBRA_BUG_ADDRESS "http://www.openmul.org"
 
