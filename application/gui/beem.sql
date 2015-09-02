@@ -42,7 +42,7 @@ CREATE TABLE `apiserver` (
 
 LOCK TABLES `apiserver` WRITE;
 /*!40000 ALTER TABLE `apiserver` DISABLE KEYS */;
-INSERT INTO `apiserver` VALUES (1,'Standard 1','https','203.255.254.108','9191','1.0','Y');
+INSERT INTO `apiserver` VALUES (1,'Standard 1','http','127.0.0.1','8181','1.0','Y');
 /*!40000 ALTER TABLE `apiserver` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -271,7 +271,7 @@ CREATE TABLE `user` (
 
 LOCK TABLES `user` WRITE;
 /*!40000 ALTER TABLE `user` DISABLE KEYS */;
-INSERT INTO `user` VALUES (0,'openmul','openmul','Root',10,'http','127.0.0.1','8181','1.0','user');
+INSERT INTO `user` VALUES (0,'openmul','openmul','openmul',10,'http','127.0.0.1','8181','1.0','user');
 /*!40000 ALTER TABLE `user` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

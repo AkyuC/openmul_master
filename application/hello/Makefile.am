@@ -13,7 +13,8 @@ INCLUDES = -I. -I$(top_srcdir)/mul -I$(top_srcdir)/common/ \
            -I$(top_srcdir)/services/loadable/topo_routing/ \
            -I$(top_srcdir)/common-libs/3rd-party/derived-lib/include/ \
            -I$(top_srcdir)/common-libs/3rd-party/quagga-lib/include/ \
-           -I$(top_srcdir)/common-libs/mul-lib/include/
+           -I$(top_srcdir)/common-libs/mul-lib/include/ \
+           -I$(top_srcdir)/common-libs/util-linux/libuuid/src/
 
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 

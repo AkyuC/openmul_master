@@ -7,8 +7,9 @@ SUBDIRS = \
           mul \
           services/loadable/topo_routing \
           services/loadable/conx \
+          application/hello \
           application/l2switch \
-		  application/makdi \
+          application/makdi \
           application/fabric \
           application/cli \
           application/prism/agent/ \
@@ -24,8 +25,9 @@ DIST_SUBDIRS = \
                mul \
                services/loadable/topo_routing/ \
                services/loadable/conx/ \
+               application/hello \
                application/l2switch \
-		  	   application/makdi \
+               application/makdi \
                application/fabric \
                application/cli \
                application/prism/agent/ \

@@ -172,7 +172,7 @@ AM_CONDITIONAL([HAVE_DOXYGEN],
 AM_SILENT_RULES([yes])
 
 AC_CONFIG_FILES([Makefile mul/Makefile application/l2switch/Makefile \
-        docs/Makefile \
+        application/hello/Makefile docs/Makefile \
         application/drone/Makefile \
         application/makdi/Makefile application/fabric/Makefile \
         application/cli/Makefile application/prism/agent/Makefile \
