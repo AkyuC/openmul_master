@@ -3,6 +3,7 @@ This readme file will outline the basic steps to setup environment for using ope
 Following steps have been validated in Ubuntu 12.04 :
 
 # Install mysql (versions may change)
+# root password  should be set to "mysql"
 $ sudo apt-get install mysql-server-5.5
 
 # Run all in one script to prepare all other necessary packages 
