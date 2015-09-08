@@ -566,6 +566,8 @@ c_sw_port_hton(struct c_sw_port *dst, struct c_sw_port *src)
     dst->advertised = htonl(src->advertised);
     dst->supported = htonl(src->supported);
     dst->peer = htonl(src->peer);
+    dst->curr_speed = htonl(src->curr_speed);
+    dst->max_speed = htonl(src->max_speed);
 }
 
 static unsigned int
@@ -6454,6 +6456,8 @@ of131_process_port(c_switch_t *sw UNUSED, void *opp_)
     port_desc->sw_port.peer      = ntohl(opp->peer);
     port_desc->sw_port.of_config = ntohl(opp->config);
     port_desc->sw_port.of_state  = ntohl(opp->state);
+    port_desc->sw_port.curr_speed = ntohl(opp->curr_speed);
+    port_desc->sw_port.max_speed  = ntohl(opp->max_speed);
 
     memcpy(port_desc->sw_port.name, opp->name, OFP_MAX_PORT_NAME_LEN);
     port_desc->sw_port.name[OFP_MAX_PORT_NAME_LEN-1] = '\0';
@@ -7931,6 +7935,8 @@ of140_process_port(c_switch_t *sw UNUSED, void *opp_)
     port_desc->sw_port.peer      = ntohl(properties->peer);
     port_desc->sw_port.of_config = ntohl(opp->config);
     port_desc->sw_port.of_state  = ntohl(opp->state);
+    port_desc->sw_port.curr_speed = ntohl(properties->curr_speed);
+    port_desc->sw_port.max_speed  = ntohl(properties->max_speed);
 
     memcpy(port_desc->sw_port.name, opp->name, OFP_MAX_PORT_NAME_LEN);
     port_desc->sw_port.name[OFP_MAX_PORT_NAME_LEN-1] = '\0';

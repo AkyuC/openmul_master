@@ -140,9 +140,11 @@ struct c_sw_port {
     uint32_t advertised;    /* Features being advertised by the port. */
     uint32_t supported;     /* Features supported by the port. */
     uint32_t peer;          /* Features advertised by peer. */
-};
 
-OFP_ASSERT(sizeof(struct c_sw_port) == 64);
+    uint32_t curr_speed;    /* Current speed */
+    uint32_t max_speed;     /* Max speed */
+};
+OFP_ASSERT(sizeof(struct c_sw_port) == 72);
 
 /* Switch Add message */
 struct c_ofp_switch_add {

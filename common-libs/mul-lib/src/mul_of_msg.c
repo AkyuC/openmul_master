@@ -10172,6 +10172,34 @@ ofp_dump_port_type(char *string, uint16_t type)
         strcat(string, " OPTICAL ");
 }
 
+static void
+of_dump_port_speed_string(char *string, size_t len, uint32_t speed, char *pref)
+{
+    if (speed/1000000) {
+        snprintf(string, len, " %s:%luGb", pref, U322UL(speed/1000000));
+    } else if (speed/1000) {
+        snprintf(string, len, " %s:%luMb", pref, U322UL(speed/1000));
+    } else  {
+        snprintf(string, len, " %s:%luKb", pref, U322UL(speed));
+    }
+}
+
+void 
+ofp_dump_port_speed(char *string, uint32_t curr_speed, uint32_t max_speed) 
+{
+    char speed[64];
+    
+    if (curr_speed)  {
+        of_dump_port_speed_string(speed, 63, curr_speed, "CURR");
+        strcat(string, speed);
+    }
+
+    if (max_speed) { 
+        of_dump_port_speed_string(speed, 63, max_speed, "MAX");
+        strcat(string, speed);
+    }
+}
+
 void
 ofp_dump_port_details(char *string, uint32_t config, uint32_t state)
 {

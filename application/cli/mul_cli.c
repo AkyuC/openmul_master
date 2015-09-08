@@ -769,7 +769,7 @@ DEFUN (show_of_switch_detail,
 
     vty_out (vty,
             "-------------------------------------------"
-            "----------------------------------%s%s",
+            "-------------------------------------------%s%s",
             VTY_NEWLINE, VTY_NEWLINE);
 
     b = mul_get_switch_detail(cli->mul_service, dp_id);
@@ -783,7 +783,7 @@ DEFUN (show_of_switch_detail,
 
     vty_out (vty,
             "-------------------------------------------"
-            "----------------------------------%s%s",
+            "-------------------------------------------%s%s",
             VTY_NEWLINE, VTY_NEWLINE);
 
     return CMD_SUCCESS;

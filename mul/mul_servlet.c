@@ -293,7 +293,7 @@ mul_dump_switch_detail(struct cbuf *b, bool free_buf)
 
     len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
             "-------------------------------------------"
-            "----------------------------------\r\n");
+            "-------------------------------------------\r\n");
     if (len >= MUL_SERVLET_PBUF_DFL_SZ-1) goto out_pbuf_err; 
 
     len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
@@ -302,7 +302,7 @@ mul_dump_switch_detail(struct cbuf *b, bool free_buf)
 
     len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
             "-------------------------------------------"
-            "----------------------------------\r\n");
+            "-------------------------------------------\r\n");
     if (len >= MUL_SERVLET_PBUF_DFL_SZ-1) goto out_pbuf_err; 
 
 
@@ -321,6 +321,9 @@ mul_dump_switch_detail(struct cbuf *b, bool free_buf)
             ofp131_dump_port_details(string, ntohl(p_info->of_config),
                     ntohl(p_info->of_state));
         }
+
+        ofp_dump_port_speed(string, ntohl(p_info->curr_speed), ntohl(p_info->max_speed));
+
         len += snprintf(pbuf+len, MUL_SERVLET_PBUF_DFL_SZ-len-1,
                 "0x%-12x %-10s %02x:%02x:%02x:%02x:%02x:%02x %-15s\r\n",
                 ntohl(p_info->port_no), p_info->name,

@@ -947,6 +947,7 @@ struct cbuf * of140_prep_mpart_msg(uint16_t type, uint16_t flags, size_t
         body_len);
 struct cbuf * of140_prep_role_request_msg(uint32_t role, uint64_t gen_id);
 void ofp_dump_port_type(char *string, uint16_t type) ;
+void ofp_dump_port_speed(char *string, uint32_t curr_speed, uint32_t max_speed);
 struct cbuf *of140_prep_flow_add_msg(const struct flow *flow,
                                      const struct flow *mask,
                                      uint32_t buffer_id, void *ins_list,
