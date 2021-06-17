@@ -1,0 +1,20 @@
+{
+    "files.associations": {
+        "typeinfo": "c",
+        "my_controller.h": "c",
+        "type_traits": "c",
+        "tp_route.h": "c",
+        "mul_common.h": "c",
+        "glib.h": "c",
+        "arp.h": "c",
+        "random": "c",
+        "if.h": "c",
+        "array": "c",
+        "string": "c",
+        "string_view": "c",
+        "db_wr.h": "c",
+        "redis_interface.h": "c",
+        "command.h": "c",
+        "privs.h": "c"
+    }
+}

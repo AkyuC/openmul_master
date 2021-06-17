@@ -1,0 +1,11 @@
+## Note to run python app
+
+1. Change to root
+$ su 
+
+2. Set python path
+$ source ./pythonpath.sh
+
+3. Run the python application
+$ python <python-app-name>
+ 

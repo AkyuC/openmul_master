@@ -1,0 +1,92 @@
+------------------------
+mul-concave
+-----------------------
+- PRISM SDN logical router
+- GUI support (Beta)
+- High availability support for major components (active-standby)
+- Adaptive service chaining application
+- Loop detection/prevention in topology
+- OF domain multi-path connector services
+- Various Openflow switches validated to work flawlessly
+- Persistent DB storage of all active configuration elements
+- Performance improvements 
+- Huge number of bug fixes
+- Native python app support
+- Developer friendly documentation
+
+-------------------------
+mul-4.0.1
+-------------------------
+- Support for Openflow 1.4
+- Support for (almost) all Openflow 1.3 features 
+- Backward compatibility with Openflow 1.0, Openflow 1.3
+- Support for RESTapi 
+  * Python tornado based
+- Improved documentation
+- Huge improvement in CLI features
+  * Tons of configuration options
+- Many security and stability fixes in infrastructure  
+- Support for Overlays 
+- SSL support (TLSv1.2)
+- Python bindings( Apis )
+
+-------------------------
+ mul 3.0.1-beta
+-------------------------
+
+- Support for Openflow 1.3.1 
+  * Wire protocol implementation
+  * Multiple Group support
+  * Multiple Table support
+- Backward compatibility with Openflow 1.0 (supports both openflow versions)
+- Many security and stability fixes in infrastructure
+- Improved documentation
+
+--------------------------
+ mul 2.8.30 release notes
+--------------------------
+This release contains many bug fixes and performance improvements in various components.
+
+
+-------------------------
+ mul 2.0 release notes 
+-------------------------
+
+Core infrastructure
+-   Availability of "services" exported to various apps.
+-   Support for RPC or shared memory constructs for inter-app communication 
+-   Support for auxillary connections by "core" mul to boost parallel processing
+-   Support for seqlock primitive for low contention locking
+-   datapath-id abstraction into a sequential-id space for applications
+-   Stringent flow and action validations before applying to hardware
+-   Support for almost all OF 1.0 actions 
+
+New applications
+-   Fabric app :
+    - Adds ability to form a data center fabric using a set of openflow 1.0 switches
+        - Weaves point to point multiple-l2 networks 
+        - Multi-tenant aware
+        - Dynamic insertion and deletion of default gateways per tenant virtual network
+        - Supports Openstack integration
+        - Zero manual provisioning
+        - Zero broadcast
+        - Proactive flow installation with no controller software forwarding or latency for supported switches
+        - Proxy ARP available for unsupported switches (which can't identify L3 fields in ARP packets)
+        - Fast rerouting response to port down events i.e can fall back to secondary routes in sub-second time-periods
+        - Support for online switch addition or deletion to fabric          
+        - Support for v-motion
+
+-   CLI app :
+    - Unified cli for controller provisioning and debugging
+        - Provides configurations backup mechanism in persistent storage
+        - Supports config replay based on per application events
+        - Extensions for future config HA 
+        - NBAPI integration
+
+New Services 
+-   Routing and Topology
+    - Shortest path computation using Floyd warshall algorithm
+    - Service exported via shared-memory constructs
+    - Scalable upto 512 switches. (This number is just a testing limit)
+    - Topology discovery using LLDP protocol
+    - Can identify fabric-ports from external ports

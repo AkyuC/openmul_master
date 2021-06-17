@@ -1,0 +1,16 @@
+1.  This command will create the Controller CA certificate and initialises
+the PKI infrastructure to create the controller certificate and controller
+private key.
+     
+    sudo ./mul-pki-cmd init
+
+2.  This command will generate and install the Controller Certificate and Controller
+private key to /etc/mul.
+
+    sudo ./mul-pki-cmd req+sign+install ctl controller 
+
+
+3.  Copy switch CA certificate to /etc/mul/ 
+
+4.  Copy controller CA certificate from /etc/mul/pki/controllerca/cacert.pem
+to the switch location.
