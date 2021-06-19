@@ -23,7 +23,7 @@ int tp_set_area_to_db(uint32_t ip_addr, uint32_t cid)
 
 	// set the link information
     // c_log_debug("tp_set_area_to_db 1");
-	snprintf(cmd, CMD_MAX_LENGHT, "hset ctrl %u %u", ip_addr, cid);
+	snprintf(cmd, CMD_MAX_LENGHT, "hset ctrl %x %x", ip_addr, cid);
     // c_log_debug("tp_set_area_to_db 2");
     return exeRedisIntCmd_wr(cmd);
 }

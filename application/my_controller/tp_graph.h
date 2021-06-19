@@ -11,11 +11,11 @@
 
 //network adapter
 #ifndef CONTROLLER_IP
-#define CONTROLLER_IP "192.168.10.226"
+#define CONTROLLER_IP "192.168.10.127"
 #endif
  
 #ifndef REDIS_SREVER_IP
-#define REDIS_SREVER_IP "192.168.10.226"
+#define REDIS_SREVER_IP "192.168.10.127"
 #endif
 
 //ethernet address len

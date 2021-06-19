@@ -3,6 +3,7 @@
 #include "msg_udp.h"
 #include "ARP.h"
 #include "redis_interface.h"
+#include <stdlib.h>
 
 extern tp_sw * tp_graph;
 extern tp_swdpid_glabolkey * key_table;
@@ -51,9 +52,9 @@ int rt_stp_issue_flow(uint32_t src_ip, uint64_t * path, uint32_t len)
             for(j = i; j<len; j++)
             {
                 sw_key_tmp = (path[j] >> 32)&0x00000000ffffffff;
-                c_log_debug("sw_key_tmp:%x, sw_key:%x", sw_key_tmp, sw_key);
                 if( sw_key_tmp == sw_key && index[j] == 0)
                 {
+                    c_log_debug("sw_key_tmp:%x, sw_key:%x", sw_key_tmp, sw_key);
                     outport = path[j]&0x00000000ffffffff;
                     mul_app_action_output(&mdata, outport);
                     index[j] = 1;
@@ -83,6 +84,7 @@ int rt_load_pc(void)
 	char cmd[CMD_MAX_LENGHT] = {0};
     uint32_t cursor, sw_key_tmp1, sw_key_tmp2, i;
     redisContext *context = NULL;
+    char * tmp_char;
 
     if(!redis_connect(&context))return FAILURE;
 
@@ -92,20 +94,20 @@ int rt_load_pc(void)
 	if (NULL == reply)
 	{
 		printf("%d execute command:%s failure\n", __LINE__, cmd);
-        redis_disconnect(context);
+        redis_disconnect(&context);
 		return FAILURE;
 	}
 	// c_log_debug("loading sw send command reply");
 	if(reply->elements != 0)
 	{
-		cursor = atoi(reply->element[0]->str);
+		cursor = (uint32_t)strtol(reply->element[0]->str, &tmp_char, 16);
 		while(cursor != 0)
 		{
             // c_log_debug("need to get the less sw infor");
 			reply_tmp = reply->element[1]->element;	
 			for(i = 0; i<reply->element[1]->elements; i++)
 			{
-				sw_key_tmp1 = atoi(reply_tmp[i++]->str);
+				sw_key_tmp1 = (uint32_t)strtol(reply_tmp[i++]->str, &tmp_char, 16);
                 tp_add_sw(sw_key_tmp1);
                 c_log_debug("add pc node %x", sw_key_tmp1);
 				sw_key_tmp2 = sw_key_tmp1&0xffffff00;
@@ -118,16 +120,16 @@ int rt_load_pc(void)
 			if (NULL == reply)
 			{
 				printf("%d execute command:%s failure\n", __LINE__, cmd);
-                redis_disconnect(context);
+                redis_disconnect(&context);
 				return FAILURE;
 			}
-			cursor = atoi(reply->element[0]->str);
+			cursor = (uint32_t)strtol(reply->element[0]->str, &tmp_char, 16);
 		}
         // c_log_debug("sw add to topo");
 		reply_tmp = reply->element[1]->element;	
 		for(i = 0; i<reply->element[1]->elements; i++)
 		{
-			sw_key_tmp1 = atoi(reply_tmp[i++]->str);
+			sw_key_tmp1 = (uint32_t)strtol(reply_tmp[i++]->str, &tmp_char, 16);
             tp_add_sw(sw_key_tmp1);
             c_log_debug("add pc node %x", sw_key_tmp1);
             sw_key_tmp2 = sw_key_tmp1&0xffffff00;
@@ -135,7 +137,7 @@ int rt_load_pc(void)
 		}
 	}
     freeReplyObject(reply);
-    redis_disconnect(context);
+    redis_disconnect(&context);
     return SUCCESS;
 }
 
@@ -231,7 +233,7 @@ int rt_stp(uint32_t src_ip, uint32_t dst_ip)
             sw_start_port = __tp_get_link_in_head(tp_find_sw(s->prev_key)->list_link, s->key)->port_h;
             c_log_debug("sw_start_port:%x", sw_start_port);
             path[i] = (((uint64_t)(s->prev_key) << 32) & 0xffffffff00000000) + sw_start_port;
-            snprintf(cmd, CMD_MAX_LENGHT, "rpush %lu %lu", redis_key, path[i]);
+            snprintf(cmd, CMD_MAX_LENGHT, "rpush %lx %lx", redis_key, path[i]);
             if(!exeRedisIntCmd_wr(cmd))return FAILURE;
             memset(cmd, 0, CMD_MAX_LENGHT);
             i++;
@@ -257,6 +259,7 @@ int rt_load_glabol_topo_sw(void)
     uint32_t cursor, sw_key_tmp1, i;
     tp_sw * sw_tmp;
     redisContext *context = NULL;
+    char * tmp_char;
 
     if(!redis_connect(&context))return FAILURE;
     c_log_debug("loading sw from db!");
@@ -265,21 +268,21 @@ int rt_load_glabol_topo_sw(void)
 	if (NULL == reply)
 	{
 		printf("%d execute command:%s failure\n", __LINE__, cmd);
-        redis_disconnect(context);
+        redis_disconnect(&context);
 		return FAILURE;
 	}
     if(reply->elements != 0)
 	{
-		cursor = atoi(reply->element[0]->str);
+		cursor = (uint32_t)strtol(reply->element[0]->str, &tmp_char, 16);
 		while(cursor != 0)
 		{
             c_log_debug("need to get the less sw information");
 			reply_tmp = reply->element[1]->element;	
 			for(i = 0; i<reply->element[1]->elements; i++)
 			{
-				sw_key_tmp1 = atoi(reply_tmp[i++]->str);
+				sw_key_tmp1 = (uint32_t)strtol(reply_tmp[i++]->str, &tmp_char, 16);
                 sw_tmp = tp_add_sw(sw_key_tmp1);
-				sw_tmp->delay = atol(reply_tmp[i]->str);
+				sw_tmp->delay = (uint64_t)strtol(reply_tmp[i]->str, &tmp_char, 16);
 			}
 			freeReplyObject(reply);
 			memset(cmd, 0, CMD_MAX_LENGHT);
@@ -288,25 +291,25 @@ int rt_load_glabol_topo_sw(void)
 			if (NULL == reply)
 			{
 				printf("%d execute command:%s failure\n", __LINE__, cmd);
-                redis_disconnect(context);
+                redis_disconnect(&context);
 				return FAILURE;
 			}
-			cursor = atoi(reply->element[0]->str);
+			cursor = (uint32_t)strtol(reply->element[0]->str, &tmp_char, 16);
 		}
         // c_log_debug("sw add to topo");
 		reply_tmp = reply->element[1]->element;	
 		for(i = 0; i<reply->element[1]->elements; i++)
 		{
-			sw_key_tmp1 = atoi(reply_tmp[i++]->str);
+			sw_key_tmp1 = (uint32_t)strtol(reply_tmp[i++]->str, &tmp_char, 16);
             if(!tp_find_sw(sw_key_tmp1))
             {
                 sw_tmp = tp_add_sw(sw_key_tmp1);
-                sw_tmp->delay = atol(reply_tmp[i]->str);
+                sw_tmp->delay = (uint64_t)strtol(reply_tmp[i]->str, &tmp_char, 16);
             }
 		}
 	}
     freeReplyObject(reply);
-    redis_disconnect(context);
+    redis_disconnect(&context);
     c_log_debug("loaded sw from db!");
     return SUCCESS;
 }
@@ -318,6 +321,7 @@ int rt_load_glabol_topo_link(void)
     uint32_t cursor, sw_key_tmp1, sw_key_tmp2, sw_port1, sw_port2, i;
     uint64_t redis_key_tmp, delay_tmp;
     redisContext *context = NULL;
+    char * tmp_char;
 
     if(!redis_connect(&context))return FAILURE;
     c_log_debug("loading link");
@@ -325,23 +329,23 @@ int rt_load_glabol_topo_link(void)
 	reply = (redisReply *)redisCommand(context, cmd);
 	if (NULL == reply)
 	{
-        redis_disconnect(context);
+        redis_disconnect(&context);
 		printf("%d execute command:%s failure\n", __LINE__, cmd);
 		return FAILURE;
 	}
 	if(reply->elements != 0)
 	{
-		cursor = atoi(reply->element[0]->str);
+		cursor = (uint32_t)strtol(reply->element[0]->str, &tmp_char, 16);
 		while(cursor != 0)
 		{
 			reply_tmp = reply->element[1]->element;	
 			for(i = 0; i<reply->element[1]->elements; i++)
 			{
-				redis_key_tmp = atol(reply_tmp[i++]->str);
+				redis_key_tmp = (uint64_t)strtol(reply_tmp[i++]->str, &tmp_char, 16);
                 sw_key_tmp1 = (uint32_t)(((0xffffffff00000000&redis_key_tmp)>>32)&0x00000000ffffffff);
                 sw_key_tmp2 = (uint32_t)(0x00000000ffffffff&redis_key_tmp);
                 // c_log_debug("redis_key_tmp %lx add a link between %x and %x", redis_key_tmp, sw_key_tmp1, sw_key_tmp2);
-				delay_tmp = atol(reply_tmp[i]->str);
+				delay_tmp = (uint64_t)strtol(reply_tmp[i]->str, &tmp_char, 16);
                 redis_Get_Link_Port(sw_key_tmp1, &sw_port1, sw_key_tmp2, &sw_port2);
                 tp_add_link(sw_key_tmp1, sw_port1, sw_key_tmp2, sw_port2);
                 TP_SET_LINK(sw_key_tmp1, sw_key_tmp2, delay, delay_tmp);
@@ -352,27 +356,27 @@ int rt_load_glabol_topo_link(void)
 			reply = (redisReply *)redisCommand(context, cmd);
 			if (NULL == reply)
 			{
-                redis_disconnect(context);
+                redis_disconnect(&context);
 				printf("%d execute command:%s failure\n", __LINE__, cmd);
 				return FAILURE;
 			}
-			cursor = atoi(reply->element[0]->str);
+			cursor = (uint32_t)strtol(reply->element[0]->str, &tmp_char, 16);
 		}
 		reply_tmp = reply->element[1]->element;	
 		for(i = 0; i<reply->element[1]->elements; i++)
 		{
-			redis_key_tmp = atol(reply_tmp[i++]->str);
+			redis_key_tmp = (uint64_t)strtol(reply_tmp[i++]->str, &tmp_char, 16);
             sw_key_tmp1 = (uint32_t)(((0xffffffff00000000&redis_key_tmp)>>32)&0x00000000ffffffff);
             sw_key_tmp2 = (uint32_t)(0x00000000ffffffff&redis_key_tmp);
             // c_log_debug("redis_key_tmp %lx add a link between %x and %x", redis_key_tmp, sw_key_tmp1, sw_key_tmp2);
-            delay_tmp = atol(reply_tmp[i]->str);
+            delay_tmp = (uint64_t)strtol(reply_tmp[i]->str, &tmp_char, 16);
             redis_Get_Link_Port(sw_key_tmp1, &sw_port1, sw_key_tmp2, &sw_port2);
             tp_add_link(sw_key_tmp1, sw_port1, sw_key_tmp2, sw_port2);
             TP_SET_LINK(sw_key_tmp1, sw_key_tmp2, delay, delay_tmp);
 		}
 	}
     freeReplyObject(reply);
-    redis_disconnect(context);
+    redis_disconnect(&context);
     c_log_debug("loaded link");
     return SUCCESS;
 }
@@ -648,6 +652,7 @@ int rt_ip_issue_flow(uint64_t sw_dpid, uint32_t src_ip, uint32_t dst_ip, uint32_
     struct flow fl;
     struct flow mask;
     mul_act_mdata_t mdata;
+    uint64_t sw_port = (((uint64_t)tp_get_sw_glabol_id(sw_dpid))<<32) + outport;
 
     memset(&fl, 0, sizeof(fl));
     memset(&mdata, 0, sizeof(mdata));
@@ -669,6 +674,7 @@ int rt_ip_issue_flow(uint64_t sw_dpid, uint32_t src_ip, uint32_t dst_ip, uint32_
                          0, 0, C_FL_PRIO_EXM, C_FL_ENT_NOCACHE))
     {
         c_log_debug("issue flow add success");
+        printf("set flow table ip_src:%x ip_dst:%x out_sw_port:%lx\n", src_ip, dst_ip, sw_port);
     }else
     {
         c_log_debug("issue flow add fail");

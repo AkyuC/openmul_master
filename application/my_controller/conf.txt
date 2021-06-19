@@ -1,0 +1,4 @@
+is_master=1
+ctrl_id=0x01010000
+redis_ip=192.168.10.215
+local_ip=192.168.10.215

@@ -9,7 +9,7 @@
 #endif
 
 #ifndef REDIS_SERVER_IP
-#define REDIS_SERVER_IP "192.168.10.226"
+#define REDIS_SERVER_IP "192.168.10.127"
 #endif
 
 #ifndef REDIS_SERVER_PORT
@@ -33,7 +33,7 @@ DB_RESULT redis_connect(redisContext **context);
  * disconnect the redis server, use the define REDIS_SERVER_IP and port REDIS_SERVER_PORT
  * @return: success 1, fail 0
 */
-DB_RESULT redis_disconnect(redisContext *context);
+DB_RESULT redis_disconnect(redisContext **context);
 
 /**
  * 获取控制器ID

@@ -15,6 +15,8 @@
         "db_wr.h": "c",
         "redis_interface.h": "c",
         "command.h": "c",
-        "privs.h": "c"
+        "privs.h": "c",
+        "mul_vty.h": "c",
+        "zebra.h": "c"
     }
 }
