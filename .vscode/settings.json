@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "mul_app_main.h": "c",
+        "mul_common.h": "c"
+    }
+}

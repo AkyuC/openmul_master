@@ -8,6 +8,7 @@ SUBDIRS = \
           services/loadable/topo_routing \
           services/loadable/conx \
           application/hello \
+          application/my_controller \
           application/l2switch \
           application/makdi \
           application/fabric \
@@ -26,6 +27,7 @@ DIST_SUBDIRS = \
                services/loadable/topo_routing/ \
                services/loadable/conx/ \
                application/hello \
+               application/my_controller \
                application/l2switch \
                application/makdi \
                application/fabric \

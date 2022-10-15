@@ -33,6 +33,7 @@ extern initcall_t __start_modvtyinit_sec, __stop_modvtyinit_sec;
 
 /* Registered application names */
 #define HELLO_APP_NAME "mul-hello"
+#define MY_CONTROLLER_APP_NAME "mul-my_controller"
 #define FAB_APP_NAME "mul-fabric"
 #define CLI_APP_NAME "mul-cli"
 #define L2SW_APP_NAME "mul-l2sw"
@@ -51,7 +52,7 @@ extern initcall_t __start_modvtyinit_sec, __stop_modvtyinit_sec;
 #define FEMTO_APP_COOKIE 0x0 
 #define PRISM_APP_COOKIE 0x3333 
 #define CONX_APP_COOKIE 0x4444 
-#define MUL_MAX_SERVICE_NUM 10 
+#define MUL_MAX_SERVICE_NUM 11 
 
 /* Controller app event notifications */
 typedef enum c_app_event {
@@ -186,6 +187,14 @@ struct c_ofp_port_status {
     struct c_sw_port    desc;
 };
 
+// /* A physical port has changed in the datapath */
+// struct ofp_port_status {
+//     struct ofp_header header;
+//     uint8_t reason;          /* One of OFPPR_*. */
+//     uint8_t pad[7];          /* Align to 64-bits. */
+//     struct ofp_phy_port desc;
+// };
+
 struct flow {
     uint32_t            in_port;      /* Input switch port. */
     uint16_t            dl_vlan;      /* Input VLAN id. */
@@ -313,6 +322,26 @@ struct c_ofp_flow_info {
     struct ofp_action_header actions[0];
 };
 OFP_ASSERT(sizeof(struct c_ofp_flow_info) == (320));
+
+// /* Body of reply to OFPST_FLOW request. */
+// struct ofp_flow_stats {
+//     uint16_t length;          /* Length of this entry. */
+//     uint8_t table_id;         /* ID of table flow came from. */
+//     uint8_t pad;
+//     struct ofp_match match;   /* Description of fields. */
+//     uint32_t duration_sec;    /* Time flow has been alive in seconds. */
+//     uint32_t duration_nsec;   /* Time flow has been alive in nanoseconds beyond
+//                                  duration_sec. */
+//     uint16_t priority;        /* Priority of the entry. Only meaningful
+//                                  when this is not an exact-match entry. */
+//     uint16_t idle_timeout;    /* Number of seconds idle before expiration. */
+//     uint16_t hard_timeout;    /* Number of seconds before expiration. */
+//     uint8_t pad2[6];          /* Align to 64-bits. */
+//     uint64_t cookie;          /* Opaque controller-issued identifier. */
+//     uint64_t packet_count;    /* Number of packets in flow. */
+//     uint64_t byte_count;      /* Number of bytes in flow. */
+//     struct ofp_action_header actions[0]; /* Actions. */
+// };
 
 /* Flow removed (datapath -> controller). */
 struct c_ofp_flow_removed {

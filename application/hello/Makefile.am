@@ -20,7 +20,11 @@ DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 
 mulhello_CFLAGS = -DMUL_APP_V2_MLAPI
 
-mulhello_SOURCES = hello.c $(top_srcdir)/common/mul_app_main.c
+if HAVE_MUL_VTY
+mulhello_CFLAGS += -DMUL_APP_VTY
+endif
+
+mulhello_SOURCES = db_wr.c flow.c topo.c hello.c $(top_srcdir)/common/mul_app_main.c
 
 LD_FLAGS= @LDFLAGS@ 
 
@@ -35,10 +39,16 @@ INCLUDES += -I$(LIBEVENT_INCLUDE)
 endif
 
 mulhello_LDADD = \
-                $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a  \
-                $(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a -lrt \
-                -lcrypto -lssl -lglib-2.0
+        $(top_srcdir)/common-libs/mul-lib/.libs/libmulutil.a  \
+        $(top_srcdir)/mul/./.libs/libmul.a  \
+        $(top_srcdir)/services/loadable/topo_routing/./.libs/libmultr.a -lrt \
+        /usr/lib/libhiredis.a \
+        -lcrypto -lssl -lglib-2.0
 
-mulhello_LDFLAGS = $(LD_FLAGS) -lpthread -levent -lcrypt 
+if HAVE_MUL_VTY
+mulhello_LDADD += $(top_srcdir)/common-libs/3rd-party/quagga-lib/.libs/libcli.a
+endif
 
-noinst_HEADERS = hello.h
+mulhello_LDFLAGS = $(LD_FLAGS) -lpthread -levent -lcrypt -lhiredis
+
+noinst_HEADERS = db_wr.h flow.h global.h topo.h hello.h hiredis.h read.h sds.h alloc.h

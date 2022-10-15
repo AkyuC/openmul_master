@@ -575,12 +575,13 @@ c_app_switch_del(c_app_hdl_t *hdl, c_ofp_switch_delete_t *cofp_sa)
         c_wr_unlock(&hdl->infra_lock);
         return;
     }
-    c_app_traverse_switch_ports(sw, mul_app_swports_del_notify, NULL);
-    c_wr_unlock(&hdl->infra_lock);
-
+    
     if (app_cbs && app_cbs->switch_del_cb) {
         app_cbs->switch_del_cb(sw);
     }
+    
+    c_app_traverse_switch_ports(sw, mul_app_swports_del_notify, NULL);
+    c_wr_unlock(&hdl->infra_lock);
 
     c_wr_lock(&hdl->infra_lock);
     c_app_switch_put(sw);
